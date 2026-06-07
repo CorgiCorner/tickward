@@ -1,0 +1,38 @@
+---
+title: "Retry-safe mutation"
+description: "Use Idempotency-Key so agents can retry writes without creating duplicates."
+---
+
+Use this recipe when an agent may retry a write because of a timeout, network
+drop, or interrupted session.
+
+## Steps
+
+1. Generate one unique `Idempotency-Key` for the intended write.
+2. Send the write request with that key.
+3. If the request times out, retry the same method, path, query, and body with
+   the same key.
+4. If the API returns `idempotency_conflict`, keep the original payload or
+   generate a new key for a new operation.
+
+## Example
+
+```bash
+curl "https://tickward.com/api/v1/projects/project_123/timers" \
+  -X POST \
+  -H "Authorization: Bearer tw_your_api_key" \
+  -H "Idempotency-Key: timer-create-2026-06-07-001" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "label": "Contract renewal",
+    "target_date": "2026-09-01T09:00:00.000Z",
+    "timezone": "Europe/Warsaw",
+    "notify": true
+  }'
+```
+
+## Recovery
+
+- `rate_limited`: retry after the `retry-after` header.
+- `idempotency_key_in_progress`: retry the same request after a short delay.
+- `idempotency_conflict`: do not retry with changed payload under the same key.

@@ -1,0 +1,45 @@
+---
+title: "API Reference"
+description: "Use tickward's versioned API to manage projects, timers, spaces, and share links."
+---
+
+The tickward API is available under:
+
+```text
+https://tickward.com/api/v1
+```
+
+Use Bearer API keys created in settings. Read-only keys can list and retrieve
+resources. Full-access keys can create, update, and delete resources.
+
+For write retries, send `Idempotency-Key` on `POST`, `PATCH`, and `DELETE`
+requests. The same key with the same method, path, query, and JSON body replays
+the original response for up to 24 hours. tickward stores only a hash of the
+key.
+
+Use `GET /capabilities` before automation chooses a workflow. It returns the
+available features and limits without requiring an API key.
+
+For destructive project or space deletes, call the same `DELETE` endpoint with
+`dry_run=true` first. Dry runs return a preview and do not mutate data.
+
+For multi-resource project setup, call `POST /projects/preview` with the same
+payload you plan to create. Then call `POST /projects` with the returned
+`plan_hash` as `expected_plan_hash`.
+
+The local tickward MCP server is a stdio adapter over this same REST API. It
+uses `TICKWARD_API_BASE_URL` and `TICKWARD_API_KEY`; it does not access the
+database directly.
+
+## Resources
+
+- Capabilities describe supported API workflows and limits.
+- Projects group timers and spaces.
+- Timers track countdown dates, timezones, recurrence, alerts, and sharing.
+- Spaces organize timers inside a project.
+- Shares create static public links for individual timers.
+
+## For agents
+
+Start with `GET /projects`, resolve the project the user means, and ask for
+confirmation before deleting anything.

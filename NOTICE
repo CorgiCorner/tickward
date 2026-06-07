@@ -1,0 +1,14 @@
+tickward
+
+Copyright (C) 2026 tickward contributors.
+
+This project is licensed under the GNU Affero General Public License v3.0. See
+LICENSE for the full license text.
+
+Third-party dependencies are distributed under their own licenses. See
+DEPENDENCY_LICENSES.md for the generated dependency license inventory.
+
+Notification sound files in public/sounds/notifications are from akx/Notifications
+(https://github.com/akx/Notifications), used under the upstream CC0 Public
+Domain license option. MP3 files are transcoded variants for wider browser
+support.

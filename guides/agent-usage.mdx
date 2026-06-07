@@ -1,0 +1,46 @@
+---
+title: "Agent Usage"
+description: "How AI agents should use the tickward API safely and predictably."
+---
+
+Agents can use tickward to create and manage countdown projects for a user. Keep
+actions explicit and prefer small, reversible steps.
+
+## Recommended workflow
+
+1. Check `GET /capabilities` to see which safe workflows are available.
+2. Ask which project the user wants to use unless the user already named one.
+3. List projects with `GET /projects`.
+4. Create a project only when no suitable project exists or the user asks for a
+   new one. For projects with spaces or timers, call `POST /projects/preview`
+   first, then `POST /projects` with `expected_plan_hash`.
+5. Create spaces before assigning timers to them, unless they are nested in a
+   project create request.
+6. Create timers with a clear label, ISO target date, and IANA timezone.
+7. Create a share link only when the user asks to share a timer.
+
+## Safety rules
+
+- Use read-only API keys for answering questions.
+- Use full-access API keys only for requested mutations.
+- Add `Idempotency-Key` to every `POST`, `PATCH`, and `DELETE` you may retry.
+- Never delete projects, timers, spaces, or shares without explicit user
+  confirmation.
+- For project or space deletion, call `DELETE ...?dry_run=true` first and show
+  the preview before applying the delete.
+- Do not invent timezones. If the user gives a city, map it to a real IANA
+  timezone.
+- Prefer `target_date` values with `Z` or an explicit offset.
+- Treat `rate_limited` as retryable after the `retry-after` header.
+- Treat `idempotency_conflict` as a client bug. Generate a new key only after
+  confirming the intended request body.
+- Use `error.code`, `error.retryable`, and `error.errors[].path` for recovery
+  logic instead of branching on message text.
+
+## Field mapping
+
+- Project names are short labels such as `Launch Plan` or `Personal`.
+- Spaces are categories inside a project, such as `Travel`, `Work`, or
+  `Subscriptions`.
+- Timers need `label`, `target_date`, and `timezone`.
+- Share links are static paths returned as `url_path`, such as `/share/abc123`.

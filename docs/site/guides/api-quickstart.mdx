@@ -1,0 +1,122 @@
+---
+title: "API Quickstart"
+description: "Create an API key and call tickward's versioned API."
+---
+
+Create an API key in tickward settings, store it as a secret, and send it as a
+Bearer token.
+
+Check the public API contract before choosing a workflow:
+
+```bash
+curl "https://tickward.com/api/v1/capabilities"
+```
+
+```bash
+curl "https://tickward.com/api/v1/projects" \
+  -H "Authorization: Bearer tw_your_api_key"
+```
+
+Use read-only keys for scripts that only list or inspect data. Use full-access
+keys only when a script or integration needs to create, update, or delete
+projects, timers, spaces, or share links.
+
+## Create a project
+
+For a project with spaces or timers, preview the request first:
+
+```bash
+curl "https://tickward.com/api/v1/projects/preview" \
+  -X POST \
+  -H "Authorization: Bearer tw_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Subscriptions",
+    "spaces": [
+      {
+        "id": "ai-tools",
+        "name": "AI tools",
+        "timers": [
+          {
+            "label": "GPT Pro renewal",
+            "target_date": "2026-07-11T00:00:00.000Z",
+            "timezone": "Europe/Warsaw",
+            "notify": true
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+Then create it with the returned `plan_hash` as `expected_plan_hash`:
+
+```bash
+curl "https://tickward.com/api/v1/projects" \
+  -X POST \
+  -H "Authorization: Bearer tw_your_api_key" \
+  -H "Idempotency-Key: project-create-2026-06-07" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Subscriptions",
+    "expected_plan_hash": "sha256:...",
+    "spaces": [
+      {
+        "id": "ai-tools",
+        "name": "AI tools",
+        "timers": [
+          {
+            "label": "GPT Pro renewal",
+            "target_date": "2026-07-11T00:00:00.000Z",
+            "timezone": "Europe/Warsaw",
+            "notify": true
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+## Create a timer
+
+```bash
+curl "https://tickward.com/api/v1/projects/project_123/timers" \
+  -X POST \
+  -H "Authorization: Bearer tw_your_api_key" \
+  -H "Idempotency-Key: timer-create-2026-06-07" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "label": "Flight to Tokyo",
+    "target_date": "2026-10-10T09:30:00.000Z",
+    "timezone": "Asia/Tokyo",
+    "space_id": "travel"
+  }'
+```
+
+The public API uses snake_case fields. Dates are ISO 8601 strings and should
+include a timezone offset or `Z`.
+
+## Safe retries
+
+For `POST`, `PATCH`, and `DELETE` requests, send an `Idempotency-Key` header
+when a script or agent might retry the same write. Reusing the same key with
+the same method, path, query, and JSON body returns the original response for up
+to 24 hours. Reusing it with a different request returns
+`idempotency_conflict`.
+
+## Errors
+
+Errors use a predictable shape:
+
+```json
+{
+  "error": {
+    "type": "validation_error",
+    "message": "We found an error with one or more fields in the request."
+  }
+}
+```
+
+Agents should inspect `error.type` first and use `error.message` as supporting
+detail. For automation, prefer `error.code`, `error.retryable`, and
+`error.errors[].path` over message text.

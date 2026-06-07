@@ -1,0 +1,329 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  role          String?   @default("user")
+  banned        Boolean?  @default(false)
+  banReason     String?
+  banExpires    DateTime?
+
+  sessions                 Session[]
+  accounts                 Account[]
+  ownedProjects            Project[]                 @relation("ProjectOwner")
+  ownedTimers              Timer[]                   @relation("TimerOwner")
+  ownedSpaces              Space[]                   @relation("SpaceOwner")
+  ownedShares              Share[]                   @relation("ShareOwner")
+  notificationPreferences  NotificationPreference[]
+  notificationOutboxItems  NotificationOutboxItem[]
+  pushSubscriptions        WebPushSubscription[]
+  apiKeys                  ApiKey[]
+  publicApiIdempotencyKeys PublicApiIdempotencyKey[]
+  preference               UserPreference?
+
+  @@map("user")
+}
+
+model UserPreference {
+  id                          String   @id @default(cuid())
+  userId                      String   @unique
+  defaultTimezone             String?
+  browserNotificationsEnabled Boolean  @default(false)
+  fullPageAlarm               Boolean  @default(false)
+  notificationSound           String   @default("none")
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_preference")
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String
+  permission String
+  keyHash    String    @unique
+  keyPrefix  String
+  keyLast4   String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  user            User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  idempotencyKeys PublicApiIdempotencyKey[]
+
+  @@index([userId, revokedAt])
+  @@index([keyPrefix])
+  @@map("api_key")
+}
+
+model PublicApiIdempotencyKey {
+  id             String    @id @default(cuid())
+  apiKeyId       String
+  userId         String
+  keyHash        String
+  requestHash    String
+  method         String
+  path           String
+  responseStatus Int?
+  responseBody   Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  completedAt    DateTime?
+  expiresAt      DateTime
+
+  apiKey ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([apiKeyId, keyHash])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("public_api_idempotency_key")
+}
+
+model Session {
+  id             String   @id
+  userId         String
+  token          String   @unique
+  expiresAt      DateTime
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  impersonatedBy String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Project {
+  id        String    @id @default(cuid())
+  ownerId   String?
+  name      String
+  color     String?
+  snapshot  Json
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  claimedAt DateTime?
+
+  owner        User?                @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  accessTokens ProjectAccessToken[]
+  timers       Timer[]
+  spaces       Space[]
+  shares       Share[]
+
+  @@index([ownerId])
+  @@map("project")
+}
+
+model ProjectAccessToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  projectId String
+  createdAt DateTime  @default(now())
+  claimedAt DateTime?
+  revokedAt DateTime?
+  expiresAt DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("project_access_token")
+}
+
+model Timer {
+  id         String    @id
+  projectId  String
+  ownerId    String?
+  data       Json
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  archivedAt DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  owner   User?   @relation("TimerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([ownerId])
+  @@map("timer")
+}
+
+model Space {
+  id        String   @id
+  projectId String
+  ownerId   String?
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  owner   User?   @relation("SpaceOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([ownerId])
+  @@map("space")
+}
+
+model Share {
+  id        String   @id
+  projectId String?
+  ownerId   String?
+  kind      String
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  owner   User?    @relation("ShareOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([ownerId])
+  @@map("share")
+}
+
+model NotificationPreference {
+  id           String   @id @default(cuid())
+  userId       String
+  targetType   String   @default("user")
+  targetId     String   @default("global")
+  channels     Json
+  presentation Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, targetType, targetId])
+  @@index([userId])
+  @@map("notification_preference")
+}
+
+model NotificationDeliveryLog {
+  id                 String    @id @default(cuid())
+  transactionId      String
+  workflowIdentifier String
+  subscriberId       String?
+  timerId            String
+  channel            String
+  providerId         String
+  status             String
+  reason             String?
+  providerMessageId  String?
+  recipientType      String
+  recipientHash      String
+  senderType         String?
+  senderId           String?
+  attemptCount       Int       @default(0)
+  successCount       Int       @default(0)
+  failureCount       Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  sentAt             DateTime?
+  failedAt           DateTime?
+
+  @@unique([transactionId, channel, providerId, recipientHash])
+  @@index([timerId])
+  @@index([channel, status, createdAt])
+  @@index([providerId, createdAt])
+  @@index([workflowIdentifier, status, createdAt])
+  @@map("notification_delivery_log")
+}
+
+model NotificationOutboxItem {
+  id                 String    @id @default(cuid())
+  transactionId      String    @unique
+  workflowIdentifier String
+  subscriberId       String?
+  timerId            String?
+  channels           Json
+  payload            Json
+  overrides          Json?
+  status             String    @default("pending")
+  scheduledFor       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  processedAt        DateTime?
+  cancelledAt        DateTime?
+  failedAt           DateTime?
+  error              String?
+
+  subscriber User? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+
+  @@index([subscriberId])
+  @@index([workflowIdentifier, status, createdAt])
+  @@index([status, scheduledFor])
+  @@map("notification_outbox_item")
+}
+
+model WebPushSubscription {
+  id             String    @id @default(cuid())
+  userId         String?
+  restoreKeyHash String?
+  endpoint       String    @unique
+  p256dh         String
+  auth           String
+  expirationTime BigInt?
+  userAgent      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  revokedAt      DateTime?
+  lastSeenAt     DateTime?
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([restoreKeyHash])
+  @@map("web_push_subscription")
+}

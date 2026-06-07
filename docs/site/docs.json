@@ -1,0 +1,71 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "tickward",
+  "description": "Open-source countdown timers with account sync, static sharing, and a versioned API.",
+  "theme": "mint",
+  "colors": {
+    "primary": "#111827",
+    "light": "#f8fafc",
+    "dark": "#0f172a"
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Start",
+            "pages": ["index", "guides/self-hosting", "guides/api-quickstart", "guides/agent-usage"]
+          },
+          {
+            "group": "Recipes",
+            "pages": [
+              "guides/recipes/retry-safe-mutation",
+              "guides/recipes/create-project-with-timers",
+              "guides/recipes/preview-and-delete-project"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["api-reference"]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": "openapi.json"
+          }
+        ]
+      }
+    ]
+  },
+  "api": {
+    "openapi": "openapi.json",
+    "playground": {
+      "display": "interactive",
+      "proxy": true
+    },
+    "params": {
+      "expanded": "closed"
+    },
+    "url": "full",
+    "examples": {
+      "languages": ["curl", "javascript", "python"],
+      "defaults": "required",
+      "prefill": true,
+      "autogenerate": true
+    }
+  },
+  "contextual": {
+    "options": ["copy", "view", "download-spec", "chatgpt", "claude", "cursor", "vscode"]
+  },
+  "seo": {
+    "indexing": "all",
+    "metatags": {
+      "canonical": "https://tickward.com/docs"
+    }
+  }
+}

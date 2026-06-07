@@ -1,0 +1,3147 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "tickward API",
+    "summary": "Versioned API for tickward projects, timers, spaces, and public share links.",
+    "description": "The tickward API lets users automate countdown projects, timers, spaces, and public share links. Use Bearer API keys created in tickward settings. Read-only keys can inspect data. Full-access keys can create, update, and delete resources. Agents should prefer read-only keys for answering questions, ask for explicit confirmation before destructive changes, and use ISO 8601 datetimes plus IANA timezones when creating timers.",
+    "version": "1.0.0",
+    "license": {
+      "name": "AGPL-3.0-only",
+      "url": "https://github.com/CorgiCorner/tickward/blob/main/LICENSE"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://tickward.com/api/v1",
+      "description": "Production"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Projects",
+      "description": "Projects group timers and spaces."
+    },
+    {
+      "name": "Timers",
+      "description": "Timers track countdowns, notify state, recurrence, and sharing metadata."
+    },
+    {
+      "name": "Spaces",
+      "description": "Spaces organize timers inside a project."
+    },
+    {
+      "name": "Shares",
+      "description": "Public links for individual timers."
+    }
+  ],
+  "paths": {
+    "/projects": {
+      "get": {
+        "operationId": "listProjects",
+        "summary": "List projects",
+        "tags": ["Projects"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/After"
+          },
+          {
+            "$ref": "#/components/parameters/Before"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ProjectListResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "description": "List projects owned by the API key user. Use this first when an agent needs to resolve which project the user means. Supports cursor pagination with `after`, `before`, and `limit`.",
+        "x-mint": {
+          "metadata": {
+            "description": "List projects owned by the API key user. Use this first when an agent needs to resolve which project the user means. Supports cursor pagination with `after`, `before`, and `limit`."
+          }
+        }
+      },
+      "post": {
+        "operationId": "createProject",
+        "summary": "Create a project",
+        "description": "Create a project owned by the API key user. The body can include spaces and timers for one atomic project setup. Agents should call POST /projects/preview first for multi-resource creates, then send expected_plan_hash with the create request.",
+        "tags": ["Projects"],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/ProjectCreate"
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/ProjectCreateResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Create a project owned by the API key user. The body can include spaces and timers for one atomic project setup. Agents should call POST /projects/preview first for multi-resource creates, then send expected_plan_hash with the create request."
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "x-agent-hints": {
+          "safety": "mutating",
+          "requires_confirmation": true,
+          "prior_step": {
+            "operationId": "previewProjectCreate"
+          },
+          "idempotency": {
+            "required": true
+          }
+        }
+      }
+    },
+    "/projects/{project_id}": {
+      "get": {
+        "operationId": "getProject",
+        "summary": "Retrieve a project",
+        "tags": ["Projects"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ProjectResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "description": "Retrieve project metadata and counts. Use timers and spaces endpoints to inspect project contents.",
+        "x-mint": {
+          "metadata": {
+            "description": "Retrieve project metadata and counts. Use timers and spaces endpoints to inspect project contents."
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateProject",
+        "summary": "Update a project",
+        "description": "Rename or recolor a project. Requires a full-access key.",
+        "tags": ["Projects"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/ProjectUpdate"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ProjectResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Rename or recolor a project. Requires a full-access key."
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteProject",
+        "summary": "Delete a project",
+        "description": "Delete a project and its related timers, spaces, share links, access tokens, and notification records. Use `dry_run=true` first to preview the cascade without mutating data. Agents must ask for explicit user confirmation before applying the delete.",
+        "tags": ["Projects"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/DryRun"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DeletedProjectOrPreviewResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Delete a project and its related timers, spaces, share links, access tokens, and notification records. Use `dry_run=true` first to preview the cascade without mutating data. Agents must ask for explicit user confirmation before applying the delete."
+          }
+        },
+        "x-agent-hints": {
+          "safety": "destructive",
+          "requires_confirmation": true,
+          "supports_dry_run": true,
+          "dry_run": {
+            "method": "DELETE",
+            "path": "/api/v1/projects/{project_id}?dry_run=true"
+          },
+          "idempotency": {
+            "required_for_apply": true,
+            "ignored_for_dry_run": true
+          }
+        }
+      }
+    },
+    "/projects/{project_id}/timers": {
+      "get": {
+        "operationId": "listTimers",
+        "summary": "List timers",
+        "tags": ["Timers"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/TimerListResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "description": "List all timers in a project. Use this to answer questions about deadlines, archived timers, notification state, and shared timers.",
+        "x-mint": {
+          "metadata": {
+            "description": "List all timers in a project. Use this to answer questions about deadlines, archived timers, notification state, and shared timers."
+          }
+        }
+      },
+      "post": {
+        "operationId": "createTimer",
+        "summary": "Create a timer",
+        "description": "Create a timer in a project. Requires a full-access key. Provide a clear `label`, an ISO 8601 `target_date`, and an IANA `timezone`; create the space first before sending `space_id`.",
+        "tags": ["Timers"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/TimerCreate"
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/TimerResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Create a timer in a project. Requires a full-access key. Provide a clear `label`, an ISO 8601 `target_date`, and an IANA `timezone`; create the space first before sending `space_id`."
+          }
+        }
+      }
+    },
+    "/projects/{project_id}/timers/{timer_id}": {
+      "get": {
+        "operationId": "getTimer",
+        "summary": "Retrieve a timer",
+        "tags": ["Timers"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/TimerId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/TimerResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "description": "Retrieve one timer by id.",
+        "x-mint": {
+          "metadata": {
+            "description": "Retrieve one timer by id."
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateTimer",
+        "summary": "Update a timer",
+        "description": "Update a timer, including label, target date, timezone, archived state, notification settings, recurrence, pinning, image, or space assignment. Requires a full-access key.",
+        "tags": ["Timers"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/TimerId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/TimerUpdate"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/TimerResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Update a timer, including label, target date, timezone, archived state, notification settings, recurrence, pinning, image, or space assignment. Requires a full-access key."
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteTimer",
+        "summary": "Delete a timer",
+        "description": "Delete a timer and related share and notification records. Requires a full-access key. Agents must ask for explicit user confirmation before calling this endpoint.",
+        "tags": ["Timers"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/TimerId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DeletedTimerResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Delete a timer and related share and notification records. Requires a full-access key. Agents must ask for explicit user confirmation before calling this endpoint."
+          }
+        }
+      }
+    },
+    "/projects/{project_id}/spaces": {
+      "get": {
+        "operationId": "listSpaces",
+        "summary": "List spaces",
+        "tags": ["Spaces"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SpaceListResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "description": "List spaces in a project. Spaces are lightweight categories for organizing timers.",
+        "x-mint": {
+          "metadata": {
+            "description": "List spaces in a project. Spaces are lightweight categories for organizing timers."
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSpace",
+        "summary": "Create a space",
+        "description": "Create a space in a project. Requires a full-access key. Create spaces before assigning timers to them.",
+        "tags": ["Spaces"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SpaceCreate"
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/SpaceResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Create a space in a project. Requires a full-access key. Create spaces before assigning timers to them."
+          }
+        }
+      }
+    },
+    "/projects/{project_id}/spaces/{space_id}": {
+      "get": {
+        "operationId": "getSpace",
+        "summary": "Retrieve a space",
+        "tags": ["Spaces"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SpaceResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "description": "Retrieve one space by id.",
+        "x-mint": {
+          "metadata": {
+            "description": "Retrieve one space by id."
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateSpace",
+        "summary": "Update a space",
+        "description": "Rename or recolor a space. Requires a full-access key.",
+        "tags": ["Spaces"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SpaceUpdate"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SpaceResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Rename or recolor a space. Requires a full-access key."
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteSpace",
+        "summary": "Delete a space",
+        "description": "Delete a space and unassign its timers from that space. Use `dry_run=true` first to preview affected timers without mutating data. Timers are not deleted.",
+        "tags": ["Spaces"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/DryRun"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DeletedSpaceOrPreviewResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Delete a space and unassign its timers from that space. Use `dry_run=true` first to preview affected timers without mutating data. Timers are not deleted."
+          }
+        },
+        "x-agent-hints": {
+          "safety": "destructive",
+          "requires_confirmation": true,
+          "supports_dry_run": true,
+          "dry_run": {
+            "method": "DELETE",
+            "path": "/api/v1/projects/{project_id}/spaces/{space_id}?dry_run=true"
+          },
+          "idempotency": {
+            "required_for_apply": true,
+            "ignored_for_dry_run": true
+          }
+        }
+      }
+    },
+    "/projects/{project_id}/shares": {
+      "get": {
+        "operationId": "listShares",
+        "summary": "List shared timer links",
+        "tags": ["Shares"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ShareListResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "description": "Returns the public share links that have been created for timers in this project.",
+        "x-mint": {
+          "metadata": {
+            "description": "Returns the public share links that have been created for timers in this project."
+          }
+        }
+      },
+      "post": {
+        "operationId": "createShare",
+        "summary": "Create or reuse a shared timer link",
+        "description": "Create or return the stable public link for a timer. Requires a full-access key. This operation is idempotent for the same user and timer.",
+        "tags": ["Shares"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/ShareWrite"
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/ShareResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Create or return the stable public link for a timer. Requires a full-access key. This operation is idempotent for the same user and timer."
+          }
+        }
+      }
+    },
+    "/projects/{project_id}/shares/{share_id}": {
+      "get": {
+        "operationId": "getShare",
+        "summary": "Get a shared timer link",
+        "tags": ["Shares"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/ShareId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ShareResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "description": "Retrieve one public timer link by share id.",
+        "x-mint": {
+          "metadata": {
+            "description": "Retrieve one public timer link by share id."
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteShare",
+        "summary": "Delete a shared timer link",
+        "description": "Delete a public timer link and clear the timer shared state. Requires a full-access key.",
+        "tags": ["Shares"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/ShareId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DeletedShareResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Delete a public timer link and clear the timer shared state. Requires a full-access key."
+          }
+        }
+      }
+    },
+    "/capabilities": {
+      "get": {
+        "operationId": "getCapabilities",
+        "summary": "Get API capabilities",
+        "description": "Return machine-readable API features and limits. This endpoint does not require an API key and is safe for agents and self-hosted deployments to call before choosing a workflow.",
+        "tags": ["Capabilities"],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CapabilitiesResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Return machine-readable API features and limits. This endpoint does not require an API key and is safe for agents and self-hosted deployments to call before choosing a workflow."
+          }
+        },
+        "x-agent-hints": {
+          "safety": "read_only",
+          "auth_required": false,
+          "use_first": true
+        }
+      }
+    },
+    "/projects/preview": {
+      "post": {
+        "operationId": "previewProjectCreate",
+        "summary": "Preview project creation",
+        "description": "Validate a project creation payload and return the projects, spaces, and timers that would be created. This endpoint does not mutate data and does not record idempotency.",
+        "tags": ["Projects"],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/ProjectCreate"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ProjectPreviewResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Validate a project creation payload and return the projects, spaces, and timers that would be created. This endpoint does not mutate data and does not record idempotency."
+          }
+        },
+        "x-agent-hints": {
+          "safety": "preview",
+          "mutates": false,
+          "next_operation": "createProject",
+          "idempotency": {
+            "ignored": true
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Use a tickward API key from Settings. API keys start with `tw_`. Store keys as secrets and send them as `Authorization: Bearer <key>`.",
+        "bearerFormat": "tickward API key",
+        "x-default": "tw_your_api_key"
+      }
+    },
+    "parameters": {
+      "After": {
+        "name": "after",
+        "in": "query",
+        "description": "Return projects after this project id. Cannot be combined with `before`.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Before": {
+        "name": "before",
+        "in": "query",
+        "description": "Return projects before this project id. Cannot be combined with `after`.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "description": "Maximum number of projects to return.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 100
+        }
+      },
+      "ProjectId": {
+        "name": "project_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "TimerId": {
+        "name": "timer_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "SpaceId": {
+        "name": "space_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "ShareId": {
+        "name": "share_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._:-]+$"
+        },
+        "description": "Optional for POST, PATCH, and DELETE requests. Reuse the same key with the same method, path, query, and JSON body to safely retry a write for up to 24 hours. Reusing it with a different request returns 409. The server stores only a hash of the key."
+      },
+      "DryRun": {
+        "name": "dry_run",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "boolean",
+          "enum": [true]
+        },
+        "description": "When true, return a preview of what would change without mutating data or recording idempotency."
+      }
+    },
+    "headers": {
+      "RateLimitLimit": {
+        "description": "Maximum requests available in the current window.",
+        "schema": {
+          "type": "integer"
+        }
+      },
+      "RateLimitRemaining": {
+        "description": "Requests remaining in the current window.",
+        "schema": {
+          "type": "integer"
+        }
+      },
+      "RateLimitReset": {
+        "description": "Seconds until the current rate-limit window resets.",
+        "schema": {
+          "type": "integer"
+        }
+      },
+      "RetryAfter": {
+        "description": "Seconds to wait before retrying.",
+        "schema": {
+          "type": "integer"
+        }
+      },
+      "IdempotencyReplayed": {
+        "description": "Present with value true when this response was replayed from an earlier idempotent request.",
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      "IdempotencyKeyExpiresAt": {
+        "description": "When the idempotency replay record expires.",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "RequestId": {
+        "description": "Unique id for this HTTP attempt.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "CorrelationId": {
+        "description": "Correlation id for grouping related calls.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "requestBodies": {
+      "ProjectCreate": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProjectCreateRequest"
+            },
+            "examples": {
+              "project": {
+                "value": {
+                  "name": "Launch Plan",
+                  "color": "#111827"
+                }
+              },
+              "nested_project": {
+                "value": {
+                  "name": "Subscriptions",
+                  "spaces": [
+                    {
+                      "id": "ai-tools",
+                      "name": "AI tools",
+                      "timers": [
+                        {
+                          "label": "GPT Pro renewal",
+                          "target_date": "2026-07-11T00:00:00.000Z",
+                          "timezone": "Europe/Warsaw",
+                          "notify": true
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "ProjectUpdate": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProjectUpdateRequest"
+            }
+          }
+        }
+      },
+      "TimerCreate": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TimerCreateRequest"
+            },
+            "examples": {
+              "timer": {
+                "value": {
+                  "label": "Flight to Tokyo",
+                  "target_date": "2026-10-10T09:30:00.000Z",
+                  "timezone": "Asia/Tokyo",
+                  "space_id": "travel"
+                }
+              }
+            }
+          }
+        }
+      },
+      "TimerUpdate": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TimerUpdateRequest"
+            }
+          }
+        }
+      },
+      "SpaceCreate": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SpaceCreateRequest"
+            },
+            "examples": {
+              "space": {
+                "value": {
+                  "id": "travel",
+                  "name": "Travel",
+                  "color": "#2563eb"
+                }
+              }
+            }
+          }
+        }
+      },
+      "SpaceUpdate": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SpaceUpdateRequest"
+            }
+          }
+        }
+      },
+      "ShareWrite": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ShareCreateRequest"
+            },
+            "examples": {
+              "share": {
+                "value": {
+                  "timer_id": "timer_123"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "ProjectResponse": {
+        "description": "Project.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Project"
+            }
+          }
+        },
+        "headers": {
+          "idempotency-replayed": {
+            "$ref": "#/components/headers/IdempotencyReplayed"
+          },
+          "idempotency-key-expires-at": {
+            "$ref": "#/components/headers/IdempotencyKeyExpiresAt"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "TimerResponse": {
+        "description": "Timer.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Timer"
+            }
+          }
+        },
+        "headers": {
+          "idempotency-replayed": {
+            "$ref": "#/components/headers/IdempotencyReplayed"
+          },
+          "idempotency-key-expires-at": {
+            "$ref": "#/components/headers/IdempotencyKeyExpiresAt"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "SpaceResponse": {
+        "description": "Space.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Space"
+            }
+          }
+        },
+        "headers": {
+          "idempotency-replayed": {
+            "$ref": "#/components/headers/IdempotencyReplayed"
+          },
+          "idempotency-key-expires-at": {
+            "$ref": "#/components/headers/IdempotencyKeyExpiresAt"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "ShareResponse": {
+        "description": "Share link.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Share"
+            }
+          }
+        },
+        "headers": {
+          "idempotency-replayed": {
+            "$ref": "#/components/headers/IdempotencyReplayed"
+          },
+          "idempotency-key-expires-at": {
+            "$ref": "#/components/headers/IdempotencyKeyExpiresAt"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "ProjectListResponse": {
+        "description": "Project list.",
+        "headers": {
+          "ratelimit-limit": {
+            "$ref": "#/components/headers/RateLimitLimit"
+          },
+          "ratelimit-remaining": {
+            "$ref": "#/components/headers/RateLimitRemaining"
+          },
+          "ratelimit-reset": {
+            "$ref": "#/components/headers/RateLimitReset"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProjectList"
+            }
+          }
+        }
+      },
+      "TimerListResponse": {
+        "description": "Timer list.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TimerList"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "SpaceListResponse": {
+        "description": "Space list.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SpaceList"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "ShareListResponse": {
+        "description": "Share list.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ShareList"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "DeletedProjectResponse": {
+        "description": "Project deleted.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DeletedProject"
+            }
+          }
+        },
+        "headers": {
+          "idempotency-replayed": {
+            "$ref": "#/components/headers/IdempotencyReplayed"
+          },
+          "idempotency-key-expires-at": {
+            "$ref": "#/components/headers/IdempotencyKeyExpiresAt"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "DeletedTimerResponse": {
+        "description": "Timer deleted.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DeletedTimer"
+            }
+          }
+        },
+        "headers": {
+          "idempotency-replayed": {
+            "$ref": "#/components/headers/IdempotencyReplayed"
+          },
+          "idempotency-key-expires-at": {
+            "$ref": "#/components/headers/IdempotencyKeyExpiresAt"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "DeletedSpaceResponse": {
+        "description": "Space deleted.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DeletedSpace"
+            }
+          }
+        },
+        "headers": {
+          "idempotency-replayed": {
+            "$ref": "#/components/headers/IdempotencyReplayed"
+          },
+          "idempotency-key-expires-at": {
+            "$ref": "#/components/headers/IdempotencyKeyExpiresAt"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "DeletedShareResponse": {
+        "description": "Share deleted.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DeletedShare"
+            }
+          }
+        },
+        "headers": {
+          "idempotency-replayed": {
+            "$ref": "#/components/headers/IdempotencyReplayed"
+          },
+          "idempotency-key-expires-at": {
+            "$ref": "#/components/headers/IdempotencyKeyExpiresAt"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "UnauthorizedError": {
+        "description": "Missing API key or read-only key used for a write request.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "ForbiddenError": {
+        "description": "Invalid or revoked API key.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "ValidationError": {
+        "description": "Invalid request body or query parameters.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "NotFoundError": {
+        "description": "Resource not found or not owned by the API key user.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "RateLimitedError": {
+        "description": "Too many requests.",
+        "headers": {
+          "retry-after": {
+            "$ref": "#/components/headers/RetryAfter"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "StorageUnavailableError": {
+        "description": "Storage or rate-limit backend unavailable.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "IdempotencyConflictError": {
+        "description": "The Idempotency-Key is still processing or was already used for a different method, path, query, or JSON body.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "conflict": {
+                "value": {
+                  "error": {
+                    "type": "idempotency_conflict",
+                    "message": "Idempotency-Key was already used for a different request."
+                  }
+                }
+              },
+              "inProgress": {
+                "value": {
+                  "error": {
+                    "type": "idempotency_key_in_progress",
+                    "message": "A request with this Idempotency-Key is still processing."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "headers": {
+          "idempotency-key-expires-at": {
+            "$ref": "#/components/headers/IdempotencyKeyExpiresAt"
+          },
+          "retry-after": {
+            "$ref": "#/components/headers/RetryAfter"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "CapabilitiesResponse": {
+        "description": "API capabilities and limits.",
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Capabilities"
+            }
+          }
+        }
+      },
+      "DeletedProjectOrPreviewResponse": {
+        "description": "Deleted project or dry-run preview.",
+        "headers": {
+          "idempotency-replayed": {
+            "$ref": "#/components/headers/IdempotencyReplayed"
+          },
+          "idempotency-key-expires-at": {
+            "$ref": "#/components/headers/IdempotencyKeyExpiresAt"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/DeletedProject"
+                },
+                {
+                  "$ref": "#/components/schemas/DeletePreview"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "DeletedSpaceOrPreviewResponse": {
+        "description": "Deleted space or dry-run preview.",
+        "headers": {
+          "idempotency-replayed": {
+            "$ref": "#/components/headers/IdempotencyReplayed"
+          },
+          "idempotency-key-expires-at": {
+            "$ref": "#/components/headers/IdempotencyKeyExpiresAt"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/DeletedSpace"
+                },
+                {
+                  "$ref": "#/components/schemas/DeletePreview"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "ProjectCreateResponse": {
+        "description": "Created project with created spaces and timers.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProjectCreateResult"
+            }
+          }
+        },
+        "headers": {
+          "idempotency-replayed": {
+            "$ref": "#/components/headers/IdempotencyReplayed"
+          },
+          "idempotency-key-expires-at": {
+            "$ref": "#/components/headers/IdempotencyKeyExpiresAt"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "ProjectPreviewResponse": {
+        "description": "Project creation preview.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProjectPreview"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "ConflictError": {
+        "description": "Conflict, including idempotency conflicts or plan hash mismatch.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["type", "message"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "idempotency_key_in_progress",
+                  "idempotency_conflict",
+                  "invalid_api_key",
+                  "missing_api_key",
+                  "method_not_allowed",
+                  "not_found",
+                  "rate_limit_unavailable",
+                  "rate_limited",
+                  "restricted_api_key",
+                  "storage_unavailable",
+                  "unauthorized",
+                  "validation_error",
+                  "plan_hash_mismatch"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {},
+              "code": {
+                "type": "string",
+                "description": "Stable machine-readable error code. Prefer this over message text for branching logic."
+              },
+              "request_id": {
+                "type": "string",
+                "description": "Request id for this HTTP attempt. Also returned in the Request-Id header."
+              },
+              "correlation_id": {
+                "type": "string",
+                "description": "Correlation id for grouping related calls. Also returned in the Correlation-Id header."
+              },
+              "retryable": {
+                "type": "boolean",
+                "description": "Whether retrying the same request can be useful."
+              },
+              "remediation": {
+                "type": "object",
+                "required": ["hint"],
+                "properties": {
+                  "hint": {
+                    "type": "string",
+                    "description": "Short instruction for humans or agents on how to resolve the error."
+                  }
+                }
+              },
+              "errors": {
+                "type": "array",
+                "description": "Field-level errors using JSON Pointer paths when applicable.",
+                "items": {
+                  "type": "object",
+                  "required": ["code", "message", "path"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string",
+                      "description": "JSON Pointer path, for example #/timers/0/target_date."
+                    },
+                    "remediation": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "example": {
+          "error": {
+            "type": "validation_error",
+            "code": "validation_error",
+            "message": "We found an error with one or more fields in the request.",
+            "request_id": "req_01JZ8Q6X3M7C4VY0W4N9D7Z2R1",
+            "correlation_id": "corr_01JZ8Q6X3M7C4VY0W4N9D7Z2R1",
+            "retryable": false,
+            "remediation": {
+              "hint": "Fix the fields listed in errors and retry the request."
+            },
+            "details": [
+              {
+                "path": ["target_date"],
+                "message": "Invalid ISO datetime."
+              }
+            ],
+            "errors": [
+              {
+                "code": "validation_error",
+                "path": "#/target_date",
+                "message": "Invalid ISO datetime.",
+                "remediation": "Fix the fields listed in details or errors and retry the request."
+              }
+            ]
+          }
+        }
+      },
+      "ProjectList": {
+        "$ref": "#/components/schemas/ListProject"
+      },
+      "TimerList": {
+        "$ref": "#/components/schemas/ListTimer"
+      },
+      "SpaceList": {
+        "$ref": "#/components/schemas/ListSpace"
+      },
+      "ShareList": {
+        "$ref": "#/components/schemas/ListShare"
+      },
+      "ListProject": {
+        "type": "object",
+        "required": ["object", "data", "has_more"],
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "list"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        },
+        "description": "Paginated list response. When `has_more` is true, call the same endpoint with `after` set to the last item id."
+      },
+      "ListTimer": {
+        "type": "object",
+        "required": ["object", "data", "has_more"],
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "list"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Timer"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        },
+        "description": "List response for timers in a project."
+      },
+      "ListSpace": {
+        "type": "object",
+        "required": ["object", "data", "has_more"],
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "list"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Space"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        },
+        "description": "List response for spaces in a project."
+      },
+      "ListShare": {
+        "type": "object",
+        "required": ["object", "data", "has_more"],
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "list"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Share"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        },
+        "description": "List response for public timer links in a project."
+      },
+      "Project": {
+        "type": "object",
+        "required": [
+          "object",
+          "id",
+          "name",
+          "color",
+          "created_at",
+          "updated_at",
+          "claimed_at",
+          "timer_count",
+          "space_count"
+        ],
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "project"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "color": {
+            "$ref": "#/components/schemas/Color"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "claimed_at": {
+            "$ref": "#/components/schemas/NullableIsoDateTime"
+          },
+          "timer_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "space_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "example": {
+          "object": "project",
+          "id": "project_123",
+          "name": "Launch Plan",
+          "color": "#111827",
+          "created_at": "2026-06-07T12:00:00.000Z",
+          "updated_at": "2026-06-07T12:00:00.000Z",
+          "claimed_at": "2026-06-07T12:00:00.000Z",
+          "timer_count": 3,
+          "space_count": 2
+        }
+      },
+      "ProjectCreateRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "color": {
+            "$ref": "#/components/schemas/ColorInput"
+          },
+          "expected_plan_hash": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$",
+            "description": "Optional plan hash returned by POST /projects/preview. When present, the create request fails if the current body no longer matches the preview."
+          },
+          "spaces": {
+            "type": "array",
+            "description": "Spaces to create with the project. Timers can be nested inside a space.",
+            "items": {
+              "$ref": "#/components/schemas/NestedProjectSpaceCreateRequest"
+            }
+          },
+          "timers": {
+            "type": "array",
+            "description": "Timers to create with the project. Use space_id only when referencing a space id supplied in spaces[].id.",
+            "items": {
+              "$ref": "#/components/schemas/TimerCreateRequest"
+            }
+          }
+        }
+      },
+      "ProjectUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "color": {
+            "$ref": "#/components/schemas/NullableColorInput"
+          }
+        }
+      },
+      "Timer": {
+        "type": "object",
+        "required": [
+          "object",
+          "id",
+          "project_id",
+          "label",
+          "target_date",
+          "timezone",
+          "created_at",
+          "updated_at",
+          "archived_at",
+          "color",
+          "description",
+          "space_id",
+          "shared_at",
+          "notify",
+          "recurrence",
+          "pinned",
+          "image"
+        ],
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "timer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "target_date": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "timezone": {
+            "$ref": "#/components/schemas/Timezone"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "archived_at": {
+            "$ref": "#/components/schemas/NullableIsoDateTime"
+          },
+          "color": {
+            "$ref": "#/components/schemas/Color"
+          },
+          "description": {
+            "type": ["string", "null"],
+            "maxLength": 200
+          },
+          "space_id": {
+            "type": ["string", "null"]
+          },
+          "shared_at": {
+            "$ref": "#/components/schemas/NullableIsoDateTime"
+          },
+          "notify": {
+            "type": "boolean"
+          },
+          "recurrence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Recurrence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnsplashImage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "example": {
+          "object": "timer",
+          "id": "timer_123",
+          "project_id": "project_123",
+          "label": "Flight to Tokyo",
+          "target_date": "2026-10-10T09:30:00.000Z",
+          "timezone": "Asia/Tokyo",
+          "created_at": "2026-06-07T12:00:00.000Z",
+          "updated_at": "2026-06-07T12:00:00.000Z",
+          "archived_at": null,
+          "color": "#2563eb",
+          "description": "Pack before leaving for the airport.",
+          "space_id": "travel",
+          "shared_at": null,
+          "notify": true,
+          "recurrence": null,
+          "pinned": false,
+          "image": null
+        }
+      },
+      "TimerCreateRequest": {
+        "type": "object",
+        "required": ["label", "target_date", "timezone"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{6,128}$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "target_date": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "timezone": {
+            "$ref": "#/components/schemas/Timezone"
+          },
+          "color": {
+            "$ref": "#/components/schemas/ColorInput"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "space_id": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "notify": {
+            "type": "boolean"
+          },
+          "recurrence": {
+            "$ref": "#/components/schemas/Recurrence"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "image": {
+            "$ref": "#/components/schemas/UnsplashImage"
+          }
+        }
+      },
+      "TimerUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "target_date": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "timezone": {
+            "$ref": "#/components/schemas/Timezone"
+          },
+          "archived_at": {
+            "$ref": "#/components/schemas/NullableIsoDateTime"
+          },
+          "color": {
+            "$ref": "#/components/schemas/NullableColorInput"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "space_id": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "notify": {
+            "type": "boolean"
+          },
+          "recurrence": {
+            "$ref": "#/components/schemas/Recurrence"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "image": {
+            "$ref": "#/components/schemas/UnsplashImage"
+          }
+        }
+      },
+      "Space": {
+        "type": "object",
+        "required": ["object", "id", "project_id", "name", "color", "created_at"],
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "space"
+          },
+          "id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 30
+          },
+          "color": {
+            "$ref": "#/components/schemas/Color"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          }
+        },
+        "example": {
+          "object": "space",
+          "id": "travel",
+          "project_id": "project_123",
+          "name": "Travel",
+          "color": "#2563eb",
+          "created_at": "2026-06-07T12:00:00.000Z"
+        }
+      },
+      "SpaceCreateRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{3,64}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30
+          },
+          "color": {
+            "$ref": "#/components/schemas/ColorInput"
+          }
+        }
+      },
+      "SpaceUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30
+          },
+          "color": {
+            "$ref": "#/components/schemas/NullableColorInput"
+          }
+        }
+      },
+      "Share": {
+        "type": "object",
+        "required": ["object", "id", "project_id", "timer_id", "shared_at", "url_path", "created_at", "updated_at"],
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "share"
+          },
+          "id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "timer_id": {
+            "type": ["string", "null"]
+          },
+          "shared_at": {
+            "$ref": "#/components/schemas/NullableIsoDateTime"
+          },
+          "url_path": {
+            "type": "string",
+            "example": "/share/abc123"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          }
+        },
+        "example": {
+          "object": "share",
+          "id": "share_123",
+          "project_id": "project_123",
+          "timer_id": "timer_123",
+          "shared_at": "2026-06-07T12:10:00.000Z",
+          "url_path": "/share/share_123",
+          "created_at": "2026-06-07T12:10:00.000Z",
+          "updated_at": "2026-06-07T12:10:00.000Z"
+        }
+      },
+      "ShareCreateRequest": {
+        "type": "object",
+        "required": ["timer_id"],
+        "properties": {
+          "timer_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "DeletedResource": {
+        "type": "object",
+        "required": ["object", "id", "deleted"],
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      },
+      "DeletedProject": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DeletedResource"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "const": "project"
+              }
+            }
+          }
+        ]
+      },
+      "DeletedTimer": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DeletedResource"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "const": "timer"
+              }
+            }
+          }
+        ]
+      },
+      "DeletedSpace": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DeletedResource"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "const": "space"
+              }
+            }
+          }
+        ]
+      },
+      "DeletedShare": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DeletedResource"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "const": "share"
+              }
+            }
+          }
+        ]
+      },
+      "Recurrence": {
+        "type": "object",
+        "required": ["type", "enabled"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["daily", "weekly", "monthly", "yearly"]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "lastDay": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UnsplashImage": {
+        "type": "object",
+        "required": ["unsplashId", "url", "thumbUrl", "authorName", "authorUrl"],
+        "properties": {
+          "unsplashId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://images\\.unsplash\\.com/"
+          },
+          "thumbUrl": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://images\\.unsplash\\.com/"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "authorUrl": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "Color": {
+        "type": ["string", "null"],
+        "pattern": "^#[0-9a-fA-F]{6}$"
+      },
+      "ColorInput": {
+        "type": "string",
+        "pattern": "^$|^#[0-9a-fA-F]{6}$",
+        "description": "Use a hex color such as `#2563eb`. Empty string clears color where supported."
+      },
+      "NullableColorInput": {
+        "type": ["string", "null"],
+        "pattern": "^$|^#[0-9a-fA-F]{6}$"
+      },
+      "IsoDateTime": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
+        "example": "2026-10-10T09:30:00.000Z",
+        "description": "ISO 8601 datetime string. Prefer UTC with `Z` or an explicit offset."
+      },
+      "NullableIsoDateTime": {
+        "type": ["string", "null"],
+        "format": "date-time",
+        "example": "2026-10-10T09:30:00.000Z"
+      },
+      "Timezone": {
+        "type": "string",
+        "example": "Europe/Warsaw",
+        "description": "IANA timezone name, for example `Europe/Warsaw` or `America/New_York`."
+      },
+      "Capabilities": {
+        "type": "object",
+        "required": ["object", "api_version", "features", "limits"],
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": ["capabilities"]
+          },
+          "api_version": {
+            "type": "string",
+            "enum": ["v1"]
+          },
+          "features": {
+            "type": "object",
+            "required": [
+              "idempotency_key",
+              "delete_preview",
+              "project_preview",
+              "nested_project_create",
+              "mcp",
+              "timer_webhooks",
+              "timer_reminders"
+            ],
+            "properties": {
+              "idempotency_key": {
+                "type": "object",
+                "required": ["enabled", "ttl_hours"],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "ttl_hours": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              },
+              "delete_preview": {
+                "type": "object",
+                "required": ["project", "space", "timer"],
+                "properties": {
+                  "project": {
+                    "type": "boolean"
+                  },
+                  "space": {
+                    "type": "boolean"
+                  },
+                  "timer": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "project_preview": {
+                "type": "boolean"
+              },
+              "nested_project_create": {
+                "type": "boolean"
+              },
+              "mcp": {
+                "type": "object",
+                "required": ["local_stdio", "remote_http"],
+                "properties": {
+                  "local_stdio": {
+                    "type": "boolean"
+                  },
+                  "remote_http": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "timer_webhooks": {
+                "type": "boolean"
+              },
+              "timer_reminders": {
+                "type": "boolean"
+              }
+            }
+          },
+          "limits": {
+            "type": "object",
+            "required": ["project_create_max_spaces", "project_create_max_timers", "page_size_max"],
+            "properties": {
+              "project_create_max_spaces": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "project_create_max_timers": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "page_size_max": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "example": {
+          "object": "capabilities",
+          "api_version": "v1",
+          "features": {
+            "idempotency_key": {
+              "enabled": true,
+              "ttl_hours": 24
+            },
+            "delete_preview": {
+              "project": true,
+              "space": true,
+              "timer": false
+            },
+            "project_preview": true,
+            "nested_project_create": true,
+            "mcp": {
+              "local_stdio": true,
+              "remote_http": false
+            },
+            "timer_webhooks": false,
+            "timer_reminders": false
+          },
+          "limits": {
+            "project_create_max_spaces": 20,
+            "project_create_max_timers": 20,
+            "page_size_max": 100
+          }
+        }
+      },
+      "DeletePreviewChange": {
+        "type": "object",
+        "required": ["action", "type", "id"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["delete", "update"]
+          },
+          "type": {
+            "type": "string",
+            "description": "Resource type affected by the operation."
+          },
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "DeletePreview": {
+        "type": "object",
+        "required": [
+          "object",
+          "dry_run",
+          "operation",
+          "target",
+          "would_change",
+          "summary",
+          "changes",
+          "warnings",
+          "apply"
+        ],
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": ["delete_preview"]
+          },
+          "dry_run": {
+            "type": "boolean",
+            "enum": [true]
+          },
+          "operation": {
+            "type": "string",
+            "enum": ["delete_project", "delete_space"]
+          },
+          "target": {
+            "type": "object",
+            "required": ["type", "id"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["project", "space"]
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "would_change": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeletePreviewChange"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "apply": {
+            "type": "object",
+            "required": ["method", "path", "requires_idempotency_key"],
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": ["DELETE"]
+              },
+              "path": {
+                "type": "string"
+              },
+              "requires_idempotency_key": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "example": {
+          "object": "delete_preview",
+          "dry_run": true,
+          "operation": "delete_project",
+          "target": {
+            "type": "project",
+            "id": "project_123"
+          },
+          "would_change": true,
+          "summary": {
+            "projects": {
+              "delete": 1
+            },
+            "spaces": {
+              "delete": 2
+            },
+            "timers": {
+              "delete": 12
+            },
+            "share_links": {
+              "delete": 3
+            }
+          },
+          "changes": [
+            {
+              "action": "delete",
+              "type": "project",
+              "id": "project_123"
+            },
+            {
+              "action": "delete",
+              "type": "timer",
+              "id": "timer_123",
+              "reason": "cascade"
+            }
+          ],
+          "warnings": [],
+          "apply": {
+            "method": "DELETE",
+            "path": "/api/v1/projects/project_123",
+            "requires_idempotency_key": true
+          }
+        }
+      },
+      "NestedProjectTimerCreateRequest": {
+        "type": "object",
+        "required": ["label", "target_date", "timezone"],
+        "additionalProperties": false,
+        "description": "Timer payload nested inside a project space. Do not set space_id; the containing space is used.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{6,128}$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "target_date": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "timezone": {
+            "$ref": "#/components/schemas/Timezone"
+          },
+          "color": {
+            "$ref": "#/components/schemas/ColorInput"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "notify": {
+            "type": "boolean"
+          },
+          "recurrence": {
+            "$ref": "#/components/schemas/Recurrence"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "image": {
+            "$ref": "#/components/schemas/UnsplashImage"
+          }
+        }
+      },
+      "NestedProjectSpaceCreateRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30
+          },
+          "color": {
+            "$ref": "#/components/schemas/ColorInput"
+          },
+          "timers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NestedProjectTimerCreateRequest"
+            }
+          }
+        }
+      },
+      "ProjectCreateResult": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Project"
+          },
+          {
+            "type": "object",
+            "required": ["spaces", "timers"],
+            "properties": {
+              "spaces": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Space"
+                }
+              },
+              "timers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Timer"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ProjectPreviewChange": {
+        "type": "object",
+        "required": ["action", "type", "path"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["create"]
+          },
+          "type": {
+            "type": "string",
+            "enum": ["project", "space", "timer"]
+          },
+          "path": {
+            "type": "string",
+            "description": "JSON Pointer path in the preview request body."
+          },
+          "parent_path": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectPreviewWarning": {
+        "type": "object",
+        "required": ["code", "path", "message", "remediation"],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "remediation": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectPreview": {
+        "type": "object",
+        "required": ["object", "dry_run", "operation", "plan_hash", "summary", "changes", "warnings", "apply"],
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": ["project_preview"]
+          },
+          "dry_run": {
+            "type": "boolean",
+            "enum": [true]
+          },
+          "operation": {
+            "type": "string",
+            "enum": ["create_project"]
+          },
+          "plan_hash": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "summary": {
+            "type": "object",
+            "required": ["projects", "spaces", "timers"],
+            "properties": {
+              "projects": {
+                "type": "object",
+                "properties": {
+                  "create": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "spaces": {
+                "type": "object",
+                "properties": {
+                  "create": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "timers": {
+                "type": "object",
+                "properties": {
+                  "create": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectPreviewChange"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectPreviewWarning"
+            }
+          },
+          "apply": {
+            "type": "object",
+            "required": ["method", "path", "requires_idempotency_key", "expected_plan_hash"],
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": ["POST"]
+              },
+              "path": {
+                "type": "string",
+                "enum": ["/api/v1/projects"]
+              },
+              "requires_idempotency_key": {
+                "type": "boolean"
+              },
+              "expected_plan_hash": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              }
+            }
+          }
+        },
+        "example": {
+          "object": "project_preview",
+          "dry_run": true,
+          "operation": "create_project",
+          "plan_hash": "sha256:7f1a0c6b1a7e0a7237918ec31e6a03ca690ad802d6f28d62101a3f27819cb622",
+          "summary": {
+            "projects": {
+              "create": 1
+            },
+            "spaces": {
+              "create": 1
+            },
+            "timers": {
+              "create": 2
+            }
+          },
+          "changes": [
+            {
+              "action": "create",
+              "type": "project",
+              "path": "#",
+              "name": "Subscriptions"
+            },
+            {
+              "action": "create",
+              "type": "space",
+              "path": "#/spaces/0",
+              "name": "AI tools"
+            },
+            {
+              "action": "create",
+              "type": "timer",
+              "path": "#/spaces/0/timers/0",
+              "label": "GPT Pro renewal"
+            }
+          ],
+          "warnings": [],
+          "apply": {
+            "method": "POST",
+            "path": "/api/v1/projects",
+            "requires_idempotency_key": true,
+            "expected_plan_hash": "sha256:7f1a0c6b1a7e0a7237918ec31e6a03ca690ad802d6f28d62101a3f27819cb622"
+          }
+        }
+      }
+    }
+  },
+  "externalDocs": {
+    "description": "Agent usage guide",
+    "url": "https://tickward.com/docs/guides/agent-usage"
+  }
+}

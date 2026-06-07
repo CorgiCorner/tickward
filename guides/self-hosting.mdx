@@ -1,0 +1,185 @@
+---
+title: "Self-hosting"
+description: "Run tickward locally or deploy it with PostgreSQL, Redis rate limiting, accounts, email, and Web Push."
+---
+
+tickward runs as a Next.js app with PostgreSQL for durable data and a
+Redis-compatible REST endpoint for rate limiting.
+
+## Docker Compose
+
+```bash
+git clone https://github.com/CorgiCorner/tickward.git tickward
+cd tickward
+cp .env.example .env
+docker compose up --build
+```
+
+Open `http://localhost:3000`.
+
+The Compose stack starts the app, PostgreSQL, Redis, and an Upstash-compatible
+HTTP proxy for local rate limiting.
+
+## Local development
+
+Use Node 22.
+
+```bash
+cp .env.example .env
+npm ci
+npm run dev
+```
+
+For development outside Docker, run PostgreSQL, apply migrations, and run a
+Redis-compatible REST endpoint:
+
+```bash
+npm run db:migrate:deploy
+```
+
+Use host-reachable URLs in `.env` when you run services outside Compose.
+
+## Configuration
+
+| Variable                                    | Required | Description                                                                         |
+| ------------------------------------------- | -------: | ----------------------------------------------------------------------------------- |
+| `DATABASE_URL`                              |      Yes | Runtime PostgreSQL connection used by the app.                                      |
+| `DIRECT_URL`                                |      Yes | Direct PostgreSQL connection used by Prisma migrations.                             |
+| `UPSTASH_REDIS_REST_URL`                    |      Yes | Upstash-compatible Redis REST endpoint for rate limiting.                           |
+| `UPSTASH_REDIS_REST_TOKEN`                  |      Yes | Token accepted by the Redis REST endpoint.                                          |
+| `SITE_URL`                                  |      Yes | Public app URL used for metadata, sitemap, robots.txt, and generated social images. |
+| `NEXT_PUBLIC_TICKWARD_MAX_TIMERS`           |       No | Public timer limit embedded into the browser bundle at build time.                  |
+| `NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE` |       No | Public per-space active timer limit embedded into the browser bundle at build time. |
+| `NEXT_PUBLIC_TICKWARD_MAX_SPACES`           |       No | Public space limit embedded into the browser bundle at build time.                  |
+| `UNSPLASH_ACCESS_KEY`                       |       No | Enables Unsplash image search.                                                      |
+| `NEXT_PUBLIC_PLAUSIBLE_URL`                 |       No | Enables the optional Plausible Analytics script.                                    |
+| `NEXT_PUBLIC_PLAUSIBLE_DOMAIN`              |       No | Plausible domain override. Defaults to the `SITE_URL` hostname.                     |
+| `BETTER_AUTH_URL`                           |       No | Enables account sign-in when set with `BETTER_AUTH_SECRET`.                         |
+| `BETTER_AUTH_SECRET`                        |       No | Secret used by Better Auth.                                                         |
+| `RESEND_API_KEY`                            |       No | Enables email OTP delivery through Resend.                                          |
+| `RESEND_FROM`                               |       No | Sender address used for Resend emails.                                              |
+| `RESEND_REPLY_TO`                           |       No | Optional reply-to address for Resend emails.                                        |
+| `WEB_PUSH_VAPID_PUBLIC_KEY`                 |       No | Enables the Web Push public-key endpoint when set with the private key.             |
+| `WEB_PUSH_VAPID_PRIVATE_KEY`                |       No | Private VAPID key for push-capable deployments.                                     |
+| `WEB_PUSH_VAPID_SUBJECT`                    |       No | Optional VAPID subject.                                                             |
+| `SEED_ADMIN_EMAIL`                          |       No | Email used by seed scripts to create or promote an admin account.                   |
+| `SEED_ADMIN_NAME`                           |       No | Optional display name for the seeded admin account.                                 |
+| `SEED_ADMIN_ID`                             |       No | Optional custom user id for the seeded admin account.                               |
+| `SEED_DEMO_PROJECT_ID`                      |       No | Optional project id for the PostgreSQL demo seed.                                   |
+| `SEED_DEMO_RESTORE_KEY`                     |       No | Restore key for the PostgreSQL demo project seed.                                   |
+| `SEED_DEMO_BASE_DATE`                       |       No | Optional base date for deterministic screenshot data.                               |
+
+`SITE_URL` and `NEXT_PUBLIC_*` values affect build-time metadata or browser
+bundles. Rebuild the app after changing them.
+
+## Accounts and email
+
+Accounts are optional. Without account configuration, tickward still works with
+anonymous projects and restore keys.
+
+Restore keys are project access tokens for anonymous projects. Treat them like
+passwords. When a signed-in user claims a project, tickward saves it to the
+account and revokes the old restore-key access.
+
+Timer share links are separate read-only public links. They expose the linked
+timer view, not the full project or its restore key.
+
+Email-code sign-in is enabled when Better Auth and Resend are configured:
+
+```bash
+BETTER_AUTH_URL=http://localhost:3000
+BETTER_AUTH_SECRET=change-me
+RESEND_API_KEY=placeholder
+RESEND_FROM="tickward <no-reply@example.com>"
+RESEND_REPLY_TO=contact@example.com
+```
+
+OTP send requests are rate limited with Redis: one request per minute per
+normalized email and three requests per minute per IP.
+
+To smoke-test the request path against a running app:
+
+```bash
+SMOKE_BASE_URL=http://localhost:3000 SMOKE_EMAIL_TO=you@example.com npm run smoke:email-otp
+```
+
+This smoke test verifies that the app accepts and dispatches an OTP request. It
+does not read an inbox or prove mailbox delivery.
+
+## Database migrations
+
+Managed deployments must apply Prisma migrations before building code that
+depends on new tables or columns:
+
+```bash
+npm run db:migrate:deploy
+```
+
+## Demo data
+
+Run Storybook locally with:
+
+```bash
+npm run storybook
+```
+
+To load screenshot-friendly demo timers and spaces, start the app and run:
+
+```bash
+npm run demo:seed
+```
+
+For a PostgreSQL-backed bootstrap seed, configure `DATABASE_URL` and
+`SEED_ADMIN_EMAIL`, apply migrations, then run:
+
+```bash
+npm run db:migrate:deploy
+npm run db:seed
+```
+
+The database seed creates or promotes the admin account and idempotently upserts
+the demo project in PostgreSQL.
+
+## Redis data import
+
+Older deployments may have project data in Redis. To import it once, configure
+`DATABASE_URL`, `UPSTASH_REDIS_REST_URL`, and `UPSTASH_REDIS_REST_TOKEN`, then
+run:
+
+```bash
+npm run db:migrate:deploy
+npm run migrate:redis-to-postgres
+npm run migrate:redis-to-postgres -- --write
+```
+
+The migration script defaults to dry-run mode and never deletes Redis keys.
+
+## Advanced database roles
+
+Most installs can skip this.
+
+If migrations and app runtime use different PostgreSQL roles, run this after
+migrations:
+
+```bash
+npm run db:grant-runtime
+```
+
+Set `TICKWARD_DATABASE_RUNTIME_ROLE` or `TICKWARD_DATABASE_SCHEMA` only when the
+script cannot infer them from `DATABASE_URL`.
+
+## Docs
+
+The docs entrypoint is `docs.json` at the repository root. When connecting the
+repo in Mintlify, use the repository root on the `main` branch. Do not enable a
+docs subdirectory unless `docs.json` is moved into that subdirectory.
+
+If you host docs outside the app, set `TICKWARD_DOCS_ORIGIN` to the external
+docs origin and the app will redirect `/docs` there.
+
+Useful local docs checks:
+
+```bash
+npx mintlify@latest validate
+npx mintlify@latest broken-links
+```

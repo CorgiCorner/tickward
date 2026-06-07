@@ -1,0 +1,72 @@
+---
+title: "Create project with timers"
+description: "Preview and create a project with spaces and timers in one flow."
+---
+
+Use this recipe when a user asks an agent to set up a complete countdown
+project, such as subscriptions, launches, travel plans, or deadlines.
+
+## Steps
+
+1. Call `GET /capabilities` and confirm `project_preview` and
+   `nested_project_create` are `true`.
+2. Build one `POST /projects/preview` payload with the project, spaces, and
+   timers.
+3. Show the preview summary and warnings to the user.
+4. Call `POST /projects` with the same payload, `expected_plan_hash`, and an
+   `Idempotency-Key`.
+5. Store the returned project, space, and timer ids for follow-up actions.
+
+## Preview
+
+```bash
+curl "https://tickward.com/api/v1/projects/preview" \
+  -X POST \
+  -H "Authorization: Bearer tw_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Subscriptions",
+    "spaces": [
+      {
+        "id": "ai-tools",
+        "name": "AI tools",
+        "timers": [
+          {
+            "label": "GPT Pro renewal",
+            "target_date": "2026-07-11T00:00:00.000Z",
+            "timezone": "Europe/Warsaw",
+            "notify": true
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+## Apply
+
+```bash
+curl "https://tickward.com/api/v1/projects" \
+  -X POST \
+  -H "Authorization: Bearer tw_your_api_key" \
+  -H "Idempotency-Key: project-create-2026-06-07-001" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Subscriptions",
+    "expected_plan_hash": "sha256:...",
+    "spaces": [
+      {
+        "id": "ai-tools",
+        "name": "AI tools",
+        "timers": [
+          {
+            "label": "GPT Pro renewal",
+            "target_date": "2026-07-11T00:00:00.000Z",
+            "timezone": "Europe/Warsaw",
+            "notify": true
+          }
+        ]
+      }
+    ]
+  }'
+```

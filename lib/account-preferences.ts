@@ -1,0 +1,31 @@
+import { z } from "zod"
+
+import { notificationSoundSchema, timezoneSchema } from "@/lib/schemas/timer"
+
+export const accountPreferencesRecordSchema = z.object({
+  object: z.literal("account_preferences"),
+  browser_notifications_enabled: z.boolean(),
+  default_timezone: timezoneSchema.nullable(),
+  full_page_alarm: z.boolean(),
+  notification_sound: notificationSoundSchema,
+})
+
+export const accountPreferencesPatchSchema = z
+  .object({
+    browser_notifications_enabled: z.boolean().optional(),
+    default_timezone: timezoneSchema.nullable().optional(),
+    full_page_alarm: z.boolean().optional(),
+    notification_sound: notificationSoundSchema.optional(),
+  })
+  .strict()
+
+export type AccountPreferencesPatch = z.infer<typeof accountPreferencesPatchSchema>
+export type AccountPreferencesRecord = z.infer<typeof accountPreferencesRecordSchema>
+
+export const DEFAULT_ACCOUNT_PREFERENCES: AccountPreferencesRecord = {
+  object: "account_preferences",
+  browser_notifications_enabled: false,
+  default_timezone: null,
+  full_page_alarm: false,
+  notification_sound: "none",
+}
