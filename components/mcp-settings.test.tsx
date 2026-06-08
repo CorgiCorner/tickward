@@ -38,6 +38,7 @@ describe("McpSettingsPanel", () => {
     render(<McpSettingsPanel docsHref="/docs/guides/mcp" />)
 
     expect(screen.getByRole("link", { name: "Setup guide" })).toHaveAttribute("href", "/docs/guides/mcp")
+    expect(screen.getByRole("link", { name: "Setup guide" })).toHaveAttribute("target", "_blank")
   })
 
   it("shows authorized MCP connections", () => {

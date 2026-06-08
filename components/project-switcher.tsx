@@ -145,8 +145,7 @@ export function ProjectSwitcher() {
         <div className="grid gap-2 px-2 py-1">
           <Button
             variant="outline"
-            size="sm"
-            className="justify-start"
+            className="h-9 justify-start"
             onClick={() => {
               createProject(formatMessage("project.new"))
               toast.success(formatMessage("project.created"))
@@ -164,7 +163,6 @@ export function ProjectSwitcher() {
                 if (event.key === "Enter") void handleRestore()
               }}
               placeholder={formatMessage("project.restoreKey")}
-              className="h-9"
             />
             <Button
               type="button"

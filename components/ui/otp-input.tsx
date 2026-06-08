@@ -51,7 +51,11 @@ export function OtpInput({
   }
 
   return (
-    <div data-otp-root className={cn("flex items-center gap-2", className)}>
+    <div
+      data-otp-root
+      className={cn("grid gap-2", className)}
+      style={{ gridTemplateColumns: `repeat(${length}, minmax(0, 1fr))` }}
+    >
       {Array.from({ length }, (_, index) => (
         <input
           key={index}
@@ -62,7 +66,7 @@ export function OtpInput({
           autoCorrect="off"
           autoCapitalize="none"
           className={cn(
-            "border-input bg-background text-foreground size-10 rounded-md border text-center text-base font-medium shadow-xs outline-none transition-[color,box-shadow]",
+            "border-input bg-background text-foreground h-11 min-w-0 rounded-md border text-center text-base font-medium shadow-xs outline-none transition-[color,box-shadow]",
             "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
             "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
           )}

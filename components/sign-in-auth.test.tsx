@@ -101,6 +101,20 @@ describe("SignInPageClient", () => {
     expect(emailInput).toHaveAttribute("data-np-ignore", "true")
   })
 
+  it("centers the signed-in state", () => {
+    mocks.useSession.mockReturnValue({ data: { user: { email: "ada@example.com" } }, refetch: mocks.refetch })
+
+    render(<SignInPageClient nextPath="/settings" />)
+
+    const settingsLink = screen.getByRole("link", { name: "Settings" })
+    const heading = screen.getByRole("heading", { name: "Account" })
+
+    expect(settingsLink).toHaveAttribute("href", "/settings")
+    expect(settingsLink).toHaveClass("mx-auto", "w-fit")
+    expect(settingsLink.closest("main")).toHaveClass("content-center", "text-center")
+    expect(heading.parentElement).toHaveClass("justify-items-center")
+  })
+
   it("starts a cooldown when the OTP endpoint is rate limited", async () => {
     const user = userEvent.setup()
     mocks.sendVerificationOtp.mockResolvedValue({ data: null, error: { status: 429, retryAfter: 42 } })

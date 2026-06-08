@@ -18,7 +18,7 @@ Use these values when a client asks for connector metadata:
 | Description | `Manage countdown timers, projects, spaces, and share links.` |
 | Server URL | `https://mcp.tickward.com/mcp` |
 | Authentication | OAuth |
-| Icon URL | `https://tickward.com/icon-512.png` |
+| Icon upload | [Download 256 x 256 PNG](https://tickward.com/mcp-connector-icon-256.png) |
 
 Remote MCP uses your tickward account consent screen. API keys are for local
 scripts, CLI tools, and self-hosted agents that call the REST API directly.
@@ -26,6 +26,9 @@ Do not paste an API key into the hosted remote MCP connector.
 
 tickward is not a prebuilt ChatGPT or Claude connector yet. Add it as a custom
 remote MCP connector.
+
+The icon upload file is a 256 x 256 PNG under 10 KB, which fits ChatGPT's custom
+app icon limits.
 
 ## Web apps
 
@@ -37,13 +40,42 @@ apps. Local CLI tools use the separate local-agent setup below.
 Use this path when ChatGPT shows Developer Mode or custom MCP app setup for your
 plan or workspace:
 
-1. Open ChatGPT settings and enable Developer Mode.
-2. Create a custom app or MCP connector.
-3. Enter the tickward MCP server URL: `https://mcp.tickward.com/mcp`.
-4. Select OAuth authentication. If dynamic client registration is available,
-   use it instead of pasting static client credentials.
-5. Scan tools, finish the OAuth flow, and create the app.
-6. In a chat, select Developer Mode and enable the `tickward` app.
+1. Open ChatGPT settings, then go to `Apps` and `Advanced settings`.
+2. Enable `Developer mode`.
+3. Click `Create app`.
+4. For `Connection`, choose `Server URL` and enter `https://mcp.tickward.com/mcp`.
+5. Select OAuth authentication. For `Registration method`, choose Dynamic Client
+   Registration.
+6. Scan tools, finish the OAuth flow, and create the app.
+7. In a chat, select Developer Mode and enable the `tickward` app.
+
+Optional: click `Advanced OAuth settings` before creating the app if you want
+to review OAuth discovery details. Keep the discovered endpoint values. Use
+Dynamic Client Registration for the hosted tickward MCP server. Do not enter
+static client credentials, and do not choose Client Identifier Metadata Document.
+
+Use these default scopes if ChatGPT asks for them manually:
+
+```text
+projects:read
+projects:write
+timers:read
+timers:write
+spaces:read
+spaces:write
+shares:read
+shares:write
+```
+
+The discovered endpoints should be:
+
+| Field | Value |
+| --- | --- |
+| Auth URL | `https://mcp.tickward.com/authorize` |
+| Token URL | `https://mcp.tickward.com/oauth/token` |
+| Registration URL | `https://mcp.tickward.com/oauth/register` |
+| Authorization server base | `https://mcp.tickward.com` |
+| Resource | `https://mcp.tickward.com/mcp` |
 
 ChatGPT availability and labels can vary by plan and workspace policy. If the
 custom app controls are not visible, use the REST API with an API key from
@@ -58,7 +90,7 @@ Official OpenAI references:
 
 Use this path when Claude shows custom connectors:
 
-1. Open Claude and go to `Customize` > `Connectors`.
+1. Open Claude, then go to `Customize` and `Connectors`.
 2. Click `+`, then `Add custom connector`.
 3. Enter the tickward MCP server URL: `https://mcp.tickward.com/mcp`.
 4. Leave advanced OAuth client credentials empty unless your workspace requires

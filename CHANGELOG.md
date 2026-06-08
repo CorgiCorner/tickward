@@ -4,6 +4,23 @@
 
 No unreleased public changes.
 
+## 0.1.1 - 2026-06-08
+
+### Added
+
+- Added a small MCP connector icon for remote setup.
+
+### Changed
+
+- Clarified ChatGPT MCP setup, OAuth discovery, default scopes, and Server URL
+  configuration.
+- Improved mobile OTP layout, signed-in sign-in state, header spacing, footer
+  wrapping, project switcher controls, and space color spacing.
+
+### Fixed
+
+- Reduced empty-state spacing when a project has no timers.
+
 ## 0.1.0 - 2026-06-08
 
 ### Added

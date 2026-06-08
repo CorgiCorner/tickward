@@ -87,7 +87,7 @@ function chipClass(active: boolean) {
 
 function ColorSwatches(props: Readonly<{ value?: string; onChange: (color?: string) => void }>) {
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-2 pt-1">
       {SPACE_COLORS.map((color) => {
         const active = props.value === color || (!props.value && !color)
         return (

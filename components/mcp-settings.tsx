@@ -178,7 +178,7 @@ export function McpSettingsPanel(
         </div>
         {props.docsHref ? (
           <Button variant="outline" size="sm" asChild className="w-fit">
-            <a href={props.docsHref}>
+            <a href={props.docsHref} target="_blank" rel="noreferrer">
               <BookOpenIcon className="size-4" />
               {formatMessage("mcp.docs")}
             </a>

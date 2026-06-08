@@ -95,10 +95,15 @@ function useCooldown(email: string) {
   }
 }
 
-function AuthShell(props: Readonly<{ children: ReactNode; description: string; title: string }>) {
+function AuthShell(props: Readonly<{ centered?: boolean; children: ReactNode; description: string; title: string }>) {
   return (
-    <main className="mx-auto grid w-full max-w-[440px] gap-6 px-4 py-8">
-      <div className="grid gap-1">
+    <main
+      className={[
+        "mx-auto grid w-full max-w-[440px] gap-6 px-4 py-8",
+        props.centered ? "flex-1 content-center text-center" : "",
+      ].join(" ")}
+    >
+      <div className={["grid gap-1", props.centered ? "justify-items-center" : ""].join(" ")}>
         <h1 className="text-2xl font-semibold tracking-normal">{props.title}</h1>
         <p className="text-sm text-muted-foreground">{props.description}</p>
       </div>
@@ -140,8 +145,8 @@ export function SignInPageClient(props: Readonly<{ nextPath?: string }>) {
 
   if (session.data?.user) {
     return (
-      <AuthShell title={formatMessage("auth.account")} description={formatMessage("auth.alreadySignedIn")}>
-        <Button asChild className="w-fit">
+      <AuthShell centered title={formatMessage("auth.account")} description={formatMessage("auth.alreadySignedIn")}>
+        <Button asChild className="mx-auto w-fit">
           <Link href={nextPath}>
             <UserIcon className="size-4" />
             {formatMessage("auth.accountSettings")}
@@ -248,13 +253,13 @@ export function OtpSignInPageClient(props: Readonly<{ email: string; nextPath?: 
   return (
     <AuthShell title={formatMessage("auth.verifyCode")} description={formatMessage("auth.otp.description", { email })}>
       <form
-        className="grid gap-4 rounded-lg border p-4"
+        className="grid gap-4 rounded-lg border p-3 sm:p-4"
         onSubmit={(event) => {
           event.preventDefault()
           void verifyCode()
         }}
       >
-        <div className="mx-auto grid w-fit gap-3">
+        <div className="grid gap-3">
           <div className="grid gap-2">
             <Label htmlFor="auth-code">{formatMessage("auth.code")}</Label>
             <OtpInput

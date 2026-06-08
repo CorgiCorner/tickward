@@ -82,7 +82,7 @@ function OnboardingBanner(props: Readonly<{ timerCount: number; spaceCount: numb
 
 function EmptyState(props: Readonly<{ compact?: boolean; onSelectExample: (label: string) => void }>) {
   return (
-    <div className={[props.compact ? "mt-6" : "mt-16", "rounded-3xl border bg-background p-10 text-center"].join(" ")}>
+    <div className={[props.compact ? "mt-6" : "mt-0", "rounded-3xl border bg-background p-10 text-center"].join(" ")}>
       <TimerIcon className="mx-auto size-10 text-muted-foreground" />
       <div className="mt-4 text-base font-semibold">{formatMessage("home.empty.title")}</div>
       <div className="mt-2 text-sm text-muted-foreground">{formatMessage("home.empty.description")}</div>

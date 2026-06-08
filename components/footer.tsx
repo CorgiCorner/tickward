@@ -73,9 +73,9 @@ export function Footer({ docsHref, releaseTag }: Readonly<FooterProps>) {
   const year = new Date().getFullYear()
 
   return (
-    <footer className="border-t bg-background/60">
-      <div className="mx-auto flex w-full max-w-[640px] flex-col items-center gap-3 px-4 py-6 text-center text-xs text-muted-foreground">
-        <div className="flex w-full flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
+    <footer className="border-t bg-background">
+      <div className="mx-auto flex w-full max-w-[640px] flex-col items-center gap-3 px-4 py-5 text-center text-xs text-muted-foreground">
+        <div className="flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-2">
           <GitHubRepoButton variant="compact" className="sm:hidden" />
           <SyncStatus />
           <Tooltip>

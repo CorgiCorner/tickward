@@ -131,8 +131,8 @@ export function AccountButton() {
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label={formatMessage("auth.openMenu")}>
-              <AccountAvatar user={user} className="size-6 text-[10px]" />
+            <Button variant="ghost" size="icon" aria-label={formatMessage("auth.openMenu")}>
+              <AccountAvatar user={user} className="size-7 text-[11px]" />
             </Button>
           </PopoverTrigger>
         </TooltipTrigger>
@@ -142,7 +142,7 @@ export function AccountButton() {
       </Tooltip>
       <PopoverContent align="end" className="w-72 p-2">
         <div className="flex items-center gap-3 px-2 py-2">
-          <AccountAvatar user={user} className="size-6 text-[10px]" />
+          <AccountAvatar user={user} className="size-7 text-[11px]" />
           <div className="min-w-0">
             <div className="truncate text-sm font-medium">{displayName ?? formatMessage("auth.account")}</div>
             <div className="truncate text-xs text-muted-foreground">{user.email}</div>
