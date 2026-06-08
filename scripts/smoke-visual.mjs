@@ -14,6 +14,7 @@ const host = "127.0.0.1"
 const externalBaseUrl = process.env.SMOKE_BASE_URL?.replace(/\/$/, "")
 const timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS ?? 60_000)
 const screenshotDir = process.env.SMOKE_VISUAL_DIR ?? "/tmp/tickward-visual-smoke"
+const expectedDocsHref = process.env.SMOKE_EXPECT_DOCS_HREF ?? "/docs"
 const mobileViewport = { width: 390, height: 844 }
 
 function log(message) {
@@ -216,9 +217,21 @@ function collectBrowserErrors(page) {
     browserErrors.push(`HTTP ${status} ${url}`)
   })
   page.on("requestfailed", (request) => {
+    if (isIgnorableRequestFailure(request)) return
     browserErrors.push(`${request.failure()?.errorText ?? "request_failed"} ${request.url()}`)
   })
   return browserErrors
+}
+
+function isIgnorableRequestFailure(request) {
+  const errorText = request.failure()?.errorText
+  if (errorText !== "net::ERR_ABORTED") return false
+
+  try {
+    return new URL(request.url()).searchParams.has("_rsc")
+  } catch {
+    return false
+  }
 }
 
 async function assertNoBrowserErrors(browserErrors) {
@@ -334,7 +347,7 @@ async function runMobileFooterSmoke(baseUrl) {
     await docsLink.scrollIntoViewIfNeeded()
     await docsLink.waitFor({ state: "visible", timeout: 10_000 })
     const href = await docsLink.getAttribute("href")
-    assert(href === "/docs", `Expected footer Docs link to point to /docs, got ${href}`)
+    assert(href === expectedDocsHref, `Expected footer Docs link to point to ${expectedDocsHref}, got ${href}`)
     await assertNoHorizontalOverflow(page, "mobile footer")
     await screenshot(page, "chromium-mobile-footer.png")
     await assertNoBrowserErrors(browserErrors)

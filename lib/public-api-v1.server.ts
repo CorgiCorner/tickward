@@ -6,11 +6,18 @@ import { nanoid } from "nanoid"
 import { z } from "zod"
 
 import { apiError, apiJson, apiList, isResponse, type ApiErrorType } from "@/lib/api-response"
-import { authenticateApiKey, type AuthenticatedApiKey, readBearerApiKey } from "@/lib/api-keys.server"
+import {
+  MCP_CREDENTIAL_KIND,
+  authenticateApiKey,
+  type AuthenticatedApiKey,
+  readBearerApiKey,
+} from "@/lib/api-keys.server"
 import type { UserRef } from "@/lib/contracts"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { getEntitlements } from "@/lib/entitlements"
+import { getMcpRemoteUrl } from "@/lib/mcp-config.server"
+import type { McpOAuthScope } from "@/lib/mcp-oauth"
 import { type ProjectSnapshotV2, createProjectSnapshot, isProjectSnapshot } from "@/lib/project-model"
 import { checkRateLimit } from "@/lib/rate-limit.server"
 import { stableShareId } from "@/lib/static-share-id.server"
@@ -173,7 +180,9 @@ function remediationHint(type: ApiErrorType) {
       return "Retry the same request with the same Idempotency-Key after a short delay."
     case "invalid_api_key":
     case "missing_api_key":
-      return "Create an API key in settings and send it as an Authorization Bearer token."
+      return "Create an API key or connect an MCP client, then send the credential as an Authorization Bearer token."
+    case "insufficient_scope":
+      return "Reconnect the MCP client with the required scope, or use credentials with broader access."
     case "method_not_allowed":
       return "Use one of the documented methods for this endpoint."
     case "not_found":
@@ -580,6 +589,28 @@ function validateProjectWriteAccess(ctx: PublicApiContext) {
   return authorizeWrite(ctx)
 }
 
+function requiredMcpScope(method: string, path: string[]): McpOAuthScope | null {
+  const [resource, projectId, child] = path
+  const action = method === "GET" ? "read" : "write"
+
+  if (resource === "projects" && projectId === "preview" && path.length === 2) return "projects:write"
+  if (resource === "projects" && path.length <= 2) return `projects:${action}` as McpOAuthScope
+  if (resource === "projects" && projectId && child === "timers") return `timers:${action}` as McpOAuthScope
+  if (resource === "projects" && projectId && child === "spaces") return `spaces:${action}` as McpOAuthScope
+  if (resource === "projects" && projectId && child === "shares") return `shares:${action}` as McpOAuthScope
+
+  return null
+}
+
+function authorizeMcpScope(ctx: PublicApiContext, method: string, path: string[]): Response | null {
+  if (ctx.apiKey.kind !== MCP_CREDENTIAL_KIND) return null
+
+  const scope = requiredMcpScope(method, path)
+  if (!scope || ctx.apiKey.scopes.includes(scope)) return null
+
+  return apiError("insufficient_scope", `MCP connection is missing ${scope}.`, { status: 403 })
+}
+
 function publicApiCapabilities() {
   return apiJson({
     object: "capabilities",
@@ -597,8 +628,7 @@ function publicApiCapabilities() {
       project_preview: true,
       nested_project_create: true,
       mcp: {
-        local_stdio: true,
-        remote_http: false,
+        remote_oauth: Boolean(getMcpRemoteUrl()),
       },
       timer_webhooks: false,
       timer_reminders: false,
@@ -1582,7 +1612,7 @@ async function authenticate(req: Request): Promise<{ ctx: PublicApiContext; head
 
   const token = readBearerApiKey(req)
   if (!token) {
-    return apiError("missing_api_key", "Missing API key in the authorization header.", { status: 401 })
+    return apiError("missing_api_key", "Missing bearer credential in the authorization header.", { status: 401 })
   }
 
   const apiKey = await authenticateApiKey(token)
@@ -1735,6 +1765,9 @@ export async function handlePublicApiV1Request(method: string, req: Request, pat
   if (isResponse(auth)) return withPublicApiMetadata(auth, meta)
 
   try {
+    const scopeError = authorizeMcpScope(auth.ctx, method, path)
+    if (scopeError) return withPublicApiMetadata(withHeaders(scopeError, auth.headers), meta)
+
     const response = await routePublicApiWithIdempotency(method, auth.ctx, req, path)
     return withPublicApiMetadata(withHeaders(response, auth.headers), meta)
   } catch (error) {

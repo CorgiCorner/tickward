@@ -1065,7 +1065,7 @@
           "maxLength": 128,
           "pattern": "^[A-Za-z0-9._:-]+$"
         },
-        "description": "Optional for POST, PATCH, and DELETE requests. Reuse the same key with the same method, path, query, and JSON body to safely retry a write for up to 24 hours. Reusing it with a different request returns 409. The server stores only a hash of the key."
+        "description": "Optional for POST, PATCH, and DELETE requests. Generate a random UUID with an operation prefix, for example timer-create-${crypto.randomUUID()}. Reuse the same key with the same method, path, query, and JSON body to safely retry one logical write for up to 24 hours. Reusing it with a different request returns 409. The server stores only a hash of the key."
       },
       "DryRun": {
         "name": "dry_run",
@@ -1529,7 +1529,7 @@
         }
       },
       "UnauthorizedError": {
-        "description": "Missing API key or read-only key used for a write request.",
+        "description": "Missing bearer credential, insufficient scope, or read-only credential used for a write request.",
         "content": {
           "application/json": {
             "schema": {
@@ -2657,12 +2657,9 @@
               },
               "mcp": {
                 "type": "object",
-                "required": ["local_stdio", "remote_http"],
+                "required": ["remote_oauth"],
                 "properties": {
-                  "local_stdio": {
-                    "type": "boolean"
-                  },
-                  "remote_http": {
+                  "remote_oauth": {
                     "type": "boolean"
                   }
                 }
@@ -2710,8 +2707,7 @@
             "project_preview": true,
             "nested_project_create": true,
             "mcp": {
-              "local_stdio": true,
-              "remote_http": false
+              "remote_oauth": false
             },
             "timer_webhooks": false,
             "timer_reminders": false

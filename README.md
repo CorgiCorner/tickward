@@ -36,6 +36,7 @@ Detailed setup, configuration, API, and agent docs live in the docs site:
 
 - [Self-hosting guide](guides/self-hosting.mdx)
 - [API quickstart](guides/api-quickstart.mdx)
+- [MCP setup](guides/mcp.mdx)
 - [API reference](api-reference.mdx)
 - [Agent usage](guides/agent-usage.mdx)
 

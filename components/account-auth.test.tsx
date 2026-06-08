@@ -37,6 +37,12 @@ vi.mock("@/components/api-keys-settings", () => ({
   ApiKeysSettingsPanel: () => <section id="api-keys">API keys</section>,
 }))
 
+vi.mock("@/components/mcp-settings", () => ({
+  McpSettingsPanel: ({ remoteUrl }: { remoteUrl?: string | null }) => (
+    <section id="mcp">MCP {remoteUrl ? "configured" : "not configured"}</section>
+  ),
+}))
+
 vi.mock("@/components/notification-settings", () => ({
   NotificationSettingsPanel: () => <section id="alerts">Alert settings</section>,
 }))
@@ -189,25 +195,29 @@ describe("AccountPageClient", () => {
     expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument()
   })
 
-  it("orders account sections from profile to API keys", () => {
+  it("orders account sections from profile to MCP", () => {
     mocks.useSession.mockReturnValue({
       data: { user: { email: "ada@example.com" } },
       refetch: mocks.refetch,
     })
-    render(<AccountPageClient />)
+    render(<AccountPageClient mcpRemoteUrl="https://mcp.example.com/mcp" />)
 
     const profile = document.getElementById("profile")
     const defaults = document.getElementById("defaults")
     const alerts = document.getElementById("alerts")
     const apiKeys = document.getElementById("api-keys")
+    const mcp = document.getElementById("mcp")
 
     expect(profile).not.toBeNull()
     expect(defaults).not.toBeNull()
     expect(alerts).not.toBeNull()
     expect(apiKeys).not.toBeNull()
+    expect(mcp).not.toBeNull()
     expect(profile!.compareDocumentPosition(defaults!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(defaults!.compareDocumentPosition(alerts!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(alerts!.compareDocumentPosition(apiKeys!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(apiKeys!.compareDocumentPosition(mcp!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText("MCP configured")).toBeVisible()
   })
 
   it("normalizes and scrolls to settings hash sections after render", async () => {

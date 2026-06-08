@@ -15,13 +15,36 @@ drop, or interrupted session.
 4. If the API returns `idempotency_conflict`, keep the original payload or
    generate a new key for a new operation.
 
+## Generate a key
+
+Use a random UUID with a short operation prefix:
+
+```ts
+const idempotencyKey = `timer-create-${crypto.randomUUID()}`
+```
+
+Other runtimes can use the same pattern:
+
+```bash
+uuidgen
+```
+
+```python
+import uuid
+
+idempotency_key = f"timer-create-{uuid.uuid4()}"
+```
+
+Do not use only a date, timestamp, or counter. The key should be stable for one
+logical write and unique across different writes.
+
 ## Example
 
 ```bash
 curl "https://tickward.com/api/v1/projects/project_123/timers" \
   -X POST \
   -H "Authorization: Bearer tw_your_api_key" \
-  -H "Idempotency-Key: timer-create-2026-06-07-001" \
+  -H "Idempotency-Key: timer-create-2f5d5dd1-7a3d-47bb-b31f-5e55fd4d9c9b" \
   -H "Content-Type: application/json" \
   -d '{
     "label": "Contract renewal",

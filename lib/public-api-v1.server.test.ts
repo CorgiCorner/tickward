@@ -44,6 +44,7 @@ function idempotencyWhereKey(where: { apiKeyId_keyHash: { apiKeyId: string; keyH
 
 describe("public API v1", () => {
   beforeEach(() => {
+    delete process.env.TICKWARD_MCP_REMOTE_URL
     delete process.env.TICKWARD_TRUST_PROXY_HEADERS
     delete process.env.TRUST_PROXY_HEADERS
     mocks.authenticateApiKey.mockReset()
@@ -95,7 +96,7 @@ describe("public API v1", () => {
       features: {
         delete_preview: { project: true, space: true, timer: false },
         idempotency_key: { enabled: true, ttl_hours: 24 },
-        mcp: { local_stdio: true, remote_http: false },
+        mcp: { remote_oauth: false },
         nested_project_create: true,
         project_preview: true,
       },
@@ -104,6 +105,22 @@ describe("public API v1", () => {
     })
     expect(mocks.checkRateLimit).not.toHaveBeenCalled()
     expect(mocks.authenticateApiKey).not.toHaveBeenCalled()
+  })
+
+  it("marks remote MCP available when the deployment exposes an OAuth endpoint", async () => {
+    process.env.TICKWARD_MCP_REMOTE_URL = "https://mcp.example.com/mcp"
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+
+    const res = await handlePublicApiV1Request("GET", new Request("https://tickward.test/api/v1/capabilities"), [
+      "capabilities",
+    ])
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      features: {
+        mcp: { remote_oauth: true },
+      },
+    })
   })
 
   it("allows read keys to list projects with rate limit headers", async () => {
@@ -185,6 +202,29 @@ describe("public API v1", () => {
 
     expect(res.status).toBe(401)
     await expect(res.json()).resolves.toMatchObject({ error: { type: "restricted_api_key" } })
+  })
+
+  it("blocks MCP connections without the required scope", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce({
+      ...fullKey,
+      kind: "mcp_connection",
+      scopes: ["projects:read"],
+    })
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      new Request("https://tickward.test/api/v1/projects", {
+        method: "POST",
+        headers: { authorization: "Bearer tw_mcp_read" },
+        body: JSON.stringify({ name: "Main" }),
+      }),
+      ["projects"],
+    )
+
+    expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "insufficient_scope" } })
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
   })
 
   it("does not allow moving a share link to another timer", async () => {

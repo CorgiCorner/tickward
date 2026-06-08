@@ -62,6 +62,7 @@ Use host-reachable URLs in `.env` when you run services outside Compose.
 | `WEB_PUSH_VAPID_PUBLIC_KEY`                 |       No | Enables the Web Push public-key endpoint when set with the private key.             |
 | `WEB_PUSH_VAPID_PRIVATE_KEY`                |       No | Private VAPID key for push-capable deployments.                                     |
 | `WEB_PUSH_VAPID_SUBJECT`                    |       No | Optional VAPID subject.                                                             |
+| `TICKWARD_MCP_REMOTE_URL`                   |       No | Remote MCP endpoint shown in account settings when configured.                      |
 | `SEED_ADMIN_EMAIL`                          |       No | Email used by seed scripts to create or promote an admin account.                   |
 | `SEED_ADMIN_NAME`                           |       No | Optional display name for the seeded admin account.                                 |
 | `SEED_ADMIN_ID`                             |       No | Optional custom user id for the seeded admin account.                               |
@@ -139,20 +140,6 @@ npm run db:seed
 
 The database seed creates or promotes the admin account and idempotently upserts
 the demo project in PostgreSQL.
-
-## Redis data import
-
-Older deployments may have project data in Redis. To import it once, configure
-`DATABASE_URL`, `UPSTASH_REDIS_REST_URL`, and `UPSTASH_REDIS_REST_TOKEN`, then
-run:
-
-```bash
-npm run db:migrate:deploy
-npm run migrate:redis-to-postgres
-npm run migrate:redis-to-postgres -- --write
-```
-
-The migration script defaults to dry-run mode and never deletes Redis keys.
 
 ## Advanced database roles
 

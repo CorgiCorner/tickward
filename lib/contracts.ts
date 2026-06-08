@@ -6,8 +6,8 @@
 // swap storage adapters underneath without touching callers.
 //
 // Wire-format note: timers serialize `targetDate` (ISO string) plus
-// `timezone`. Renaming to `targetAt` would break stored Redis payloads, so the
-// contracts keep the existing field names.
+// `timezone`. The contracts keep those public field names stable across storage
+// implementations.
 
 import type { ProjectMeta, ProjectSnapshotV2 } from "@/lib/project-model"
 import type { ShareRecord, SharedTimerSnapshot } from "@/lib/share-model"

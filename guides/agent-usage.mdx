@@ -6,6 +6,13 @@ description: "How AI agents should use the tickward API safely and predictably."
 Agents can use tickward to create and manage countdown projects for a user. Keep
 actions explicit and prefer small, reversible steps.
 
+## Connection options
+
+- Use remote MCP with OAuth when the agent client supports hosted MCP servers.
+- Use API keys for local scripts, CLI tools, and self-hosted agents that call
+  the REST API directly.
+- Treat API keys as secrets. Prefer read-only keys for lookup workflows.
+
 ## Recommended workflow
 
 1. Check `GET /capabilities` to see which safe workflows are available.

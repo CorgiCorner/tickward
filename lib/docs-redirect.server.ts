@@ -17,6 +17,16 @@ function docsOrigin() {
   }
 }
 
+function docsTargetUrl(origin: string, pathname: string, requestUrl: URL) {
+  const target = new URL(origin)
+  const basePath = target.pathname.replace(/\/$/, "")
+  const cleanPath = pathname.startsWith("/") ? pathname : `/${pathname}`
+  const childPath = cleanPath === "/" ? "" : cleanPath
+  target.pathname = `${basePath}${childPath}` || "/"
+  target.search = requestUrl.search
+  return target
+}
+
 export function redirectToDocs(request: Request, pathname: string) {
   const origin = docsOrigin()
   if (!origin) {
@@ -27,8 +37,7 @@ export function redirectToDocs(request: Request, pathname: string) {
   }
 
   const requestUrl = new URL(request.url)
-  const target = new URL(pathname, origin)
-  target.search = requestUrl.search
+  const target = docsTargetUrl(origin, pathname, requestUrl)
   return NextResponse.redirect(target, 307)
 }
 

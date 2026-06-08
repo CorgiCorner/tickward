@@ -27,9 +27,8 @@ For multi-resource project setup, call `POST /projects/preview` with the same
 payload you plan to create. Then call `POST /projects` with the returned
 `plan_hash` as `expected_plan_hash`.
 
-The local tickward MCP server is a stdio adapter over this same REST API. It
-uses `TICKWARD_API_BASE_URL` and `TICKWARD_API_KEY`; it does not access the
-database directly.
+Remote MCP clients use OAuth through the configured MCP endpoint. Local scripts,
+CLI tools, and self-hosted agents can use API keys created in settings.
 
 ## Resources
 

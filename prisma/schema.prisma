@@ -30,6 +30,7 @@ model User {
   notificationOutboxItems  NotificationOutboxItem[]
   pushSubscriptions        WebPushSubscription[]
   apiKeys                  ApiKey[]
+  mcpAuthorizationGrants   McpAuthorizationGrant[]
   publicApiIdempotencyKeys PublicApiIdempotencyKey[]
   preference               UserPreference?
 
@@ -55,11 +56,14 @@ model UserPreference {
 model ApiKey {
   id         String    @id @default(cuid())
   userId     String
+  kind       String    @default("api_key")
   name       String
   permission String
   keyHash    String    @unique
   keyPrefix  String
   keyLast4   String
+  clientName String?
+  scopes     Json?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   lastUsedAt DateTime?
@@ -69,8 +73,27 @@ model ApiKey {
   idempotencyKeys PublicApiIdempotencyKey[]
 
   @@index([userId, revokedAt])
+  @@index([userId, kind, revokedAt])
   @@index([keyPrefix])
   @@map("api_key")
+}
+
+model McpAuthorizationGrant {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  clientName String?
+  scopes     Json
+  mcpOrigin  String
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  usedAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+  @@map("mcp_authorization_grant")
 }
 
 model PublicApiIdempotencyKey {

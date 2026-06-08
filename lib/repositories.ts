@@ -1,7 +1,7 @@
 // v0.2 repository ports.
 //
-// Services depend on these interfaces instead of concrete storage so a future
-// database can replace the Redis adapters without touching domain or API code.
+// Services depend on these interfaces instead of concrete storage so persistence
+// details stay out of domain and API code.
 // This module is type-only and safe to import anywhere; the concrete adapters
 // live in `*-repository.server.ts` modules.
 
@@ -53,6 +53,9 @@ export type RateLimitBucket =
   | "public-api"
   | "public-api-ip"
   | "api-key-management"
+  | "mcp-connection-management"
+  | "mcp-oauth-exchange"
+  | "mcp-oauth-grant"
 
 export type RateLimitDecision =
   | { ok: true }

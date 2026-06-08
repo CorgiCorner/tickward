@@ -22,6 +22,7 @@ export type ServerEnvVar =
   | "WEB_PUSH_VAPID_PUBLIC_KEY"
   | "WEB_PUSH_VAPID_PRIVATE_KEY"
   | "WEB_PUSH_VAPID_SUBJECT"
+  | "TICKWARD_MCP_REMOTE_URL"
 
 /**
  * Read a required environment variable, trimmed. Throws when it is absent or

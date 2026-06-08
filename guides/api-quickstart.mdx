@@ -104,6 +104,10 @@ the same method, path, query, and JSON body returns the original response for up
 to 24 hours. Reusing it with a different request returns
 `idempotency_conflict`.
 
+Generate keys with a random UUID and an operation prefix, for example
+`timer-create-${crypto.randomUUID()}`. Keep the same key only while retrying the
+same logical write.
+
 ## Errors
 
 Errors use a predictable shape:

@@ -22,6 +22,18 @@ describe("redirectToDocs", () => {
     expect(res.headers.get("location")).toBe("https://docs.example.test/api?ref=agent")
   })
 
+  it("supports docs origins hosted under a subpath", () => {
+    process.env.TICKWARD_DOCS_ORIGIN = "https://tickward.com/docs"
+
+    const res = redirectToDocs(
+      new Request("https://app.example.test/docs/guides/api-quickstart?ref=agent"),
+      "/guides/api-quickstart",
+    )
+
+    expect(res.status).toBe(307)
+    expect(res.headers.get("location")).toBe("https://tickward.com/docs/guides/api-quickstart?ref=agent")
+  })
+
   it("stays disabled until a docs origin is configured", async () => {
     process.env.TICKWARD_DOCS_ORIGIN = ""
 

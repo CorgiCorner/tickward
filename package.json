@@ -1,8 +1,11 @@
 {
   "name": "tickward",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=22 <23"
+  },
   "overrides": {
     "@hono/node-server": "1.19.14",
     "kysely": "0.28.17",
@@ -16,14 +19,16 @@
     "format": "biome format --write .",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
+    "check:node": "node scripts/check-node-version.mjs",
     "test": "vitest run --project unit",
     "test:unit": "vitest run --project unit",
     "test:storybook": "vitest run --project storybook",
     "smoke:app": "node scripts/smoke-app.mjs",
     "smoke:visual": "node scripts/smoke-visual.mjs",
     "smoke:email-otp": "node scripts/smoke-email-otp.mjs",
+    "smoke:docker": "node scripts/smoke-docker.mjs",
     "demo:seed": "node scripts/open-demo-seed.mjs",
-    "release:check": "npm run lint && npx tsc --noEmit && npm run test:unit && npm run test:storybook && npm run smoke:app && npm run smoke:visual && npm run smoke:email-otp && npm run build && npm run build-storybook",
+    "release:check": "npm run check:node && npm run lint && npx tsc --noEmit && npm run test:unit && npm run test:storybook && npm run smoke:app && npm run smoke:visual && npm run smoke:email-otp && npm run build && npm run build-storybook && npm run smoke:docker",
     "test:watch": "vitest --project unit",
     "test:coverage": "vitest run --project unit --coverage",
     "db:download-rds-ca": "node scripts/download-rds-ca.mjs",
@@ -32,7 +37,6 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "node scripts/seed-bootstrap.mjs",
     "db:seed:admin": "node scripts/seed-admin.mjs",
-    "migrate:redis-to-postgres": "node scripts/migrate-redis-to-postgres.mjs",
     "postinstall": "node scripts/prisma-generate-if-available.mjs",
     "prepare": "husky || true"
   },

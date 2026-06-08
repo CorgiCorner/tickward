@@ -18,8 +18,8 @@ spaces, or create static share links.
 - List, create, update, archive, and delete timers.
 - List, create, update, and delete spaces.
 - Create, inspect, and delete timer share links.
-- Use local MCP tools for agent workflows when configured with
-  `TICKWARD_API_KEY`.
+- Use MCP clients for agent workflows when a remote endpoint or API key is
+  configured.
 
 ## Authentication
 
@@ -49,6 +49,7 @@ Use read-only keys for questions and full-access keys for requested changes.
 - Dates use ISO 8601 strings.
 - Timezones use IANA timezone names such as `Europe/Warsaw`.
 - `Idempotency-Key` replays the same write response for up to 24 hours when the method, path, query, and JSON body match.
+- Generate `Idempotency-Key` with a random UUID plus an operation prefix, for example `timer-create-${crypto.randomUUID()}`.
 - `DELETE ...?dry_run=true` previews project and space deletes without mutating data.
 - `POST /projects/preview` returns a `plan_hash`; send it as `expected_plan_hash` when creating the project.
 - Errors use `{ "error": { "type": "...", "message": "..." } }`.

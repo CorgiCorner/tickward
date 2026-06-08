@@ -15,7 +15,7 @@
         "groups": [
           {
             "group": "Start",
-            "pages": ["index", "guides/self-hosting", "guides/api-quickstart", "guides/agent-usage"]
+            "pages": ["index", "guides/self-hosting", "guides/api-quickstart", "guides/mcp", "guides/agent-usage"]
           },
           {
             "group": "Recipes",

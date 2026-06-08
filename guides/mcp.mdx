@@ -1,0 +1,121 @@
+---
+title: "MCP setup"
+description: "Connect tickward to ChatGPT, Claude, local agents, or a self-hosted MCP Worker."
+---
+
+tickward exposes a remote MCP endpoint for clients that support hosted MCP
+servers and OAuth:
+
+```text
+https://mcp.tickward.com/mcp
+```
+
+Use these values when a client asks for connector metadata:
+
+| Field | Value |
+| --- | --- |
+| Name | `tickward` |
+| Description | `Manage countdown timers, projects, spaces, and share links.` |
+| Server URL | `https://mcp.tickward.com/mcp` |
+| Authentication | OAuth |
+| Icon URL | `https://tickward.com/icon-512.png` |
+
+Remote MCP uses your tickward account consent screen. API keys are for local
+scripts, CLI tools, and self-hosted agents that call the REST API directly.
+Do not paste an API key into the hosted remote MCP connector.
+
+tickward is not a prebuilt ChatGPT or Claude connector yet. Add it as a custom
+remote MCP connector.
+
+## Web apps
+
+The ChatGPT and Claude steps below describe how to add tickward from their web
+apps. Local CLI tools use the separate local-agent setup below.
+
+### ChatGPT
+
+Use this path when ChatGPT shows Developer Mode or custom MCP app setup for your
+plan or workspace:
+
+1. Open ChatGPT settings and enable Developer Mode.
+2. Create a custom app or MCP connector.
+3. Enter the tickward MCP server URL: `https://mcp.tickward.com/mcp`.
+4. Select OAuth authentication. If dynamic client registration is available,
+   use it instead of pasting static client credentials.
+5. Scan tools, finish the OAuth flow, and create the app.
+6. In a chat, select Developer Mode and enable the `tickward` app.
+
+ChatGPT availability and labels can vary by plan and workspace policy. If the
+custom app controls are not visible, use the REST API with an API key from
+tickward settings.
+
+Official OpenAI references:
+
+- [ChatGPT Developer mode](https://platform.openai.com/docs/guides/developer-mode)
+- [Developer mode and MCP apps in ChatGPT](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt)
+
+### Claude
+
+Use this path when Claude shows custom connectors:
+
+1. Open Claude and go to `Customize` > `Connectors`.
+2. Click `+`, then `Add custom connector`.
+3. Enter the tickward MCP server URL: `https://mcp.tickward.com/mcp`.
+4. Leave advanced OAuth client credentials empty unless your workspace requires
+   static credentials.
+5. Add the connector, click `Connect`, and complete the tickward OAuth flow.
+6. Enable the connector for the conversation where you want to use it.
+
+Official Anthropic reference:
+
+- [Get started with custom connectors using remote MCP](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
+
+## Local agents
+
+If your local agent supports remote HTTP MCP with OAuth, add the server URL:
+
+```text
+https://mcp.tickward.com/mcp
+```
+
+Common config shapes:
+
+```bash
+codex mcp add tickward --url https://mcp.tickward.com/mcp
+```
+
+```bash
+claude mcp add --transport http tickward https://mcp.tickward.com/mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "tickward": {
+      "url": "https://mcp.tickward.com/mcp"
+    }
+  }
+}
+```
+
+If the agent cannot complete remote MCP OAuth, create an API key in tickward
+settings and call the REST API directly:
+
+```text
+Authorization: Bearer tw_your_api_key
+```
+
+Prefer read-only keys for lookup workflows. Use full-access keys only for
+changes the user explicitly requested.
+
+## Self-hosted MCP
+
+Self-hosted deployments can run the separate tickward MCP Worker and point it at
+their own tickward app/API domain. After deployment, set this in the tickward app
+environment:
+
+```bash
+TICKWARD_MCP_REMOTE_URL=https://mcp.example.com/mcp
+```
+
+The Settings page will then show the remote MCP URL for that deployment.

@@ -7,6 +7,7 @@ import { toast } from "sonner"
 
 import { AccountPreferencesProvider, useAccountPreferences } from "@/components/account-preferences-provider"
 import { ApiKeysSettingsPanel, type ApiKeyRecord } from "@/components/api-keys-settings"
+import { McpSettingsPanel } from "@/components/mcp-settings"
 import { NotificationSettingsPanel } from "@/components/notification-settings"
 import { TimerDefaultsSettingsPanel } from "@/components/timer-defaults-settings"
 import { Button } from "@/components/ui/button"
@@ -19,6 +20,7 @@ import type { AccountPreferencesRecord } from "@/lib/account-preferences"
 import { authClient } from "@/lib/auth/auth-client"
 import { authErrorMessage } from "@/lib/auth/auth-client-errors"
 import { formatMessage } from "@/lib/i18n/messages"
+import type { McpConnectionPublicRecord } from "@/lib/mcp-oauth"
 import { useTimerStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
@@ -216,6 +218,10 @@ function AccountPreferencesSections(
   props: Readonly<{
     apiKeys?: ApiKeyRecord[]
     apiKeysError?: string | null
+    mcpConnections?: McpConnectionPublicRecord[]
+    mcpConnectionsError?: string | null
+    mcpDocsHref?: string | null
+    mcpRemoteUrl?: string | null
   }>,
 ) {
   const { error, loading, refreshPreferences } = useAccountPreferences()
@@ -242,11 +248,17 @@ function AccountPreferencesSections(
       <TimerDefaultsSettingsPanel />
       <NotificationSettingsPanel />
       <ApiKeysSettingsPanel initialApiKeys={props.apiKeys} initialLoadError={props.apiKeysError} />
+      <McpSettingsPanel
+        initialConnections={props.mcpConnections}
+        initialLoadError={props.mcpConnectionsError}
+        docsHref={props.mcpDocsHref}
+        remoteUrl={props.mcpRemoteUrl}
+      />
     </div>
   )
 }
 
-const SETTINGS_SECTION_IDS = new Set(["profile", "defaults", "alerts", "api-keys"])
+const SETTINGS_SECTION_IDS = new Set(["profile", "defaults", "alerts", "api-keys", "mcp"])
 
 function normalizedSettingsHashId() {
   const raw = globalThis.location.hash.slice(1)
@@ -297,6 +309,10 @@ function SettingsHashScroller() {
 export type AccountPageInitialData = {
   apiKeys?: ApiKeyRecord[]
   apiKeysError?: string | null
+  mcpConnections?: McpConnectionPublicRecord[]
+  mcpConnectionsError?: string | null
+  mcpDocsHref?: string | null
+  mcpRemoteUrl?: string | null
   preferences?: AccountPreferencesRecord
   preferencesError?: string | null
 }
@@ -372,7 +388,14 @@ export function AccountPageClient(props: Readonly<AccountPageInitialData> = {}) 
       {content}
       {session.data?.user ? (
         <AccountPreferencesProvider initialPreferences={props.preferences} initialError={props.preferencesError}>
-          <AccountPreferencesSections apiKeys={props.apiKeys} apiKeysError={props.apiKeysError} />
+          <AccountPreferencesSections
+            apiKeys={props.apiKeys}
+            apiKeysError={props.apiKeysError}
+            mcpConnections={props.mcpConnections}
+            mcpConnectionsError={props.mcpConnectionsError}
+            mcpDocsHref={props.mcpDocsHref}
+            mcpRemoteUrl={props.mcpRemoteUrl}
+          />
         </AccountPreferencesProvider>
       ) : null}
     </main>

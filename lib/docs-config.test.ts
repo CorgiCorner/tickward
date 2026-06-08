@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { getDocsHref, getDocsSitemapPaths } from "@/lib/docs-config"
+import { getDocsHref, getDocsPageHref, getDocsSitemapPaths } from "@/lib/docs-config"
 
 const originalDocsOrigin = process.env.TICKWARD_DOCS_ORIGIN
 
@@ -21,6 +21,30 @@ describe("docs config", () => {
     delete process.env.TICKWARD_DOCS_ORIGIN
 
     expect(getDocsHref()).toBe("/docs")
+    expect(getDocsPageHref("/guides/mcp")).toBe("/docs/guides/mcp")
+    expect(getDocsSitemapPaths()).toEqual([])
+  })
+
+  it("links directly to the configured docs origin", () => {
+    process.env.TICKWARD_DOCS_ORIGIN = "https://tickward.com/docs/"
+
+    expect(getDocsHref()).toBe("https://tickward.com/docs")
+    expect(getDocsPageHref("/guides/mcp")).toBe("https://tickward.com/docs/guides/mcp")
+    expect(getDocsSitemapPaths()).toEqual([
+      "/docs",
+      "/docs/guides/self-hosting",
+      "/docs/guides/api-quickstart",
+      "/docs/guides/mcp",
+      "/docs/guides/agent-usage",
+      "/docs/api-reference",
+    ])
+  })
+
+  it("ignores invalid docs origins", () => {
+    process.env.TICKWARD_DOCS_ORIGIN = "not a url"
+
+    expect(getDocsHref()).toBe("/docs")
+    expect(getDocsPageHref("guides/mcp")).toBe("/docs/guides/mcp")
     expect(getDocsSitemapPaths()).toEqual([])
   })
 })

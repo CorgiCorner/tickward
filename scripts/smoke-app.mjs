@@ -119,6 +119,17 @@ async function assertNoBrowserErrors(errors) {
   fail(`Browser errors:\n${errors.map((error) => `- ${error}`).join("\n")}`)
 }
 
+function isIgnorableRequestFailure(request) {
+  const errorText = request.failure()?.errorText
+  if (errorText !== "net::ERR_ABORTED") return false
+
+  try {
+    return new URL(request.url()).searchParams.has("_rsc")
+  } catch {
+    return false
+  }
+}
+
 async function runSmoke(baseUrl) {
   const browser = await chromium.launch({ headless: true })
   const context = await browser.newContext({
@@ -148,6 +159,7 @@ async function runSmoke(baseUrl) {
       browserErrors.push(`HTTP ${status} ${url}`)
     })
     page.on("requestfailed", (request) => {
+      if (isIgnorableRequestFailure(request)) return
       browserErrors.push(`${request.failure()?.errorText ?? "request_failed"} ${request.url()}`)
     })
     await page.route("**/api/projects/restore?*", async (route) => {

@@ -8,8 +8,10 @@ import { getAccountPreferencesForUser } from "@/lib/account-preferences.server"
 import { listApiKeysForUser } from "@/lib/api-keys.server"
 import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/cookies.server"
 import type { UserActor } from "@/lib/contracts"
-import { getDocsHref } from "@/lib/docs-config"
+import { getDocsHref, getDocsPageHref } from "@/lib/docs-config"
 import { formatMessage } from "@/lib/i18n/messages"
+import { getMcpRemoteUrl } from "@/lib/mcp-config.server"
+import { listMcpConnectionsForUser } from "@/lib/mcp-oauth.server"
 import { getPublicReleaseTag } from "@/lib/release.server"
 import { noIndexRobots } from "@/lib/seo-metadata"
 import { TimerStoreProvider } from "@/lib/store"
@@ -41,9 +43,10 @@ async function requireSignedInSettingsUser(): Promise<UserActor> {
 }
 
 export async function readInitialAccountData(user: UserActor["user"]): Promise<AccountPageInitialData> {
-  const [preferencesResult, apiKeysResult] = await Promise.allSettled([
+  const [preferencesResult, apiKeysResult, mcpConnectionsResult] = await Promise.allSettled([
     getAccountPreferencesForUser(user),
     listApiKeysForUser(user),
+    listMcpConnectionsForUser(user),
   ])
 
   if (preferencesResult.status === "rejected") {
@@ -52,10 +55,18 @@ export async function readInitialAccountData(user: UserActor["user"]): Promise<A
   if (apiKeysResult.status === "rejected") {
     console.error("[tickward] settings.initialApiKeys", apiKeysResult.reason)
   }
+  if (mcpConnectionsResult.status === "rejected") {
+    console.error("[tickward] settings.initialMcpConnections", mcpConnectionsResult.reason)
+  }
 
   return {
     apiKeys: apiKeysResult.status === "fulfilled" ? apiKeysResult.value : [],
     apiKeysError: apiKeysResult.status === "fulfilled" ? null : formatMessage("apiKeys.unavailable"),
+    mcpConnections: mcpConnectionsResult.status === "fulfilled" ? mcpConnectionsResult.value : [],
+    mcpConnectionsError:
+      mcpConnectionsResult.status === "fulfilled" ? null : formatMessage("mcp.connectionsUnavailable"),
+    mcpDocsHref: getDocsPageHref("/guides/mcp"),
+    mcpRemoteUrl: getMcpRemoteUrl(),
     preferences: preferencesResult.status === "fulfilled" ? preferencesResult.value : DEFAULT_ACCOUNT_PREFERENCES,
     preferencesError: preferencesResult.status === "fulfilled" ? null : formatMessage("settings.preferencesLoadFailed"),
   }

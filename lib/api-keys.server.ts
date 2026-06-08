@@ -7,8 +7,13 @@ import { requirePrismaClient } from "@/lib/db/prisma.server"
 import type { Prisma } from "@/lib/generated/prisma/client"
 
 export const API_KEY_PREFIX = "tw_"
+export const MCP_API_KEY_PREFIX = "tw_mcp_"
 export const API_KEY_PERMISSIONS = ["full_access", "read"] as const
+export const API_KEY_KIND = "api_key"
+export const MCP_CREDENTIAL_KIND = "mcp_connection"
+export const API_CREDENTIAL_KINDS = [API_KEY_KIND, MCP_CREDENTIAL_KIND] as const
 export type ApiKeyPermission = (typeof API_KEY_PERMISSIONS)[number]
+export type ApiCredentialKind = (typeof API_CREDENTIAL_KINDS)[number]
 
 export type ApiKeyPublicRecord = {
   id: string
@@ -29,17 +34,22 @@ export type CreatedApiKeyRecord = ApiKeyPublicRecord & {
 
 export type AuthenticatedApiKey = {
   id: string
+  kind: ApiCredentialKind
   permission: ApiKeyPermission
   user: UserRef
   rateLimitKey: string
+  scopes: string[]
 }
 
 type ApiKeyRow = {
+  clientName?: string | null
   id: string
+  kind?: string
   name: string
   permission: string
   keyPrefix: string
   keyLast4: string
+  scopes?: unknown
   createdAt: Date
   updatedAt: Date
   lastUsedAt: Date | null
@@ -50,8 +60,16 @@ function isApiKeyPermission(value: unknown): value is ApiKeyPermission {
   return API_KEY_PERMISSIONS.includes(value as ApiKeyPermission)
 }
 
+function isApiCredentialKind(value: unknown): value is ApiCredentialKind {
+  return API_CREDENTIAL_KINDS.includes(value as ApiCredentialKind)
+}
+
 export function normalizeApiKeyPermission(value: unknown): ApiKeyPermission | null {
   return isApiKeyPermission(value) ? value : null
+}
+
+export function normalizeApiCredentialKind(value: unknown): ApiCredentialKind {
+  return isApiCredentialKind(value) ? value : API_KEY_KIND
 }
 
 export function normalizeApiKeyName(value: unknown) {
@@ -69,7 +87,7 @@ export function hashApiKeyToken(token: string) {
   return createHash("sha256").update(`tickward:api-key:${token}`, "utf8").digest("hex")
 }
 
-function publicApiKey(row: ApiKeyRow): ApiKeyPublicRecord {
+export function publicApiCredentialRecord(row: ApiKeyRow): ApiKeyPublicRecord {
   return {
     id: row.id,
     object: "api_key",
@@ -106,10 +124,10 @@ function userUpsertFields(user: UserRef) {
 export async function listApiKeysForUser(user: UserRef): Promise<ApiKeyPublicRecord[]> {
   const prisma = requirePrismaClient()
   const rows = await prisma.apiKey.findMany({
-    where: { userId: user.id },
+    where: { kind: API_KEY_KIND, userId: user.id },
     orderBy: { createdAt: "desc" },
   })
-  return rows.map(publicApiKey)
+  return rows.map(publicApiCredentialRecord)
 }
 
 export async function createApiKeyForUser(args: {
@@ -130,6 +148,7 @@ export async function createApiKeyForUser(args: {
         keyHash,
         keyLast4,
         keyPrefix,
+        kind: API_KEY_KIND,
         name: args.name,
         permission: args.permission,
         userId: args.user.id,
@@ -137,7 +156,7 @@ export async function createApiKeyForUser(args: {
     })
   })
 
-  return { ...publicApiKey(row), token }
+  return { ...publicApiCredentialRecord(row), token }
 }
 
 export async function updateApiKeyForUser(args: {
@@ -152,22 +171,22 @@ export async function updateApiKeyForUser(args: {
   if (args.permission !== undefined) data.permission = args.permission
 
   const updated = await prisma.apiKey.updateManyAndReturn({
-    where: { id: args.id, userId: args.user.id, revokedAt: null },
+    where: { id: args.id, kind: API_KEY_KIND, userId: args.user.id, revokedAt: null },
     data,
   })
 
-  return updated[0] ? publicApiKey(updated[0]) : null
+  return updated[0] ? publicApiCredentialRecord(updated[0]) : null
 }
 
 export async function revokeApiKeyForUser(args: { id: string; user: UserRef }): Promise<ApiKeyPublicRecord | null> {
   const prisma = requirePrismaClient()
   const revokedAt = new Date()
   const updated = await prisma.apiKey.updateManyAndReturn({
-    where: { id: args.id, userId: args.user.id, revokedAt: null },
+    where: { id: args.id, kind: API_KEY_KIND, userId: args.user.id, revokedAt: null },
     data: { revokedAt },
   })
 
-  return updated[0] ? publicApiKey(updated[0]) : null
+  return updated[0] ? publicApiCredentialRecord(updated[0]) : null
 }
 
 export function readBearerApiKey(req: Request): string | null {
@@ -185,7 +204,7 @@ function shouldTouchLastUsedAt(lastUsedAt: Date | null) {
 }
 
 export async function authenticateApiKey(token: string): Promise<AuthenticatedApiKey | null> {
-  if (!token.startsWith(API_KEY_PREFIX)) return null
+  if (!token.startsWith(API_KEY_PREFIX) && !token.startsWith(MCP_API_KEY_PREFIX)) return null
 
   const prisma = requirePrismaClient()
   const keyHash = hashApiKeyToken(token)
@@ -206,8 +225,10 @@ export async function authenticateApiKey(token: string): Promise<AuthenticatedAp
 
   return {
     id: row.id,
+    kind: normalizeApiCredentialKind(row.kind),
     permission,
     rateLimitKey: `user:${row.userId}`,
+    scopes: Array.isArray(row.scopes) ? row.scopes.filter((scope): scope is string => typeof scope === "string") : [],
     user: {
       id: row.user.id,
       email: row.user.email,
