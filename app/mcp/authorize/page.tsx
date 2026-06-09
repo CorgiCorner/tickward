@@ -4,7 +4,7 @@ import { redirect } from "next/navigation"
 
 import { Footer } from "@/components/footer"
 import { Header } from "@/components/header"
-import { Button } from "@/components/ui/button"
+import { InvalidMcpAuthorization, McpAuthorizationCard } from "@/components/mcp-authorization-card"
 import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/cookies.server"
 import type { UserActor } from "@/lib/contracts"
 import { getCurrentActor } from "@/lib/actor.server"
@@ -51,19 +51,6 @@ async function requireSignedInMcpUser(nextPath: string): Promise<UserActor> {
   redirect(`/sign-in?next=${encodeURIComponent(nextPath)}`)
 }
 
-function scopeLabel(scope: string) {
-  return scope.replace(":", " ")
-}
-
-function InvalidMcpAuthorization() {
-  return (
-    <section className="grid gap-3 rounded-lg border p-4">
-      <h1 className="text-xl font-semibold tracking-normal">{formatMessage("mcp.authorize.unavailableTitle")}</h1>
-      <p className="text-sm text-muted-foreground">{formatMessage("mcp.authorize.unavailableDescription")}</p>
-    </section>
-  )
-}
-
 export default async function McpAuthorizePage(props: Readonly<{ searchParams: Promise<McpAuthorizeSearchParams> }>) {
   const searchParams = await props.searchParams
   const handoff = normalizeMcpHandoffId(searchParams.handoff)
@@ -72,7 +59,7 @@ export default async function McpAuthorizePage(props: Readonly<{ searchParams: P
   if (handoff) url.searchParams.set("handoff", handoff)
   if (origin) url.searchParams.set("mcp_origin", origin)
 
-  await requireSignedInMcpUser(`${url.pathname}${url.search}`)
+  const actor = await requireSignedInMcpUser(`${url.pathname}${url.search}`)
 
   const authorization = handoff
     ? await readMcpAuthorizationHandoff({ handoff, mcpOrigin: origin }).catch(() => null)
@@ -88,32 +75,15 @@ export default async function McpAuthorizePage(props: Readonly<{ searchParams: P
     <TimerStoreProvider initialState={{ timers, spaces, restoreKey }}>
       <div className="flex min-h-dvh flex-col bg-background text-foreground">
         <Header timerCount={timers.length} />
-        <main className="mx-auto grid w-full max-w-[520px] gap-6 px-4 py-8">
+        <main className="mx-auto grid w-full max-w-[560px] gap-6 px-4 py-8 sm:py-10">
           {authorization ? (
-            <section className="grid gap-5 rounded-lg border p-4">
-              <div className="grid gap-1">
-                <h1 className="text-xl font-semibold tracking-normal">{formatMessage("mcp.authorize.title")}</h1>
-                <p className="text-sm text-muted-foreground">
-                  {formatMessage("mcp.authorize.clientDescription", { client: authorization.clientName })}
-                </p>
-              </div>
-              <div className="grid gap-2">
-                <div className="text-sm font-medium">{formatMessage("mcp.authorize.scopesTitle")}</div>
-                <ul className="grid gap-2">
-                  {authorization.scopes.map((scope) => (
-                    <li key={scope} className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
-                      {scopeLabel(scope)}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <form action="/api/mcp/oauth/grants" method="post" className="grid gap-3">
-                <input type="hidden" name="handoff" value={authorization.handoff} />
-                <input type="hidden" name="mcp_origin" value={authorization.mcpOrigin} />
-                <Button type="submit">{formatMessage("mcp.authorize.approve")}</Button>
-                <p className="text-xs text-muted-foreground">{formatMessage("mcp.authorize.footer")}</p>
-              </form>
-            </section>
+            <McpAuthorizationCard
+              clientName={authorization.clientName}
+              handoff={authorization.handoff}
+              mcpOrigin={authorization.mcpOrigin}
+              scopes={authorization.scopes}
+              userEmail={actor.user.email}
+            />
           ) : (
             <InvalidMcpAuthorization />
           )}

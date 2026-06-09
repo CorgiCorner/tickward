@@ -4,6 +4,32 @@
 
 No unreleased public changes.
 
+## 0.1.2 - 2026-06-08
+
+### Added
+
+- Added `project_name` and `effective_target_date` to public timer API
+  responses for agent-friendly answers and confirmations.
+- Added a custom favicon for the Mintlify docs site.
+
+### Changed
+
+- Default account alarm preferences now use full-page alerts and the polite
+  sound.
+- Clarified Settings copy so browser permissions are shown as device
+  notifications, while full-page and sound alerts are account alarm defaults.
+
+### Fixed
+
+- Sound choices no longer play a different fallback tone when selected. The
+  preview button now owns sound playback.
+- The homepage now applies signed-in account alarm preferences before local
+  timer alarms run.
+- Root Mintlify docs now include the favicon and the same OpenAPI/agent docs as
+  the docs source folder.
+- MCP connections with mixed OAuth scopes are shown as scoped write access
+  instead of full access in Settings.
+
 ## 0.1.1 - 2026-06-08
 
 ### Added

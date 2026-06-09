@@ -26,7 +26,7 @@ Open [http://localhost:3000](http://localhost:3000).
   timers.
 - Read-only timer share links under `/share/...`.
 - Optional email-code accounts with anonymous project claiming.
-- System alerts, local full-page alarms, and local notification sounds.
+- Device notifications, full-page alarms, and local notification sounds.
 - PostgreSQL-backed project data, share records, notification outbox records,
   delivery logs, push subscription records, and hashed public API keys.
 

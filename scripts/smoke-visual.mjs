@@ -16,6 +16,10 @@ const timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS ?? 60_000)
 const screenshotDir = process.env.SMOKE_VISUAL_DIR ?? "/tmp/tickward-visual-smoke"
 const expectedDocsHref = process.env.SMOKE_EXPECT_DOCS_HREF ?? "/docs"
 const mobileViewport = { width: 390, height: 844 }
+const transparentPixelPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+  "base64",
+)
 
 function log(message) {
   process.stdout.write(`[smoke:visual] ${message}\n`)
@@ -197,6 +201,35 @@ async function installRoutes(page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ shareId: null, url: null }),
+    })
+  })
+  await page.route("**/api/unsplash/search?*", async (route) => {
+    const results = Array.from({ length: 16 }, (_, index) => {
+      const id = `visual-${index + 1}`
+      return {
+        id,
+        urls: {
+          regular: `https://images.example.com/${id}/regular.jpg`,
+          small: `https://images.example.com/${id}/small.jpg`,
+          thumb: `https://images.example.com/${id}/thumb.jpg`,
+        },
+        user: {
+          name: `Visual Author ${index + 1}`,
+          links: { html: `https://unsplash.example.com/@visual-${index + 1}` },
+        },
+      }
+    })
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ results }),
+    })
+  })
+  await page.route("https://images.example.com/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      body: transparentPixelPng,
     })
   })
 }
@@ -453,14 +486,68 @@ async function runUnsplashSpacingSmoke(baseUrl) {
     await dialog.getByRole("button", { name: "Next" }).click()
     await dialog.getByRole("button", { name: "Add photo" }).click()
 
-    const spacing = await page.evaluate(() => {
+    const emptySpacing = await page.evaluate(() => {
       const description = document.querySelector('[data-slot="popover-description"]')
       const input = document.querySelector('input[placeholder="Search photos..."]')
       if (!(description instanceof HTMLElement) || !(input instanceof HTMLElement)) return null
       return input.getBoundingClientRect().top - description.getBoundingClientRect().bottom
     })
-    assert(spacing !== null, "Unsplash popover description or search input was not found")
-    assert(spacing >= 10, `Unsplash search input is too close to the description: ${spacing}px`)
+    assert(emptySpacing !== null, "Unsplash popover description or search input was not found")
+    assert(emptySpacing >= 10, `Unsplash search input is too close to the description: ${emptySpacing}px`)
+
+    await page.getByPlaceholder("Search photos...").fill("tokyo")
+    await page
+      .getByRole("button", { name: "Select photo by Visual Author 1", exact: true })
+      .waitFor({ state: "visible" })
+
+    const layout = await page.evaluate(() => {
+      const content = document.querySelector('[data-slot="popover-content"]')
+      const input = document.querySelector('input[placeholder="Search photos..."]')
+      const firstTile = document.querySelector('button[aria-label^="Select photo by"]')
+      const tileGrid = firstTile?.parentElement?.parentElement
+      const footer = [...document.querySelectorAll("a")].find(
+        (anchor) => anchor.textContent?.trim() === "Unsplash",
+      )?.parentElement
+      if (
+        !(content instanceof HTMLElement) ||
+        !(input instanceof HTMLElement) ||
+        !(firstTile instanceof HTMLElement) ||
+        !(tileGrid instanceof HTMLElement) ||
+        !(footer instanceof HTMLElement)
+      ) {
+        return null
+      }
+
+      const contentRect = content.getBoundingClientRect()
+      const inputRect = input.getBoundingClientRect()
+      const firstTileRect = firstTile.getBoundingClientRect()
+      const gridRect = tileGrid.getBoundingClientRect()
+      const footerRect = footer.getBoundingClientRect()
+      const scrollRegion = tileGrid.parentElement
+      const scrollRect = scrollRegion?.getBoundingClientRect()
+      const style = getComputedStyle(tileGrid)
+      return {
+        contentWidth: Math.round(contentRect.width),
+        firstTileHeight: Math.round(firstTileRect.height),
+        firstTileWidth: Math.round(firstTileRect.width),
+        gap: Number.parseFloat(style.columnGap),
+        gridTopSpacing: Math.round(gridRect.top - inputRect.bottom),
+        resultRightPadding: scrollRect ? Math.round(scrollRect.right - gridRect.right) : 0,
+        scrollClientHeight: scrollRegion?.clientHeight ?? 0,
+        scrollHeight: scrollRegion?.scrollHeight ?? 0,
+        footerTopSpacing: Math.round(footerRect.top - gridRect.bottom),
+      }
+    })
+    assert(layout, "Unsplash search results layout was not measurable")
+    assert(layout.gridTopSpacing >= 12, `Unsplash result grid is too close to search: ${JSON.stringify(layout)}`)
+    assert(layout.resultRightPadding >= 12, `Unsplash result grid lacks right padding: ${JSON.stringify(layout)}`)
+    assert(layout.gap >= 8, `Unsplash grid gap is too tight: ${JSON.stringify(layout)}`)
+    assert(layout.firstTileWidth <= 104, `Unsplash thumbnails are too wide: ${JSON.stringify(layout)}`)
+    assert(layout.firstTileHeight <= 104, `Unsplash thumbnails are too tall: ${JSON.stringify(layout)}`)
+    assert(
+      layout.scrollHeight > layout.scrollClientHeight,
+      `Unsplash results are not scrollable: ${JSON.stringify(layout)}`,
+    )
 
     await screenshot(page, "chromium-unsplash-popover.png")
     await assertNoBrowserErrors(browserErrors)

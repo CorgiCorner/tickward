@@ -38,6 +38,11 @@ actions explicit and prefer small, reversible steps.
 - Do not invent timezones. If the user gives a city, map it to a real IANA
   timezone.
 - Prefer `target_date` values with `Z` or an explicit offset.
+- When reading timers, answer countdown/deadline questions with
+  `effective_target_date`. For recurring timers, `target_date` is the original
+  schedule anchor.
+- When confirming timer changes, show `project_name`, timer label, and date.
+  Avoid raw project ids in user-facing text unless the user asks for ids.
 - Treat `rate_limited` as retryable after the `retry-after` header.
 - Treat `idempotency_conflict` as a client bug. Generate a new key only after
   confirming the intended request body.
@@ -49,5 +54,6 @@ actions explicit and prefer small, reversible steps.
 - Project names are short labels such as `Launch Plan` or `Personal`.
 - Spaces are categories inside a project, such as `Travel`, `Work`, or
   `Subscriptions`.
-- Timers need `label`, `target_date`, and `timezone`.
+- Timers need `label`, `target_date`, and `timezone`. Timer responses also
+  include `project_name` and `effective_target_date` for user-facing answers.
 - Share links are static paths returned as `url_path`, such as `/share/abc123`.

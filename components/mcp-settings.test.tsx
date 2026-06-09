@@ -67,4 +67,32 @@ describe("McpSettingsPanel", () => {
     expect(screen.getByText("Claude Code")).toBeVisible()
     expect(screen.getByText("tw_mcp_abc123...last")).toBeVisible()
   })
+
+  it("shows mixed OAuth write scopes as scoped access", () => {
+    render(
+      <McpSettingsPanel
+        initialConnections={[
+          {
+            client_name: "ChatGPT",
+            created_at: "2026-06-07T22:42:00.000Z",
+            id: "connection_123",
+            key_last4: "last",
+            key_prefix: "tw_mcp_abc123",
+            last_used_at: null,
+            name: "MCP: ChatGPT",
+            object: "mcp_connection",
+            permission: "full_access",
+            revoked_at: null,
+            scopes: ["projects:read", "timers:write"],
+            updated_at: "2026-06-07T22:42:00.000Z",
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText("Scoped write")).toBeVisible()
+    expect(screen.queryByText("Full access")).not.toBeInTheDocument()
+    expect(screen.getByText("projects read")).toBeVisible()
+    expect(screen.getByText("timers write")).toBeVisible()
+  })
 })

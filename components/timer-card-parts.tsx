@@ -76,7 +76,7 @@ export function TimerCardContent(
         "group relative min-w-0 w-full md:rounded-2xl md:border bg-card p-5 transition-colors",
         props.onMobileTap ? "cursor-pointer md:cursor-default" : "",
         props.isPinned
-          ? "bg-primary/[0.03] ring-1 ring-primary/10 md:border-primary/20 dark:bg-primary/[0.06]"
+          ? "border-l-2 border-l-primary/45 bg-primary/[0.025] md:border-primary/15 dark:bg-primary/[0.04]"
           : "md:border-border",
         props.isArchived ? "bg-muted/30" : "",
       ].join(" ")}

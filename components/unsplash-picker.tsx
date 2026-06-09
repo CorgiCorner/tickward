@@ -35,8 +35,8 @@ function UnsplashSearchResults(
 ) {
   if (props.loading) {
     return (
-      <div className="grid grid-cols-4 gap-1.5">
-        {PHOTO_SKELETON_KEYS.map((key) => (
+      <div className="grid grid-cols-4 gap-2">
+        {PHOTO_SKELETON_KEYS.slice(0, 8).map((key) => (
           <Skeleton key={key} className="aspect-square rounded-lg" />
         ))}
       </div>
@@ -49,38 +49,40 @@ function UnsplashSearchResults(
 
   if (props.results.length > 0) {
     return (
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-4 gap-2">
         {props.results.map((photo) => (
-          <button
-            key={photo.id}
-            type="button"
-            className="group relative overflow-hidden rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
-            onClick={() => {
-              void props.onSelect(photo)
-            }}
-          >
-            <Image
-              src={photo.urls.thumb}
-              alt=""
-              width={160}
-              height={160}
-              sizes="(max-width: 640px) 22vw, 120px"
-              unoptimized
-              className="aspect-square w-full object-cover transition-transform group-hover:scale-105"
-              loading="lazy"
-            />
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-1.5 pb-1 pt-4">
+          <div key={photo.id} className="group relative overflow-hidden rounded-lg">
+            <button
+              type="button"
+              aria-label={formatMessage("unsplash.selectPhoto", { name: photo.user.name })}
+              className="block w-full focus:outline-none focus:ring-2 focus:ring-ring"
+              onClick={() => {
+                void props.onSelect(photo)
+              }}
+            >
+              <Image
+                src={photo.urls.thumb}
+                alt=""
+                width={96}
+                height={96}
+                sizes="96px"
+                unoptimized
+                className="aspect-square w-full object-cover transition-transform group-hover:scale-105"
+                loading="lazy"
+              />
+            </button>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-1.5 pb-1 pt-4">
               <a
                 href={`${photo.user.links.html}?utm_source=tickward&utm_medium=referral`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block truncate text-[10px] text-white/80 hover:text-white"
+                className="pointer-events-auto block truncate text-[10px] text-white/80 hover:text-white"
                 onClick={(e) => e.stopPropagation()}
               >
                 {formatMessage("unsplash.by", { name: photo.user.name })}
               </a>
             </div>
-          </button>
+          </div>
         ))}
       </div>
     )
@@ -172,7 +174,7 @@ export function UnsplashPicker(
     props.onChange({
       unsplashId: photo.id,
       url: photo.urls.regular,
-      thumbUrl: photo.urls.small,
+      thumbUrl: photo.urls.thumb,
       authorName: photo.user.name,
       authorUrl: photo.user.links.html,
     })
@@ -221,28 +223,39 @@ export function UnsplashPicker(
               {formatMessage("unsplash.addPhoto")}
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-[min(calc(100vw-2rem),32rem)]" align="start">
-            <PopoverHeader>
+          <PopoverContent
+            className="grid w-[min(calc(100vw-1rem),28rem)] grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden p-0"
+            align="start"
+            sideOffset={8}
+            style={{ maxHeight: "min(34rem, var(--radix-popover-content-available-height))" }}
+          >
+            <PopoverHeader className="px-3 pt-3 sm:px-4 sm:pt-4">
               <PopoverTitle>{formatMessage("unsplash.choosePhoto")}</PopoverTitle>
               <PopoverDescription>{formatMessage("unsplash.searchDescription")}</PopoverDescription>
             </PopoverHeader>
 
-            <div className="relative mt-3">
-              <SearchIcon className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-              <Input
-                placeholder={formatMessage("unsplash.searchPlaceholder")}
-                value={query}
-                onChange={(e) => {
-                  const nextQuery = e.target.value
-                  setQuery(nextQuery)
-                  if (!nextQuery.trim()) clearSearchState()
-                }}
-                className="pl-8"
-                autoFocus
-              />
+            <div className="px-3 pt-3 sm:px-4">
+              <div className="relative">
+                <SearchIcon className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+                <Input
+                  placeholder={formatMessage("unsplash.searchPlaceholder")}
+                  value={query}
+                  onChange={(e) => {
+                    const nextQuery = e.target.value
+                    setQuery(nextQuery)
+                    if (!nextQuery.trim()) clearSearchState()
+                  }}
+                  className="pl-8"
+                  autoFocus
+                />
+              </div>
             </div>
 
-            <div className="min-h-[200px]">
+            <div
+              className="min-h-0 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4"
+              onWheelCapture={(event) => event.stopPropagation()}
+              onTouchMoveCapture={(event) => event.stopPropagation()}
+            >
               <UnsplashSearchResults
                 loading={loading}
                 error={error}
@@ -252,7 +265,7 @@ export function UnsplashPicker(
               />
             </div>
 
-            <div className="text-[10px] text-muted-foreground text-center">
+            <div className="border-t px-3 py-2 text-center text-[10px] text-muted-foreground sm:px-4">
               {formatMessage("unsplash.photosBy")}{" "}
               <a
                 href="https://unsplash.com/?utm_source=tickward&utm_medium=referral"

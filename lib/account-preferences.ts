@@ -26,6 +26,6 @@ export const DEFAULT_ACCOUNT_PREFERENCES: AccountPreferencesRecord = {
   object: "account_preferences",
   browser_notifications_enabled: false,
   default_timezone: null,
-  full_page_alarm: false,
-  notification_sound: "none",
+  full_page_alarm: true,
+  notification_sound: "polite",
 }

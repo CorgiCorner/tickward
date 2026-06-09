@@ -42,8 +42,8 @@ model UserPreference {
   userId                      String   @unique
   defaultTimezone             String?
   browserNotificationsEnabled Boolean  @default(false)
-  fullPageAlarm               Boolean  @default(false)
-  notificationSound           String   @default("none")
+  fullPageAlarm               Boolean  @default(true)
+  notificationSound           String   @default("polite")
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
 

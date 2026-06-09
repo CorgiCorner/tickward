@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { formatMessage } from "@/lib/i18n/messages"
-import type { McpConnectionPublicRecord } from "@/lib/mcp-oauth"
+import { MCP_OAUTH_SCOPES, type McpConnectionPublicRecord, type McpOAuthScope } from "@/lib/mcp-oauth"
 
 class McpConnectionRequestError extends Error {
   constructor(
@@ -80,6 +80,20 @@ function mcpConnectionsLoadErrorMessage(error: unknown) {
   return formatMessage("mcp.connectionsLoadFailed")
 }
 
+function mcpConnectionAccessLabel(scopes: readonly McpOAuthScope[]) {
+  const requestedScopes = new Set(scopes)
+  const hasWriteScope = scopes.some((scope) => scope.endsWith(":write"))
+  if (!hasWriteScope) return formatMessage("mcp.connectionAccess.readOnly")
+
+  const hasEveryScope = MCP_OAUTH_SCOPES.every((scope) => requestedScopes.has(scope))
+  return hasEveryScope ? formatMessage("mcp.connectionAccess.full") : formatMessage("mcp.connectionAccess.scopedWrite")
+}
+
+function formatScope(scope: McpOAuthScope) {
+  const [resource, action] = scope.split(":")
+  return `${resource} ${action}`
+}
+
 function McpConnectionRow(
   props: Readonly<{
     connection: McpConnectionPublicRecord
@@ -94,9 +108,7 @@ function McpConnectionRow(
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div className="truncate text-sm font-medium">{props.connection.client_name ?? props.connection.name}</div>
           <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-            {props.connection.permission === "read"
-              ? formatMessage("apiKeys.permission.read")
-              : formatMessage("apiKeys.permission.fullAccess")}
+            {mcpConnectionAccessLabel(props.connection.scopes)}
           </span>
           {revoked ? (
             <span className="rounded-full border border-destructive/30 px-2 py-0.5 text-[11px] text-destructive">
@@ -106,6 +118,13 @@ function McpConnectionRow(
         </div>
         <div className="mt-1 font-mono text-xs text-muted-foreground">
           {props.connection.key_prefix}...{props.connection.key_last4}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1">
+          {props.connection.scopes.map((scope) => (
+            <span key={scope} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+              {formatScope(scope)}
+            </span>
+          ))}
         </div>
         <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
           <span>{formatMessage("apiKeys.createdAt", { date: formatDate(props.connection.created_at) })}</span>

@@ -61,8 +61,8 @@ describe("SettingsSheet", () => {
     expect(screen.getByLabelText("Name")).not.toHaveFocus()
     expect(screen.queryByText("Export this project's timers as JSON.")).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Add project from key")).not.toBeInTheDocument()
-    expect(screen.queryByRole("heading", { name: "System alerts" })).not.toBeInTheDocument()
-    expect(screen.queryByRole("heading", { name: "Local alarms" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "Device notifications" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "Alarm defaults" })).not.toBeInTheDocument()
     expect(screen.queryByText(/Cloud ready/)).not.toBeInTheDocument()
 
     const restoreKeyInput = screen.getByLabelText("Restore key")

@@ -2,6 +2,7 @@
   "$schema": "https://mintlify.com/docs.json",
   "name": "tickward",
   "description": "Open-source countdown timers with account sync, static sharing, and a versioned API.",
+  "favicon": "/favicon.png",
   "theme": "mint",
   "colors": {
     "primary": "#111827",

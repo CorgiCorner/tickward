@@ -310,10 +310,10 @@
             "$ref": "#/components/responses/StorageUnavailableError"
           }
         },
-        "description": "List all timers in a project. Use this to answer questions about deadlines, archived timers, notification state, and shared timers.",
+        "description": "List all timers in a project. Use this to answer questions about deadlines, archived timers, notification state, and shared timers. For recurring timers, use effective_target_date as the current countdown date and target_date as the original schedule anchor.",
         "x-mint": {
           "metadata": {
-            "description": "List all timers in a project. Use this to answer questions about deadlines, archived timers, notification state, and shared timers."
+            "description": "List all timers in a project. Use this to answer questions about deadlines, archived timers, notification state, and shared timers. For recurring timers, use effective_target_date as the current countdown date and target_date as the original schedule anchor."
           }
         }
       },
@@ -2135,8 +2135,10 @@
           "object",
           "id",
           "project_id",
+          "project_name",
           "label",
           "target_date",
+          "effective_target_date",
           "timezone",
           "created_at",
           "updated_at",
@@ -2161,12 +2163,21 @@
           "project_id": {
             "type": "string"
           },
+          "project_name": {
+            "type": "string",
+            "description": "Human-readable project name. Agents should prefer this over project_id in user-facing confirmations."
+          },
           "label": {
             "type": "string",
             "maxLength": 200
           },
           "target_date": {
-            "$ref": "#/components/schemas/IsoDateTime"
+            "$ref": "#/components/schemas/IsoDateTime",
+            "description": "Original timer target date. For recurring timers this is the schedule anchor, not necessarily the current countdown date."
+          },
+          "effective_target_date": {
+            "$ref": "#/components/schemas/IsoDateTime",
+            "description": "Current countdown date. For one-off timers this equals target_date. For recurring timers this is the next occurrence after the current server time."
           },
           "timezone": {
             "$ref": "#/components/schemas/Timezone"
@@ -2224,8 +2235,10 @@
           "object": "timer",
           "id": "timer_123",
           "project_id": "project_123",
+          "project_name": "Travel",
           "label": "Flight to Tokyo",
           "target_date": "2026-10-10T09:30:00.000Z",
+          "effective_target_date": "2026-10-10T09:30:00.000Z",
           "timezone": "Asia/Tokyo",
           "created_at": "2026-06-07T12:00:00.000Z",
           "updated_at": "2026-06-07T12:00:00.000Z",

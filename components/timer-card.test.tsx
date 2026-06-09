@@ -204,7 +204,7 @@ describe("TimerCard", () => {
     expect(toastMock.error).toHaveBeenCalledWith("Sign in to turn on alerts in Settings.")
   })
 
-  it("points signed-in users to settings before enabling timer alerts", async () => {
+  it("points signed-in users to alarm settings when no alert mode is available", async () => {
     const user = userEvent.setup()
 
     render(
@@ -217,7 +217,7 @@ describe("TimerCard", () => {
     await user.click(screen.getAllByRole("button", { name: "Enable timer notification" })[0])
 
     expect(storeState.updateTimer).not.toHaveBeenCalled()
-    expect(toastMock.error).toHaveBeenCalledWith("Open Settings and turn on alerts first.")
+    expect(toastMock.error).toHaveBeenCalledWith("Open Settings and choose how timer alarms should run.")
   })
 
   it("opens the edit form when tapping the timer card body on mobile", async () => {

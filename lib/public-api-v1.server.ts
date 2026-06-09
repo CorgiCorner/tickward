@@ -22,6 +22,7 @@ import { type ProjectSnapshotV2, createProjectSnapshot, isProjectSnapshot } from
 import { checkRateLimit } from "@/lib/rate-limit.server"
 import { stableShareId } from "@/lib/static-share-id.server"
 import type { Space, Timer } from "@/lib/types"
+import { effectiveTargetDate } from "@/lib/utils"
 import {
   colorSchema,
   recurrenceSchema,
@@ -454,13 +455,15 @@ function projectObject(row: ProjectRow) {
   }
 }
 
-function timerObject(projectId: string, timer: Timer) {
+function timerObject(project: Pick<ProjectRow, "id" | "name">, timer: Timer) {
   return {
     object: "timer" as const,
     id: timer.id,
-    project_id: projectId,
+    project_id: project.id,
+    project_name: project.name,
     label: timer.label,
     target_date: timer.targetDate,
+    effective_target_date: effectiveTargetDate(timer, Date.now()),
     timezone: timer.timezone,
     created_at: timer.createdAt,
     updated_at: timer.updatedAt ?? timer.createdAt,
@@ -942,7 +945,7 @@ function projectCreateResult(project: ProjectRow, spaces: Space[], timers: Timer
   return {
     ...projectObject(project),
     spaces: spaces.map((space) => spaceObject(project.id, space)),
-    timers: timers.map((timer) => timerObject(project.id, timer)),
+    timers: timers.map((timer) => timerObject(project, timer)),
   }
 }
 
@@ -1178,9 +1181,10 @@ async function deleteProject(ctx: PublicApiContext, projectId: string, req: Requ
 
 async function listTimers(ctx: PublicApiContext, projectId: string) {
   const row = await projectForUser(projectId, ctx.apiKey.user)
+  if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const snapshot = requireSnapshot(row)
   if (isResponse(snapshot)) return snapshot
-  return apiJson(apiList(snapshot.timers.map((timer) => timerObject(projectId, timer))))
+  return apiJson(apiList(snapshot.timers.map((timer) => timerObject(row, timer))))
 }
 
 async function createTimer(ctx: PublicApiContext, projectId: string, req: Request) {
@@ -1213,7 +1217,7 @@ async function createTimer(ctx: PublicApiContext, projectId: string, req: Reques
 
     await tx.timer.create({ data: timerRowData(projectId, row.ownerId, timer) })
     await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
-    return timerObject(projectId, timer)
+    return timerObject(row, timer)
   })
 
   return isResponse(result) ? result : apiJson(result, { status: 201 })
@@ -1221,12 +1225,13 @@ async function createTimer(ctx: PublicApiContext, projectId: string, req: Reques
 
 async function getTimer(ctx: PublicApiContext, projectId: string, timerId: string) {
   const row = await projectForUser(projectId, ctx.apiKey.user)
+  if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const snapshot = requireSnapshot(row)
   if (isResponse(snapshot)) return snapshot
 
   const timer = snapshot.timers.find((item) => item.id === timerId)
   if (!timer) return apiError("not_found", "Timer not found.", { status: 404 })
-  return apiJson(timerObject(projectId, timer))
+  return apiJson(timerObject(row, timer))
 }
 
 async function updateTimer(ctx: PublicApiContext, projectId: string, timerId: string, req: Request) {
@@ -1269,7 +1274,7 @@ async function updateTimer(ctx: PublicApiContext, projectId: string, timerId: st
       return apiError("storage_unavailable", "Timer row is unavailable.", { status: 503 })
     }
     await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
-    return timerObject(projectId, timer)
+    return timerObject(row, timer)
   })
 
   return isResponse(result) ? result : apiJson(result)

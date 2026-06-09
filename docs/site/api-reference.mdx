@@ -34,7 +34,10 @@ CLI tools, and self-hosted agents can use API keys created in settings.
 
 - Capabilities describe supported API workflows and limits.
 - Projects group timers and spaces.
-- Timers track countdown dates, timezones, recurrence, alerts, and sharing.
+- Timers track countdown dates, timezones, recurrence, alerts, and sharing. Use
+  `effective_target_date` for the current countdown date; recurring timers keep
+  `target_date` as their original schedule anchor. Timer responses include
+  `project_name` so agents can avoid raw project ids in confirmations.
 - Spaces organize timers inside a project.
 - Shares create static public links for individual timers.
 

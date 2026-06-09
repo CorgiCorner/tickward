@@ -98,10 +98,16 @@ export async function updateAccountPreferencesForUser(
   const create: Prisma.UserPreferenceUncheckedCreateInput = {
     userId: user.id,
     browserNotificationsEnabled:
-      typeof data.browserNotificationsEnabled === "boolean" ? data.browserNotificationsEnabled : false,
+      typeof data.browserNotificationsEnabled === "boolean"
+        ? data.browserNotificationsEnabled
+        : DEFAULT_ACCOUNT_PREFERENCES.browser_notifications_enabled,
     defaultTimezone: typeof data.defaultTimezone === "string" ? data.defaultTimezone : null,
-    fullPageAlarm: typeof data.fullPageAlarm === "boolean" ? data.fullPageAlarm : false,
-    notificationSound: typeof data.notificationSound === "string" ? data.notificationSound : "none",
+    fullPageAlarm:
+      typeof data.fullPageAlarm === "boolean" ? data.fullPageAlarm : DEFAULT_ACCOUNT_PREFERENCES.full_page_alarm,
+    notificationSound:
+      typeof data.notificationSound === "string"
+        ? data.notificationSound
+        : DEFAULT_ACCOUNT_PREFERENCES.notification_sound,
   }
 
   const prisma = requirePrismaClient()

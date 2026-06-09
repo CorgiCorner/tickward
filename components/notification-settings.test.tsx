@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { NotificationSettingsPanel } from "@/components/notification-settings"
+import type { NotificationSound } from "@/lib/notification-preferences"
 
 const mocks = vi.hoisted(() => ({
   accountState: {
@@ -12,7 +13,7 @@ const mocks = vi.hoisted(() => ({
     preferences: {
       browser_notifications_enabled: false,
       full_page_alarm: false,
-      notification_sound: "none" as const,
+      notification_sound: "none" as NotificationSound,
     },
     saving: false,
   },
@@ -28,7 +29,6 @@ vi.mock("@/components/account-preferences-provider", () => ({
 
 vi.mock("@/lib/notification-audio.client", () => ({
   playNotificationSound: vi.fn().mockResolvedValue(true),
-  unlockNotificationAudio: vi.fn().mockResolvedValue(true),
 }))
 
 vi.mock("sonner", () => ({
@@ -76,14 +76,14 @@ describe("NotificationSettingsPanel", () => {
 
     render(<NotificationSettingsPanel />)
 
-    expect(screen.getByRole("heading", { name: "System alerts" })).toBeVisible()
-    expect(screen.getByRole("heading", { name: "Local alarms" })).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Device notifications" })).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Alarm defaults" })).toBeVisible()
 
-    await user.click(screen.getByRole("button", { name: "Enable alerts" }))
+    await user.click(screen.getByRole("button", { name: "Enable on this device" }))
 
     expect(requestPermission).toHaveBeenCalledTimes(1)
     expect(mocks.updatePreferences).toHaveBeenCalledWith({ browser_notifications_enabled: false })
-    expect(toast.error).toHaveBeenCalledWith("Use local alarms, or allow browser notifications in your browser.")
+    expect(toast.error).toHaveBeenCalledWith("Full-page alarms still work while tickward is open.")
 
     await user.click(screen.getByLabelText("Full-page alarm"))
     await user.click(screen.getByRole("button", { name: "Polite" }))
@@ -91,7 +91,19 @@ describe("NotificationSettingsPanel", () => {
     expect(mocks.updatePreferences).toHaveBeenCalledWith({ full_page_alarm: true })
     expect(mocks.updatePreferences).toHaveBeenCalledWith({ notification_sound: "polite" })
     const audio = await import("@/lib/notification-audio.client")
-    expect(audio.unlockNotificationAudio).toHaveBeenCalledWith("polite")
+    expect(audio.playNotificationSound).not.toHaveBeenCalled()
+  })
+
+  it("previews the active sound without playing on selection", async () => {
+    const user = userEvent.setup()
+    mocks.accountState.preferences.notification_sound = "polite"
+
+    render(<NotificationSettingsPanel />)
+
+    await user.click(screen.getByRole("button", { name: "Preview sound" }))
+
+    const audio = await import("@/lib/notification-audio.client")
+    expect(audio.playNotificationSound).toHaveBeenCalledWith("polite")
   })
 
   it("keeps local alarm controls usable after a previous settings error", async () => {

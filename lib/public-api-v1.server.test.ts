@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { makeProjectSnapshot } from "@/test/factories"
 
@@ -61,6 +61,10 @@ describe("public API v1", () => {
         findMany: vi.fn(),
       },
     })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it("requires bearer API keys", async () => {
@@ -153,6 +157,69 @@ describe("public API v1", () => {
       data: [{ object: "project", id: "project_123", timer_count: 1 }],
     })
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ownerId: "user_123" }, take: 101 }))
+  })
+
+  it("includes the current effective date for recurring timers", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-06-08T12:00:00.000Z"))
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const snapshot = makeProjectSnapshot({
+      name: "Main",
+      timers: [
+        {
+          id: "timer_monthly",
+          label: "Monthly renewal",
+          targetDate: "2026-05-28T00:00:00.000Z",
+          timezone: "Europe/Warsaw",
+          createdAt: "2026-05-20T00:00:00.000Z",
+          recurrence: { enabled: true, type: "monthly" },
+        },
+        {
+          id: "timer_once",
+          label: "One-off",
+          targetDate: "2026-06-30T00:00:00.000Z",
+          timezone: "Europe/Warsaw",
+          createdAt: "2026-05-20T00:00:00.000Z",
+        },
+      ],
+    })
+    const findFirst = vi.fn().mockResolvedValue({
+      id: "project_123",
+      ownerId: "user_123",
+      name: "Main",
+      color: null,
+      snapshot,
+      createdAt: new Date("2026-06-07T00:00:00.000Z"),
+      updatedAt: new Date(snapshot.updatedAt),
+      claimedAt: null,
+    })
+    mocks.requirePrismaClient.mockReturnValue({ project: { findFirst } })
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/projects/project_123/timers", {
+        headers: { authorization: "Bearer tw_read" },
+      }),
+      ["projects", "project_123", "timers"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      data: [
+        {
+          id: "timer_monthly",
+          project_name: "Main",
+          target_date: "2026-05-28T00:00:00.000Z",
+          effective_target_date: "2026-06-28T00:00:00.000Z",
+        },
+        {
+          id: "timer_once",
+          project_name: "Main",
+          target_date: "2026-06-30T00:00:00.000Z",
+          effective_target_date: "2026-06-30T00:00:00.000Z",
+        },
+      ],
+    })
   })
 
   it("does not trust forwarded IP headers unless proxy trust is enabled", async () => {

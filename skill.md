@@ -48,6 +48,10 @@ Use read-only keys for questions and full-access keys for requested changes.
 - Request fields use snake_case.
 - Dates use ISO 8601 strings.
 - Timezones use IANA timezone names such as `Europe/Warsaw`.
+- When reading timers, use `effective_target_date` for the current countdown
+  date. For recurring timers, `target_date` is the original schedule anchor.
+- When confirming timer changes, show `project_name`, timer label, and date.
+  Do not show raw project ids unless the user asks for ids.
 - `Idempotency-Key` replays the same write response for up to 24 hours when the method, path, query, and JSON body match.
 - Generate `Idempotency-Key` with a random UUID plus an operation prefix, for example `timer-create-${crypto.randomUUID()}`.
 - `DELETE ...?dry_run=true` previews project and space deletes without mutating data.

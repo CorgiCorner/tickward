@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import type { AccountPreferencesPatch, AccountPreferencesRecord } from "@/lib/account-preferences"
 import { formatMessage } from "@/lib/i18n/messages"
-import { playNotificationSound, unlockNotificationAudio } from "@/lib/notification-audio.client"
+import { playNotificationSound } from "@/lib/notification-audio.client"
 import { NOTIFICATION_SOUND_OPTIONS, type NotificationSound } from "@/lib/notification-preferences"
 
 function systemAlertsAllowed(preferences: AccountPreferencesRecord) {
@@ -70,7 +70,7 @@ async function previewNotificationSound(sound: NotificationSound) {
   if (!played) toast.error(formatMessage("notifications.sound.previewFailed"))
 }
 
-function SystemAlertsSection(
+function DeviceNotificationsSection(
   props: Readonly<{
     disabled: boolean
     onToggleNotifications: () => void
@@ -192,7 +192,7 @@ export function NotificationSettingsPanel() {
         <h2 className="text-base font-semibold">{formatMessage("settings.alerts")}</h2>
         <p className="text-sm text-muted-foreground">{formatMessage("settings.alertsDescription")}</p>
       </div>
-      <SystemAlertsSection
+      <DeviceNotificationsSection
         disabled={disabled}
         systemAlertsEnabled={systemAlertsEnabled}
         onToggleNotifications={() => void toggleSystemAlerts(systemAlertsEnabled, updatePreferences)}
@@ -205,10 +205,7 @@ export function NotificationSettingsPanel() {
           void saveAccountAlertPreferences({ full_page_alarm: enabled }, updatePreferences)
         }
         onPreviewSound={(sound) => void previewNotificationSound(sound)}
-        onSoundChange={(sound) => {
-          void unlockNotificationAudio(sound)
-          void saveAccountAlertPreferences({ notification_sound: sound }, updatePreferences)
-        }}
+        onSoundChange={(sound) => void saveAccountAlertPreferences({ notification_sound: sound }, updatePreferences)}
       />
     </section>
   )
