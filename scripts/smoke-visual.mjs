@@ -209,9 +209,9 @@ async function installRoutes(page) {
       return {
         id,
         urls: {
-          regular: `https://images.example.com/${id}/regular.jpg`,
-          small: `https://images.example.com/${id}/small.jpg`,
-          thumb: `https://images.example.com/${id}/thumb.jpg`,
+          regular: `https://images.unsplash.com/${id}/regular.jpg`,
+          small: `https://images.unsplash.com/${id}/small.jpg`,
+          thumb: `https://images.unsplash.com/${id}/thumb.jpg`,
         },
         user: {
           name: `Visual Author ${index + 1}`,
@@ -225,7 +225,7 @@ async function installRoutes(page) {
       body: JSON.stringify({ results }),
     })
   })
-  await page.route("https://images.example.com/**", async (route) => {
+  await page.route("https://images.unsplash.com/**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "image/png",

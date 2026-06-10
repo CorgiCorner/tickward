@@ -118,6 +118,12 @@ async function runChecks(baseUrl, env) {
   if (docsGuideLocation !== "https://tickward.com/docs/guides/api-quickstart") {
     fail(`Unexpected docs guide redirect: ${docsGuideLocation}`)
   }
+
+  const webhooksGuide = await expectStatus(`${baseUrl}/docs/guides/webhooks`, 307, { redirect: "manual" })
+  const webhooksGuideLocation = webhooksGuide.headers.get("location")
+  if (webhooksGuideLocation !== "https://tickward.com/docs/guides/webhooks") {
+    fail(`Unexpected webhooks guide redirect: ${webhooksGuideLocation}`)
+  }
   log("docs redirects are configured")
 
   await run("npm", ["run", "smoke:app"], {

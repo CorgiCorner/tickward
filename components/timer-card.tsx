@@ -321,7 +321,6 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
       isRecurring={isRecurring}
       history={history}
       dragHandle={dragHandle}
-      onMobileTap={handleMobileCardTap}
       mobileActions={
         <TimerCardMobileActions
           isArchived={isArchived}

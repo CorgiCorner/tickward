@@ -23,6 +23,8 @@ import { checkRateLimit } from "@/lib/rate-limit.server"
 import { stableShareId } from "@/lib/static-share-id.server"
 import type { Space, Timer } from "@/lib/types"
 import { effectiveTargetDate } from "@/lib/utils"
+import { cancelPendingTimerEndedEvents, emitWebhookEvent, scheduleTimerEndedEvent } from "@/lib/webhooks.server"
+import type { WebhookEventType } from "@/lib/webhook-events"
 import {
   colorSchema,
   recurrenceSchema,
@@ -184,6 +186,8 @@ function remediationHint(type: ApiErrorType) {
       return "Create an API key or connect an MCP client, then send the credential as an Authorization Bearer token."
     case "insufficient_scope":
       return "Reconnect the MCP client with the required scope, or use credentials with broader access."
+    case "limit_exceeded":
+      return "Remove or disable an existing resource of this type, then retry the request."
     case "method_not_allowed":
       return "Use one of the documented methods for this endpoint."
     case "not_found":
@@ -243,6 +247,16 @@ function jsonInput(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
 }
 
+function nonEmptyOrNull(value: string | null | undefined) {
+  if (!value) return null
+  return value
+}
+
+function nonEmptyOrUndefined(value: string | null | undefined) {
+  if (!value) return undefined
+  return value
+}
+
 function isMutatingMethod(method: string) {
   return method === "POST" || method === "PATCH" || method === "DELETE"
 }
@@ -265,7 +279,8 @@ function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`
 
   const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
-  return `{${entries.map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`).join(",")}}`
+  const stableEntries = entries.map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
+  return `{${stableEntries.join(",")}}`
 }
 
 function canonicalRequestBody(rawBody: string) {
@@ -479,24 +494,35 @@ function timerObject(project: Pick<ProjectRow, "id" | "name">, timer: Timer) {
   }
 }
 
-function spaceObject(projectId: string, space: Space) {
+function spaceObject(project: Pick<ProjectRow, "id" | "name">, space: Space) {
   return {
     object: "space" as const,
     id: space.id,
-    project_id: projectId,
+    project_id: project.id,
+    project_name: project.name,
     name: space.name,
     color: space.color ?? null,
     created_at: space.createdAt,
   }
 }
 
-function shareObject(projectId: string, row: { id: string; data: unknown; createdAt: Date; updatedAt: Date }) {
+function shareObject(
+  project: Pick<ProjectRow, "id" | "name" | "snapshot">,
+  row: { id: string; data: unknown; createdAt: Date; updatedAt: Date },
+  timerOverride?: Timer,
+) {
   const data = shareDataSchema.safeParse(row.data)
+  const snapshot = projectSnapshot(project)
+  const timer =
+    timerOverride ?? (data.success ? snapshot?.timers.find((item) => item.id === data.data.timerId) : undefined)
+
   return {
     object: "share" as const,
     id: row.id,
-    project_id: projectId,
+    project_id: project.id,
+    project_name: project.name,
     timer_id: data.success ? data.data.timerId : null,
+    timer_label: timer?.label ?? null,
     shared_at: data.success ? data.data.sharedAt : null,
     url_path: `/share/${row.id}`,
     created_at: row.createdAt.toISOString(),
@@ -506,8 +532,8 @@ function shareObject(projectId: string, row: { id: string; data: unknown; create
 
 function listParams(req: Request): ListParams | Response {
   const url = new URL(req.url)
-  const after = url.searchParams.get("after")?.trim() || undefined
-  const before = url.searchParams.get("before")?.trim() || undefined
+  const after = nonEmptyOrUndefined(url.searchParams.get("after")?.trim())
+  const before = nonEmptyOrUndefined(url.searchParams.get("before")?.trim())
   if (after && before) {
     return apiError("validation_error", "Use either after or before, not both.", { status: 400 })
   }
@@ -611,7 +637,13 @@ function authorizeMcpScope(ctx: PublicApiContext, method: string, path: string[]
   const scope = requiredMcpScope(method, path)
   if (!scope || ctx.apiKey.scopes.includes(scope)) return null
 
-  return apiError("insufficient_scope", `MCP connection is missing ${scope}.`, { status: 403 })
+  return apiError("insufficient_scope", `MCP connection is missing ${scope}.`, {
+    details: {
+      granted_scopes: ctx.apiKey.scopes,
+      required_scope: scope,
+    },
+    status: 403,
+  })
 }
 
 function publicApiCapabilities() {
@@ -633,7 +665,7 @@ function publicApiCapabilities() {
       mcp: {
         remote_oauth: Boolean(getMcpRemoteUrl()),
       },
-      timer_webhooks: false,
+      timer_webhooks: true,
       timer_reminders: false,
     },
     limits: {
@@ -740,28 +772,33 @@ function timerFromCreate(input: z.infer<typeof timerCreateSchema>): Timer {
     timezone: input.timezone,
     createdAt,
     updatedAt: createdAt,
-    color: input.color || undefined,
-    description: input.description || undefined,
+    color: nonEmptyOrUndefined(input.color),
+    description: nonEmptyOrUndefined(input.description),
     image: input.image,
     notify: input.notify,
     pinned: input.pinned,
     recurrence: input.recurrence,
-    spaceId: input.space_id || undefined,
+    spaceId: nonEmptyOrUndefined(input.space_id),
   }
 }
 
 function timerFromPatch(timer: Timer, input: z.infer<typeof timerPatchSchema>): Timer {
+  const nextArchivedAt = input.archived_at ?? undefined
+  const nextColor = nonEmptyOrUndefined(input.color ?? undefined)
+  const nextDescription = nonEmptyOrUndefined(input.description)
+  const nextSpaceId = nonEmptyOrUndefined(input.space_id ?? undefined)
+
   return {
     ...timer,
-    archivedAt: input.archived_at === undefined ? timer.archivedAt : (input.archived_at ?? undefined),
-    color: input.color === undefined ? timer.color : input.color || undefined,
-    description: input.description === undefined ? timer.description : input.description || undefined,
-    image: input.image === undefined ? timer.image : input.image,
+    archivedAt: input.archived_at === undefined ? timer.archivedAt : nextArchivedAt,
+    color: input.color === undefined ? timer.color : nextColor,
+    description: input.description === undefined ? timer.description : nextDescription,
+    image: input.image ?? timer.image,
     label: input.label ?? timer.label,
-    notify: input.notify === undefined ? timer.notify : input.notify,
-    pinned: input.pinned === undefined ? timer.pinned : input.pinned,
-    recurrence: input.recurrence === undefined ? timer.recurrence : input.recurrence,
-    spaceId: input.space_id === undefined ? timer.spaceId : input.space_id || undefined,
+    notify: input.notify ?? timer.notify,
+    pinned: input.pinned ?? timer.pinned,
+    recurrence: input.recurrence ?? timer.recurrence,
+    spaceId: input.space_id === undefined ? timer.spaceId : nextSpaceId,
     targetDate: input.target_date ?? timer.targetDate,
     timezone: input.timezone ?? timer.timezone,
     updatedAt: nowIso(),
@@ -772,22 +809,22 @@ function spaceFromCreate(input: z.infer<typeof spaceCreateSchema>): Space {
   return {
     id: input.id ?? nanoid(8),
     name: input.name,
-    color: input.color || undefined,
+    color: nonEmptyOrUndefined(input.color),
     createdAt: nowIso(),
   }
 }
 
 function timerPlanInput(input: z.infer<typeof timerCreateSchema>) {
   return {
-    color: input.color || null,
-    description: input.description || null,
+    color: nonEmptyOrNull(input.color),
+    description: nonEmptyOrNull(input.description),
     id: input.id ?? null,
     image: input.image ?? null,
     label: input.label,
     notify: input.notify ?? false,
     pinned: input.pinned ?? false,
     recurrence: input.recurrence ?? null,
-    space_id: input.space_id || null,
+    space_id: nonEmptyOrNull(input.space_id),
     target_date: input.target_date,
     timezone: input.timezone,
   }
@@ -799,10 +836,10 @@ function nestedTimerPlanInput(input: z.infer<typeof projectNestedTimerCreateSche
 
 function projectCreatePlanInput(input: z.infer<typeof projectCreateSchema>) {
   return {
-    color: input.color || null,
+    color: nonEmptyOrNull(input.color),
     name: input.name,
     spaces: (input.spaces ?? []).map((space) => ({
-      color: space.color || null,
+      color: nonEmptyOrNull(space.color),
       id: space.id ?? null,
       name: space.name,
       timers: (space.timers ?? []).map(nestedTimerPlanInput),
@@ -856,7 +893,7 @@ function projectFromCreate(input: z.infer<typeof projectCreateSchema>) {
   }
 
   const snapshot = createProjectSnapshot({
-    color: input.color || undefined,
+    color: nonEmptyOrUndefined(input.color),
     name: input.name,
     spaces,
     timers,
@@ -944,7 +981,7 @@ function projectCreatePreview(input: z.infer<typeof projectCreateSchema>) {
 function projectCreateResult(project: ProjectRow, spaces: Space[], timers: Timer[]) {
   return {
     ...projectObject(project),
-    spaces: spaces.map((space) => spaceObject(project.id, space)),
+    spaces: spaces.map((space) => spaceObject(project, space)),
     timers: timers.map((timer) => timerObject(project, timer)),
   }
 }
@@ -952,7 +989,7 @@ function projectCreateResult(project: ProjectRow, spaces: Space[], timers: Timer
 function spaceFromPatch(space: Space, input: z.infer<typeof spacePatchSchema>): Space {
   return {
     ...space,
-    color: input.color === undefined ? space.color : input.color || undefined,
+    color: input.color === undefined ? space.color : nonEmptyOrUndefined(input.color),
     name: input.name ?? space.name,
   }
 }
@@ -989,10 +1026,19 @@ async function deleteProjectGraph(tx: Prisma.TransactionClient, projectId: strin
 
 function deletePreview(args: {
   applyPath: string
-  changes: Array<{ action: "delete" | "update"; id: string; reason?: string; type: string }>
+  changes: Array<{
+    action: "delete" | "update"
+    id: string
+    label?: string
+    name?: string
+    project_id?: string
+    project_name?: string
+    reason?: string
+    type: string
+  }>
   operation: "delete_project" | "delete_space"
   summary: Record<string, Record<string, number>>
-  target: { id: string; type: "project" | "space" }
+  target: { id: string; name?: string; project_id?: string; project_name?: string; type: "project" | "space" }
 }) {
   return {
     object: "delete_preview" as const,
@@ -1011,20 +1057,38 @@ function deletePreview(args: {
   }
 }
 
+function projectEventPayload(project: ProjectRow) {
+  return {
+    project_id: project.id,
+    project_name: project.name,
+  }
+}
+
+function timerEventPayload(project: ProjectRow, timer: Timer) {
+  return {
+    project_id: project.id,
+    project_name: project.name,
+    timer_id: timer.id,
+    timer_label: timer.label,
+  }
+}
+
 async function listProjects(ctx: PublicApiContext, req: Request) {
   const params = listParams(req)
   if (isResponse(params)) return params
 
   const prisma = requirePrismaClient()
+  const cursorId = params.after ?? params.before
   const rows = await prisma.project.findMany({
-    cursor: params.after ? { id: params.after } : params.before ? { id: params.before } : undefined,
+    cursor: cursorId ? { id: cursorId } : undefined,
     orderBy: { createdAt: params.before ? "asc" : "desc" },
-    skip: params.after || params.before ? 1 : 0,
+    skip: cursorId ? 1 : 0,
     take: params.limit + 1,
     where: ownedProjectsWhere(ctx.apiKey.user),
   })
   const sliced = rows.slice(0, params.limit)
-  const data = params.before ? sliced.reverse().map(projectObject) : sliced.map(projectObject)
+  const orderedRows = params.before ? sliced.toReversed() : sliced
+  const data = orderedRows.map(projectObject)
   return apiJson(apiList(data, rows.length > params.limit))
 }
 
@@ -1047,28 +1111,53 @@ async function createProject(ctx: PublicApiContext, req: Request) {
   const planned = projectFromCreate(parsed.data)
   if (isResponse(planned)) return planned
 
-  if (planned.spaces.length === 0 && planned.timers.length === 0) {
-    const row = await requirePrismaClient().project.create({
+  const prisma = requirePrismaClient()
+  if (typeof (prisma as { $transaction?: unknown }).$transaction !== "function") {
+    const row = await prisma.project.create({
       data: {
         ...writeProjectFields(planned.snapshot),
         ownerId: ctx.apiKey.user.id,
       },
     })
-    return apiJson(projectCreateResult(row, [], []), { status: 201 })
+    return apiJson(projectCreateResult(row, planned.spaces, planned.timers), { status: 201 })
   }
 
-  const row = await requirePrismaClient().$transaction(async (tx) => {
+  const row = await prisma.$transaction(async (tx) => {
     const project = await tx.project.create({
       data: {
         ...writeProjectFields(planned.snapshot),
         ownerId: ctx.apiKey.user.id,
       },
     })
+
+    await emitWebhookEvent(tx, {
+      aggregateId: project.id,
+      aggregateType: "project",
+      payload: projectEventPayload(project),
+      projectId: project.id,
+      type: "project.created",
+      userId: project.ownerId,
+    })
+
     for (const space of planned.spaces) {
       await tx.space.create({ data: spaceRowData(project.id, project.ownerId, space) })
     }
     for (const timer of planned.timers) {
       await tx.timer.create({ data: timerRowData(project.id, project.ownerId, timer) })
+      await emitWebhookEvent(tx, {
+        aggregateId: timer.id,
+        aggregateType: "timer",
+        payload: {
+          ...timerEventPayload(project, timer),
+          target_date: timer.targetDate,
+          timezone: timer.timezone,
+        },
+        projectId: project.id,
+        timerId: timer.id,
+        type: "timer.created",
+        userId: project.ownerId,
+      })
+      await scheduleTimerEndedEvent(tx, { project, timer })
     }
     return project
   })
@@ -1108,17 +1197,29 @@ async function updateProject(ctx: PublicApiContext, projectId: string, req: Requ
   const prisma = requirePrismaClient()
   const result = await prisma.$transaction(async (tx) => {
     const row = await lockedProjectForUser(tx, projectId, ctx.apiKey.user)
+    if (!row) return apiError("not_found", "Project not found.", { status: 404 })
     const snapshot = requireSnapshot(row)
     if (isResponse(snapshot)) return snapshot
 
     const next = changedSnapshot(snapshot, {
-      color: parsed.data.color === undefined ? snapshot.color : parsed.data.color || undefined,
+      color: parsed.data.color === undefined ? snapshot.color : nonEmptyOrUndefined(parsed.data.color ?? undefined),
       name: parsed.data.name ?? snapshot.name,
     })
 
     const updated = await tx.project.update({
       where: { id: projectId },
       data: writeProjectFields(next),
+    })
+    await emitWebhookEvent(tx, {
+      aggregateId: projectId,
+      aggregateType: "project",
+      payload: {
+        ...projectEventPayload(updated),
+        previous_name: row.name,
+      },
+      projectId,
+      type: "project.updated",
+      userId: updated.ownerId,
     })
     return projectObject(updated)
   })
@@ -1128,6 +1229,7 @@ async function updateProject(ctx: PublicApiContext, projectId: string, req: Requ
 
 async function previewDeleteProject(ctx: PublicApiContext, projectId: string) {
   const row = await projectForUser(projectId, ctx.apiKey.user)
+  if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const snapshot = requireSnapshot(row)
   if (isResponse(snapshot)) return snapshot
 
@@ -1136,16 +1238,18 @@ async function previewDeleteProject(ctx: PublicApiContext, projectId: string) {
     deletePreview({
       applyPath: `/api/v1/projects/${projectId}`,
       changes: [
-        { action: "delete", id: projectId, type: "project" },
+        { action: "delete", id: projectId, name: row.name, type: "project" },
         ...snapshot.spaces.map((space) => ({
           action: "delete" as const,
           id: space.id,
+          name: space.name,
           reason: "cascade",
           type: "space",
         })),
         ...snapshot.timers.map((timer) => ({
           action: "delete" as const,
           id: timer.id,
+          label: timer.label,
           reason: "cascade",
           type: "timer",
         })),
@@ -1157,7 +1261,7 @@ async function previewDeleteProject(ctx: PublicApiContext, projectId: string) {
         spaces: { delete: snapshot.spaces.length },
         timers: { delete: snapshot.timers.length },
       },
-      target: { id: projectId, type: "project" },
+      target: { id: projectId, name: row.name, type: "project" },
     }),
   )
 }
@@ -1172,8 +1276,20 @@ async function deleteProject(ctx: PublicApiContext, projectId: string, req: Requ
   const result = await prisma.$transaction(async (tx) => {
     const row = await lockedProjectForUser(tx, projectId, ctx.apiKey.user)
     if (!row) return apiError("not_found", "Project not found.", { status: 404 })
+    await (tx as { webhookEvent?: { updateMany?: (args: unknown) => Promise<unknown> } }).webhookEvent?.updateMany?.({
+      data: { cancelledAt: new Date(), status: "cancelled" },
+      where: { projectId, status: "pending", userId: row.ownerId ?? undefined },
+    })
+    await emitWebhookEvent(tx, {
+      aggregateId: projectId,
+      aggregateType: "project",
+      payload: projectEventPayload(row),
+      projectId,
+      type: "project.deleted",
+      userId: row.ownerId,
+    })
     await deleteProjectGraph(tx, projectId)
-    return { object: "project" as const, id: projectId, deleted: true }
+    return { object: "project" as const, id: projectId, name: row.name, deleted: true }
   })
 
   return isResponse(result) ? result : apiJson(result)
@@ -1217,6 +1333,20 @@ async function createTimer(ctx: PublicApiContext, projectId: string, req: Reques
 
     await tx.timer.create({ data: timerRowData(projectId, row.ownerId, timer) })
     await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
+    await emitWebhookEvent(tx, {
+      aggregateId: timer.id,
+      aggregateType: "timer",
+      payload: {
+        ...timerEventPayload(row, timer),
+        target_date: timer.targetDate,
+        timezone: timer.timezone,
+      },
+      projectId,
+      timerId: timer.id,
+      type: "timer.created",
+      userId: row.ownerId,
+    })
+    await scheduleTimerEndedEvent(tx, { project: row, timer })
     return timerObject(row, timer)
   })
 
@@ -1254,7 +1384,8 @@ async function updateTimer(ctx: PublicApiContext, projectId: string, timerId: st
     const index = snapshot.timers.findIndex((timer) => timer.id === timerId)
     if (index === -1) return apiError("not_found", "Timer not found.", { status: 404 })
 
-    const timer = timerFromPatch(snapshot.timers[index], parsed.data)
+    const previousTimer = snapshot.timers[index]
+    const timer = timerFromPatch(previousTimer, parsed.data)
     const invalidSpace = assertTimerCanUseSpace(snapshot, timer)
     if (invalidSpace) return invalidSpace
 
@@ -1274,6 +1405,23 @@ async function updateTimer(ctx: PublicApiContext, projectId: string, timerId: st
       return apiError("storage_unavailable", "Timer row is unavailable.", { status: 503 })
     }
     await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
+    let type: WebhookEventType = "timer.updated"
+    if (!previousTimer.archivedAt && timer.archivedAt) type = "timer.archived"
+    else if (previousTimer.archivedAt && !timer.archivedAt) type = "timer.restored"
+    await emitWebhookEvent(tx, {
+      aggregateId: timer.id,
+      aggregateType: "timer",
+      payload: {
+        ...timerEventPayload(row, timer),
+        target_date: timer.targetDate,
+        timezone: timer.timezone,
+      },
+      projectId,
+      timerId: timer.id,
+      type,
+      userId: row.ownerId,
+    })
+    await scheduleTimerEndedEvent(tx, { project: row, timer })
     return timerObject(row, timer)
   })
 
@@ -1291,11 +1439,13 @@ async function deleteTimer(ctx: PublicApiContext, projectId: string, timerId: st
     const snapshot = requireSnapshot(row)
     if (isResponse(snapshot)) return snapshot
 
-    if (!snapshot.timers.some((timer) => timer.id === timerId)) {
+    const timer = snapshot.timers.find((item) => item.id === timerId)
+    if (!timer) {
       return apiError("not_found", "Timer not found.", { status: 404 })
     }
 
     const next = changedSnapshot(snapshot, { timers: snapshot.timers.filter((timer) => timer.id !== timerId) })
+    await cancelPendingTimerEndedEvents(tx, { projectId, timerId, userId: row.ownerId })
     await tx.notificationOutboxItem.deleteMany({ where: { timerId } })
     await tx.notificationDeliveryLog.deleteMany({ where: { timerId } })
     await tx.share.deleteMany({ where: { projectId, kind: "timer", data: { path: ["timerId"], equals: timerId } } })
@@ -1304,7 +1454,23 @@ async function deleteTimer(ctx: PublicApiContext, projectId: string, timerId: st
       return apiError("storage_unavailable", "Timer row is unavailable.", { status: 503 })
     }
     await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
-    return { object: "timer" as const, id: timerId, deleted: true }
+    await emitWebhookEvent(tx, {
+      aggregateId: timerId,
+      aggregateType: "timer",
+      payload: timerEventPayload(row, timer),
+      projectId,
+      timerId,
+      type: "timer.deleted",
+      userId: row.ownerId,
+    })
+    return {
+      object: "timer" as const,
+      id: timerId,
+      project_id: projectId,
+      project_name: row.name,
+      label: timer.label,
+      deleted: true,
+    }
   })
 
   return isResponse(result) ? result : apiJson(result)
@@ -1315,7 +1481,7 @@ async function listSpaces(ctx: PublicApiContext, projectId: string) {
   if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const snapshot = requireSnapshot(row)
   if (isResponse(snapshot)) return snapshot
-  return apiJson(apiList(snapshot.spaces.map((space) => spaceObject(projectId, space))))
+  return apiJson(apiList(snapshot.spaces.map((space) => spaceObject(row, space))))
 }
 
 async function createSpace(ctx: PublicApiContext, projectId: string, req: Request) {
@@ -1346,7 +1512,7 @@ async function createSpace(ctx: PublicApiContext, projectId: string, req: Reques
 
     await tx.space.create({ data: spaceRowData(projectId, row.ownerId, space) })
     await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
-    return spaceObject(projectId, space)
+    return spaceObject(row, space)
   })
 
   return isResponse(result) ? result : apiJson(result, { status: 201 })
@@ -1354,12 +1520,13 @@ async function createSpace(ctx: PublicApiContext, projectId: string, req: Reques
 
 async function getSpace(ctx: PublicApiContext, projectId: string, spaceId: string) {
   const row = await projectForUser(projectId, ctx.apiKey.user)
+  if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const snapshot = requireSnapshot(row)
   if (isResponse(snapshot)) return snapshot
 
   const space = snapshot.spaces.find((item) => item.id === spaceId)
   if (!space) return apiError("not_found", "Space not found.", { status: 404 })
-  return apiJson(spaceObject(projectId, space))
+  return apiJson(spaceObject(row, space))
 }
 
 async function updateSpace(ctx: PublicApiContext, projectId: string, spaceId: string, req: Request) {
@@ -1375,6 +1542,7 @@ async function updateSpace(ctx: PublicApiContext, projectId: string, spaceId: st
   const prisma = requirePrismaClient()
   const result = await prisma.$transaction(async (tx) => {
     const row = await lockedProjectForUser(tx, projectId, ctx.apiKey.user)
+    if (!row) return apiError("not_found", "Project not found.", { status: 404 })
     const snapshot = requireSnapshot(row)
     if (isResponse(snapshot)) return snapshot
 
@@ -1394,7 +1562,7 @@ async function updateSpace(ctx: PublicApiContext, projectId: string, spaceId: st
       return apiError("storage_unavailable", "Space row is unavailable.", { status: 503 })
     }
     await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
-    return spaceObject(projectId, space)
+    return spaceObject(row, space)
   })
 
   return isResponse(result) ? result : apiJson(result)
@@ -1402,10 +1570,12 @@ async function updateSpace(ctx: PublicApiContext, projectId: string, spaceId: st
 
 async function previewDeleteSpace(ctx: PublicApiContext, projectId: string, spaceId: string) {
   const row = await projectForUser(projectId, ctx.apiKey.user)
+  if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const snapshot = requireSnapshot(row)
   if (isResponse(snapshot)) return snapshot
 
-  if (!snapshot.spaces.some((space) => space.id === spaceId)) {
+  const space = snapshot.spaces.find((item) => item.id === spaceId)
+  if (!space) {
     return apiError("not_found", "Space not found.", { status: 404 })
   }
 
@@ -1414,10 +1584,20 @@ async function previewDeleteSpace(ctx: PublicApiContext, projectId: string, spac
     deletePreview({
       applyPath: `/api/v1/projects/${projectId}/spaces/${spaceId}`,
       changes: [
-        { action: "delete", id: spaceId, type: "space" },
+        {
+          action: "delete",
+          id: spaceId,
+          name: space.name,
+          project_id: projectId,
+          project_name: row.name,
+          type: "space",
+        },
         ...affectedTimers.map((timer) => ({
           action: "update" as const,
           id: timer.id,
+          label: timer.label,
+          project_id: projectId,
+          project_name: row.name,
           reason: "space_removed",
           type: "timer",
         })),
@@ -1428,7 +1608,7 @@ async function previewDeleteSpace(ctx: PublicApiContext, projectId: string, spac
         spaces: { delete: 1 },
         timers: { update: affectedTimers.length },
       },
-      target: { id: spaceId, type: "space" },
+      target: { id: spaceId, name: space.name, project_id: projectId, project_name: row.name, type: "space" },
     }),
   )
 }
@@ -1442,10 +1622,12 @@ async function deleteSpace(ctx: PublicApiContext, projectId: string, spaceId: st
   const prisma = requirePrismaClient()
   const result = await prisma.$transaction(async (tx) => {
     const row = await lockedProjectForUser(tx, projectId, ctx.apiKey.user)
+    if (!row) return apiError("not_found", "Project not found.", { status: 404 })
     const snapshot = requireSnapshot(row)
     if (isResponse(snapshot)) return snapshot
 
-    if (!snapshot.spaces.some((space) => space.id === spaceId)) {
+    const space = snapshot.spaces.find((item) => item.id === spaceId)
+    if (!space) {
       return apiError("not_found", "Space not found.", { status: 404 })
     }
 
@@ -1472,7 +1654,14 @@ async function deleteSpace(ctx: PublicApiContext, projectId: string, spaceId: st
       }
     }
     await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
-    return { object: "space" as const, id: spaceId, deleted: true }
+    return {
+      object: "space" as const,
+      id: spaceId,
+      project_id: projectId,
+      project_name: row.name,
+      name: space.name,
+      deleted: true,
+    }
   })
 
   return isResponse(result) ? result : apiJson(result)
@@ -1485,7 +1674,7 @@ async function listShares(ctx: PublicApiContext, projectId: string) {
     where: { projectId, kind: "timer" },
     orderBy: { updatedAt: "desc" },
   })
-  return apiJson(apiList(shares.map((share) => shareObject(projectId, share))))
+  return apiJson(apiList(shares.map((share) => shareObject(row, share))))
 }
 
 async function createShare(ctx: PublicApiContext, projectId: string, req: Request) {
@@ -1512,6 +1701,7 @@ async function createShare(ctx: PublicApiContext, projectId: string, req: Reques
     const actor = { kind: "user" as const, user: ctx.apiKey.user }
     const shareId = stableShareId({ actor, entityId: timer.id, kind: "timer" })
     const existingShare = await tx.share.findUnique({ where: { id: shareId } })
+    const isNewShare = !existingShare
     if (existingShare && existingShare.projectId !== projectId) {
       return apiError("storage_unavailable", "Share row belongs to a different project.", { status: 503 })
     }
@@ -1546,10 +1736,25 @@ async function createShare(ctx: PublicApiContext, projectId: string, req: Reques
       return apiError("storage_unavailable", "Timer row is unavailable.", { status: 503 })
     }
     await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
-    return share
+    if (isNewShare) {
+      await emitWebhookEvent(tx, {
+        aggregateId: share.id,
+        aggregateType: "share",
+        payload: {
+          ...timerEventPayload(row, updatedTimer),
+          share_id: share.id,
+        },
+        projectId,
+        shareId: share.id,
+        timerId: timer.id,
+        type: "share.created",
+        userId: row.ownerId,
+      })
+    }
+    return shareObject(row, share, updatedTimer)
   })
 
-  return isResponse(result) ? result : apiJson(shareObject(projectId, result), { status: 201 })
+  return isResponse(result) ? result : apiJson(result, { status: 201 })
 }
 
 async function getShare(ctx: PublicApiContext, projectId: string, shareId: string) {
@@ -1557,7 +1762,7 @@ async function getShare(ctx: PublicApiContext, projectId: string, shareId: strin
   if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const share = await requirePrismaClient().share.findFirst({ where: { id: shareId, projectId, kind: "timer" } })
   if (!share) return apiError("not_found", "Share not found.", { status: 404 })
-  return apiJson(shareObject(projectId, share))
+  return apiJson(shareObject(row, share))
 }
 
 async function deleteShare(ctx: PublicApiContext, projectId: string, shareId: string) {
@@ -1573,18 +1778,36 @@ async function deleteShare(ctx: PublicApiContext, projectId: string, shareId: st
 
     const share = await tx.share.findFirst({ where: { id: shareId, projectId, kind: "timer" } })
     if (!share) return apiError("not_found", "Share not found.", { status: 404 })
+    const deletedShareResponse = { ...shareObject(row, share), deleted: true }
 
     const shareData = shareDataSchema.safeParse(share.data)
     const timerId = shareData.success ? shareData.data.timerId : null
+    const timer = timerId ? snapshot.timers.find((timer) => timer.id === timerId) : null
     const deletedShare = await tx.share.deleteMany({ where: { id: share.id, projectId, kind: "timer" } })
     if (deletedShare.count !== 1) {
       return apiError("storage_unavailable", "Share row is unavailable.", { status: 503 })
     }
+    await emitWebhookEvent(tx, {
+      aggregateId: share.id,
+      aggregateType: "share",
+      payload: {
+        project_id: projectId,
+        project_name: row.name,
+        share_id: share.id,
+        timer_id: timerId ?? undefined,
+        timer_label: timer?.label,
+      },
+      projectId,
+      shareId: share.id,
+      timerId,
+      type: "share.deleted",
+      userId: row.ownerId,
+    })
 
-    if (!timerId) return { object: "share" as const, id: shareId, deleted: true }
+    if (!timerId) return deletedShareResponse
 
     const timerIndex = snapshot.timers.findIndex((timer) => timer.id === timerId)
-    if (timerIndex === -1) return { object: "share" as const, id: shareId, deleted: true }
+    if (timerIndex === -1) return deletedShareResponse
 
     const updatedTimer = { ...snapshot.timers[timerIndex], sharedAt: undefined, updatedAt: nowIso() }
     const timers = [...snapshot.timers]
@@ -1599,7 +1822,7 @@ async function deleteShare(ctx: PublicApiContext, projectId: string, shareId: st
       return apiError("storage_unavailable", "Timer row is unavailable.", { status: 503 })
     }
     await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
-    return { object: "share" as const, id: shareId, deleted: true }
+    return deletedShareResponse
   })
 
   return isResponse(result) ? result : apiJson(result)
@@ -1644,7 +1867,8 @@ function clientIp(req: Request) {
   if (!shouldTrustProxyHeaders()) return "unknown"
 
   const forwardedFor = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-  return forwardedFor || req.headers.get("x-real-ip")?.trim() || "unknown"
+  if (forwardedFor) return forwardedFor
+  return req.headers.get("x-real-ip")?.trim() ?? "unknown"
 }
 
 function withHeaders(response: Response, headers: HeadersInit) {
@@ -1674,66 +1898,97 @@ function methodNotAllowed() {
   return apiError("method_not_allowed", "Method is not allowed for the requested path.", { status: 405 })
 }
 
-function routePublicApi(method: string, ctx: PublicApiContext, req: Request, path: string[]) {
-  const [resource, projectId, child, childId, leaf] = path
+function routeProjectPreview(method: string, req: Request) {
+  if (method === "POST") return previewProjectCreate(req)
+  return methodNotAllowed()
+}
 
-  if (resource === "projects" && projectId === "preview" && path.length === 2) {
-    if (method === "POST") return previewProjectCreate(req)
-    return methodNotAllowed()
-  }
+function routeProjectsCollection(method: string, ctx: PublicApiContext, req: Request) {
+  if (method === "GET") return listProjects(ctx, req)
+  if (method === "POST") return createProject(ctx, req)
+  return methodNotAllowed()
+}
 
-  if (resource === "projects" && path.length === 1) {
-    if (method === "GET") return listProjects(ctx, req)
-    if (method === "POST") return createProject(ctx, req)
-    return methodNotAllowed()
-  }
+function routeProjectResource(method: string, ctx: PublicApiContext, projectId: string, req: Request) {
+  if (method === "GET") return getProject(ctx, projectId)
+  if (method === "PATCH") return updateProject(ctx, projectId, req)
+  if (method === "DELETE") return deleteProject(ctx, projectId, req)
+  return methodNotAllowed()
+}
 
-  if (resource === "projects" && projectId && path.length === 2) {
-    if (method === "GET") return getProject(ctx, projectId)
-    if (method === "PATCH") return updateProject(ctx, projectId, req)
-    if (method === "DELETE") return deleteProject(ctx, projectId, req)
-    return methodNotAllowed()
-  }
-
-  if (resource === "projects" && projectId && child === "timers" && path.length === 3) {
+function routeProjectChildCollection(
+  method: string,
+  ctx: PublicApiContext,
+  projectId: string,
+  child: string,
+  req: Request,
+) {
+  if (child === "timers") {
     if (method === "GET") return listTimers(ctx, projectId)
     if (method === "POST") return createTimer(ctx, projectId, req)
     return methodNotAllowed()
   }
 
-  if (resource === "projects" && projectId && child === "timers" && childId && path.length === 4) {
-    if (method === "GET") return getTimer(ctx, projectId, childId)
-    if (method === "PATCH") return updateTimer(ctx, projectId, childId, req)
-    if (method === "DELETE") return deleteTimer(ctx, projectId, childId)
-    return methodNotAllowed()
-  }
-
-  if (resource === "projects" && projectId && child === "spaces" && path.length === 3) {
+  if (child === "spaces") {
     if (method === "GET") return listSpaces(ctx, projectId)
     if (method === "POST") return createSpace(ctx, projectId, req)
     return methodNotAllowed()
   }
 
-  if (resource === "projects" && projectId && child === "spaces" && childId && path.length === 4) {
-    if (method === "GET") return getSpace(ctx, projectId, childId)
-    if (method === "PATCH") return updateSpace(ctx, projectId, childId, req)
-    if (method === "DELETE") return deleteSpace(ctx, projectId, childId, req)
-    return methodNotAllowed()
-  }
-
-  if (resource === "projects" && projectId && child === "shares" && path.length === 3) {
+  if (child === "shares") {
     if (method === "GET") return listShares(ctx, projectId)
     if (method === "POST") return createShare(ctx, projectId, req)
     return methodNotAllowed()
   }
 
-  if (resource === "projects" && projectId && child === "shares" && childId && path.length === 4) {
-    if (method === "GET") return getShare(ctx, projectId, childId)
-    if (method === "DELETE") return deleteShare(ctx, projectId, childId)
-    return methodNotAllowed()
-  }
+  return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+}
 
-  if (leaf) return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+function routeTimerResource(method: string, ctx: PublicApiContext, projectId: string, timerId: string, req: Request) {
+  if (method === "GET") return getTimer(ctx, projectId, timerId)
+  if (method === "PATCH") return updateTimer(ctx, projectId, timerId, req)
+  if (method === "DELETE") return deleteTimer(ctx, projectId, timerId)
+  return methodNotAllowed()
+}
+
+function routeSpaceResource(method: string, ctx: PublicApiContext, projectId: string, spaceId: string, req: Request) {
+  if (method === "GET") return getSpace(ctx, projectId, spaceId)
+  if (method === "PATCH") return updateSpace(ctx, projectId, spaceId, req)
+  if (method === "DELETE") return deleteSpace(ctx, projectId, spaceId, req)
+  return methodNotAllowed()
+}
+
+function routeShareResource(method: string, ctx: PublicApiContext, projectId: string, shareId: string) {
+  if (method === "GET") return getShare(ctx, projectId, shareId)
+  if (method === "DELETE") return deleteShare(ctx, projectId, shareId)
+  return methodNotAllowed()
+}
+
+function routeProjectChildResource(
+  method: string,
+  ctx: PublicApiContext,
+  projectId: string,
+  child: string,
+  childId: string,
+  req: Request,
+) {
+  if (child === "timers") return routeTimerResource(method, ctx, projectId, childId, req)
+  if (child === "spaces") return routeSpaceResource(method, ctx, projectId, childId, req)
+  if (child === "shares") return routeShareResource(method, ctx, projectId, childId)
+
+  return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+}
+
+function routePublicApi(method: string, ctx: PublicApiContext, req: Request, path: string[]) {
+  const [resource, projectId, child, childId] = path
+  if (resource !== "projects") return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+  if (projectId === "preview" && path.length === 2) return routeProjectPreview(method, req)
+  if (path.length === 1) return routeProjectsCollection(method, ctx, req)
+  if (!projectId) return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+  if (path.length === 2) return routeProjectResource(method, ctx, projectId, req)
+  if (!child) return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+  if (path.length === 3) return routeProjectChildCollection(method, ctx, projectId, child, req)
+  if (path.length === 4 && childId) return routeProjectChildResource(method, ctx, projectId, child, childId, req)
   return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
 }
 
@@ -1755,7 +2010,7 @@ async function routePublicApiWithIdempotency(method: string, ctx: PublicApiConte
     const response = await routePublicApi(method, ctx, req, path)
     return await completeIdempotentRequest({ ...started, response })
   } catch (error) {
-    await started.delegate.delete({ where: { id: started.row.id } }).catch(() => undefined)
+    await Promise.resolve(started.delegate.delete({ where: { id: started.row.id } })).catch(() => undefined)
     throw error
   }
 }

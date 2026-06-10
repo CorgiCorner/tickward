@@ -10,11 +10,7 @@ import {
 } from "@/lib/account-preferences"
 import { resetDefaultTimeZonePreference, setDefaultTimeZonePreference } from "@/lib/default-timezone.client"
 import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
-import {
-  setLocalBrowserNotificationsEnabled,
-  setLocalFullPageAlarmEnabled,
-  setLocalNotificationSound,
-} from "@/lib/local-notification-preferences.client"
+import { setLocalFullPageAlarmEnabled, setLocalNotificationSound } from "@/lib/local-notification-preferences.client"
 
 type AccountPreferencesContextValue = {
   error: string | null
@@ -27,10 +23,6 @@ type AccountPreferencesContextValue = {
 
 const AccountPreferencesContext = createContext<AccountPreferencesContextValue | null>(null)
 
-function canUseBrowserNotifications() {
-  return globalThis.window !== undefined && "Notification" in globalThis && Notification.permission === "granted"
-}
-
 export function applyAccountPreferencesToDevice(preferences: AccountPreferencesRecord) {
   if (preferences.default_timezone) {
     setDefaultTimeZonePreference(preferences.default_timezone)
@@ -38,7 +30,6 @@ export function applyAccountPreferencesToDevice(preferences: AccountPreferencesR
     resetDefaultTimeZonePreference()
   }
 
-  setLocalBrowserNotificationsEnabled(preferences.browser_notifications_enabled && canUseBrowserNotifications())
   setLocalFullPageAlarmEnabled(preferences.full_page_alarm)
   setLocalNotificationSound(preferences.notification_sound)
 }

@@ -43,6 +43,10 @@ vi.mock("@/components/mcp-settings", () => ({
   ),
 }))
 
+vi.mock("@/components/webhooks-settings", () => ({
+  WebhooksSettingsPanel: () => <section id="webhooks">Webhooks</section>,
+}))
+
 vi.mock("@/components/notification-settings", () => ({
   NotificationSettingsPanel: () => <section id="alerts">Alert settings</section>,
 }))
@@ -206,17 +210,20 @@ describe("AccountPageClient", () => {
     const defaults = document.getElementById("defaults")
     const alerts = document.getElementById("alerts")
     const apiKeys = document.getElementById("api-keys")
+    const webhooks = document.getElementById("webhooks")
     const mcp = document.getElementById("mcp")
 
     expect(profile).not.toBeNull()
     expect(defaults).not.toBeNull()
     expect(alerts).not.toBeNull()
     expect(apiKeys).not.toBeNull()
+    expect(webhooks).not.toBeNull()
     expect(mcp).not.toBeNull()
     expect(profile!.compareDocumentPosition(defaults!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(defaults!.compareDocumentPosition(alerts!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(alerts!.compareDocumentPosition(apiKeys!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(apiKeys!.compareDocumentPosition(mcp!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(apiKeys!.compareDocumentPosition(webhooks!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(webhooks!.compareDocumentPosition(mcp!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.getByText("MCP configured")).toBeVisible()
   })
 

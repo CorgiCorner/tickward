@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { NotificationSettingsPanel } from "@/components/notification-settings"
+import { LOCAL_NOTIFICATION_STORAGE_KEYS } from "@/lib/notification-preferences"
 import type { NotificationSound } from "@/lib/notification-preferences"
 
 const mocks = vi.hoisted(() => ({
@@ -11,7 +12,6 @@ const mocks = vi.hoisted(() => ({
     error: null as string | null,
     loading: false,
     preferences: {
-      browser_notifications_enabled: false,
       full_page_alarm: false,
       notification_sound: "none" as NotificationSound,
     },
@@ -45,7 +45,6 @@ describe("NotificationSettingsPanel", () => {
       error: null,
       loading: false,
       preferences: {
-        browser_notifications_enabled: false,
         full_page_alarm: false,
         notification_sound: "none",
       },
@@ -54,7 +53,6 @@ describe("NotificationSettingsPanel", () => {
     mocks.updatePreferences.mockReset()
     mocks.updatePreferences.mockResolvedValue({
       object: "account_preferences",
-      browser_notifications_enabled: false,
       default_timezone: null,
       full_page_alarm: false,
       notification_sound: "none",
@@ -82,8 +80,9 @@ describe("NotificationSettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: "Enable on this device" }))
 
     expect(requestPermission).toHaveBeenCalledTimes(1)
-    expect(mocks.updatePreferences).toHaveBeenCalledWith({ browser_notifications_enabled: false })
-    expect(toast.error).toHaveBeenCalledWith("Full-page alarms still work while tickward is open.")
+    expect(localStorage.getItem(LOCAL_NOTIFICATION_STORAGE_KEYS.enabled)).toBe("0")
+    expect(mocks.updatePreferences).not.toHaveBeenCalled()
+    expect(toast.error).toHaveBeenCalledWith("Browser notifications were denied. Local alarms still work while open.")
 
     await user.click(screen.getByLabelText("Full-page alarm"))
     await user.click(screen.getByRole("button", { name: "Polite" }))
@@ -92,6 +91,26 @@ describe("NotificationSettingsPanel", () => {
     expect(mocks.updatePreferences).toHaveBeenCalledWith({ notification_sound: "polite" })
     const audio = await import("@/lib/notification-audio.client")
     expect(audio.playNotificationSound).not.toHaveBeenCalled()
+  })
+
+  it("disables device notifications without changing account defaults", async () => {
+    const user = userEvent.setup()
+    localStorage.setItem(LOCAL_NOTIFICATION_STORAGE_KEYS.enabled, "1")
+    Object.defineProperty(globalThis, "Notification", {
+      configurable: true,
+      value: {
+        permission: "granted",
+        requestPermission: vi.fn(),
+      },
+    })
+
+    render(<NotificationSettingsPanel />)
+
+    await user.click(screen.getByRole("button", { name: "Disable on this device" }))
+
+    expect(localStorage.getItem(LOCAL_NOTIFICATION_STORAGE_KEYS.enabled)).toBe("0")
+    expect(mocks.updatePreferences).not.toHaveBeenCalled()
+    expect(toast.success).toHaveBeenCalledWith("Device notifications disabled.")
   })
 
   it("previews the active sound without playing on selection", async () => {

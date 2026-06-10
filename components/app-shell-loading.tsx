@@ -178,7 +178,7 @@ export function HomeMainLoadingSkeleton(props: Readonly<{ announce?: boolean; in
 
   return (
     <div
-      role={announce ? "status" : undefined}
+      aria-live={announce ? "polite" : undefined}
       aria-label={announce ? label : undefined}
       aria-busy={announce ? true : undefined}
     >
@@ -229,7 +229,7 @@ export function AuthMainLoadingSkeleton(props: Readonly<{ announce?: boolean }>)
 
   return (
     <div
-      role={announce ? "status" : undefined}
+      aria-live={announce ? "polite" : undefined}
       aria-label={announce ? label : undefined}
       aria-busy={announce ? true : undefined}
     >
@@ -258,7 +258,7 @@ export function SharedTimerMainLoadingSkeleton(props: Readonly<{ announce?: bool
 
   return (
     <div
-      role={announce ? "status" : undefined}
+      aria-live={announce ? "polite" : undefined}
       aria-label={announce ? label : undefined}
       aria-busy={announce ? true : undefined}
     >
@@ -293,7 +293,7 @@ export function SettingsMainLoadingSkeleton(props: Readonly<{ announce?: boolean
 
   return (
     <div
-      role={announce ? "status" : undefined}
+      aria-live={announce ? "polite" : undefined}
       aria-label={announce ? label : undefined}
       aria-busy={announce ? true : undefined}
     >
@@ -437,7 +437,7 @@ function LoadingShell(
 ) {
   return (
     <div
-      role="status"
+      aria-live="polite"
       aria-label={props.label}
       aria-busy="true"
       className={cn("flex min-h-screen flex-col bg-background text-foreground", props.className)}

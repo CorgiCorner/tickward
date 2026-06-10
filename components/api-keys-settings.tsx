@@ -1,9 +1,13 @@
 "use client"
 
-import { CopyIcon, KeyRoundIcon, PlusIcon, Trash2Icon } from "lucide-react"
+import { KeyRoundIcon, PlusIcon, Trash2Icon } from "lucide-react"
+import type { ReactNode } from "react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
+import { ConfirmActionButton } from "@/components/confirm-action-button"
+import { SecretRevealField } from "@/components/secret-reveal-field"
+import { SettingsDateMetadata } from "@/components/settings-metadata"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -65,17 +69,6 @@ function withoutRawToken(record: CreatedApiKey): ApiKeyRecord {
     last_used_at: record.last_used_at,
     revoked_at: record.revoked_at,
   }
-}
-
-function formatDate(value: string | null) {
-  if (!value) return formatMessage("apiKeys.never")
-  return new Intl.DateTimeFormat("en", {
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(value))
 }
 
 async function responseJson<T>(res: Response, fallback: string): Promise<T> {
@@ -158,21 +151,11 @@ function CreatedTokenPanel(props: Readonly<{ created: CreatedApiKey }>) {
         <div className="text-sm font-medium">{formatMessage("apiKeys.createdTitle")}</div>
         <p className="text-xs text-muted-foreground">{formatMessage("apiKeys.createdDescription")}</p>
       </div>
-      <div className="flex gap-2">
-        <Input value={props.created.token} readOnly className="font-mono text-xs" />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          aria-label={formatMessage("apiKeys.copyToken")}
-          onClick={async () => {
-            await navigator.clipboard.writeText(props.created.token)
-            toast.success(formatMessage("apiKeys.copied"))
-          }}
-        >
-          <CopyIcon className="size-4" />
-        </Button>
-      </div>
+      <SecretRevealField
+        value={props.created.token}
+        copyLabel={formatMessage("apiKeys.copyToken")}
+        copiedMessage={formatMessage("apiKeys.copied")}
+      />
     </div>
   )
 }
@@ -186,38 +169,42 @@ function ApiKeyRow(
 ) {
   const revoked = Boolean(props.record.revoked_at)
   return (
-    <div className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_auto] sm:items-center">
-      <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <div className="truncate text-sm font-medium">{props.record.name}</div>
-          <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-            {formatMessage(
-              props.record.permission === "read" ? "apiKeys.permission.read" : "apiKeys.permission.fullAccess",
-            )}
-          </span>
-          {revoked ? (
-            <span className="rounded-full border border-destructive/30 px-2 py-0.5 text-[11px] text-destructive">
-              {formatMessage("apiKeys.revoked")}
+    <div className="grid gap-3 rounded-lg border p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="truncate text-sm font-medium">{props.record.name}</div>
+            <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+              {formatMessage(
+                props.record.permission === "read" ? "apiKeys.permission.read" : "apiKeys.permission.fullAccess",
+              )}
             </span>
-          ) : null}
+            {revoked ? (
+              <span className="rounded-full border border-destructive/30 px-2 py-0.5 text-[11px] text-destructive">
+                {formatMessage("apiKeys.revoked")}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1 font-mono text-xs text-muted-foreground">{apiKeyLabel(props.record)}</div>
         </div>
-        <div className="mt-1 font-mono text-xs text-muted-foreground">{apiKeyLabel(props.record)}</div>
-        <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-          <span>{formatMessage("apiKeys.createdAt", { date: formatDate(props.record.created_at) })}</span>
-          <span>{formatMessage("apiKeys.lastUsedAt", { date: formatDate(props.record.last_used_at) })}</span>
+        <div className="shrink-0">
+          <ConfirmActionButton
+            actionLabel={formatMessage("apiKeys.revokeAction")}
+            confirmAction={() => props.onRevoke(props.record.id)}
+            description={formatMessage("apiKeys.revokeConfirmDescription")}
+            icon={<Trash2Icon className="size-4" />}
+            loading={props.revokeLoading === props.record.id}
+            disabled={revoked}
+            title={formatMessage("apiKeys.revokeConfirmTitle")}
+          >
+            {formatMessage("apiKeys.revokeKey")}
+          </ConfirmActionButton>
         </div>
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        loading={props.revokeLoading === props.record.id}
-        disabled={revoked}
-        onClick={() => props.onRevoke(props.record.id)}
-      >
-        {!props.revokeLoading && <Trash2Icon className="size-4" />}
-        {formatMessage("apiKeys.revoke")}
-      </Button>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
+        <SettingsDateMetadata label={formatMessage("apiKeys.createdLabel")} value={props.record.created_at} />
+        <SettingsDateMetadata label={formatMessage("apiKeys.lastUsedLabel")} value={props.record.last_used_at} />
+      </div>
     </div>
   )
 }
@@ -312,6 +299,39 @@ export function ApiKeysSettingsPanel(
     }
   }
 
+  let apiKeysContent: ReactNode
+  if (loading) {
+    apiKeysContent = <div className="text-sm text-muted-foreground">{formatMessage("apiKeys.loading")}</div>
+  } else if (loadError) {
+    apiKeysContent = (
+      <div className="flex flex-col gap-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <p>{loadError}</p>
+        <Button type="button" variant="outline" size="sm" onClick={() => loadApiKeys()}>
+          {formatMessage("apiKeys.retry")}
+        </Button>
+      </div>
+    )
+  } else if (activeKeys.length === 0) {
+    apiKeysContent = (
+      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+        {formatMessage("apiKeys.empty")}
+      </div>
+    )
+  } else {
+    apiKeysContent = (
+      <div className="grid gap-3">
+        {activeKeys.map((record) => (
+          <ApiKeyRow
+            key={record.id}
+            record={record}
+            revokeLoading={revokeLoading}
+            onRevoke={(id) => void submitRevoke(id)}
+          />
+        ))}
+      </div>
+    )
+  }
+
   return (
     <section id="api-keys" className="grid scroll-mt-6 gap-4 rounded-lg border p-4">
       <div className="flex items-start justify-between gap-4">
@@ -360,31 +380,7 @@ export function ApiKeysSettingsPanel(
         </Dialog>
       </div>
 
-      {loading ? (
-        <div className="text-sm text-muted-foreground">{formatMessage("apiKeys.loading")}</div>
-      ) : loadError ? (
-        <div className="flex flex-col gap-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <p>{loadError}</p>
-          <Button type="button" variant="outline" size="sm" onClick={() => loadApiKeys()}>
-            {formatMessage("apiKeys.retry")}
-          </Button>
-        </div>
-      ) : activeKeys.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          {formatMessage("apiKeys.empty")}
-        </div>
-      ) : (
-        <div className="grid gap-3">
-          {activeKeys.map((record) => (
-            <ApiKeyRow
-              key={record.id}
-              record={record}
-              revokeLoading={revokeLoading}
-              onRevoke={(id) => void submitRevoke(id)}
-            />
-          ))}
-        </div>
-      )}
+      {apiKeysContent}
     </section>
   )
 }

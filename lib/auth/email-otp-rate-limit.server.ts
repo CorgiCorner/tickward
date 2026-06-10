@@ -7,7 +7,7 @@ import { z } from "zod"
 import { enforceRateLimit } from "@/lib/rate-limit.server"
 
 const emailOtpSendPayloadSchema = z.object({
-  email: z.string().trim().toLowerCase().email(),
+  email: z.string().trim().toLowerCase().pipe(z.email()),
 })
 
 function hashRateLimitValue(prefix: string, value: string) {
@@ -20,13 +20,17 @@ function emailRateLimitKey(email: string) {
 }
 
 function firstForwardedValue(value: string | null) {
-  return value?.split(",")[0]?.trim() || null
+  const first = value?.split(",")[0]?.trim()
+  if (!first) return null
+  return first
 }
 
 function forwardedHeaderIp(value: string | null) {
   const first = firstForwardedValue(value)
   const match = first?.match(/(?:^|;)for=(?:"?)([^";,]+)(?:"?)/i)
-  return match?.[1]?.trim() || null
+  const ip = match?.[1]?.trim()
+  if (!ip) return null
+  return ip
 }
 
 function requestIp(req: Request) {

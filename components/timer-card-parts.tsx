@@ -14,7 +14,7 @@ import {
   TrashIcon,
 } from "lucide-react"
 import Image from "next/image"
-import { useState, type MouseEvent, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 
 import { CountdownDisplay } from "@/components/countdown-display"
 import { TimerForm, type TimerFormSubmitValue } from "@/components/timer-form"
@@ -40,13 +40,6 @@ type RecurrenceHistory = {
 
 const timerActionClassName = "text-muted-foreground/75 hover:text-muted-foreground"
 
-function isInteractiveTimerTarget(target: EventTarget | null) {
-  return (
-    target instanceof Element &&
-    Boolean(target.closest("button,a,input,select,textarea,[role='button'],[data-ignore-timer-card-tap='true']"))
-  )
-}
-
 export function TimerCardContent(
   props: Readonly<{
     timer: Timer
@@ -60,21 +53,12 @@ export function TimerCardContent(
     dragHandle?: ReactNode
     mobileActions: ReactNode
     desktopActions: ReactNode
-    onMobileTap?: () => void
   }>,
 ) {
-  function handleCardClick(event: MouseEvent<HTMLDivElement>) {
-    if (!props.onMobileTap) return
-    if (isInteractiveTimerTarget(event.target)) return
-    props.onMobileTap()
-  }
-
   return (
     <div
-      onClick={handleCardClick}
       className={[
         "group relative min-w-0 w-full md:rounded-2xl md:border bg-card p-5 transition-colors",
-        props.onMobileTap ? "cursor-pointer md:cursor-default" : "",
         props.isPinned
           ? "border-l-2 border-l-primary/45 bg-primary/[0.025] md:border-primary/15 dark:bg-primary/[0.04]"
           : "md:border-border",
@@ -521,6 +505,10 @@ export function TimerShareDialog(
     onCreateAndCopy: () => void
   }>,
 ) {
+  let actionLabel = formatMessage("share.createLink")
+  if (props.shareUrl) actionLabel = formatMessage("share.copyLinkAction")
+  else if (props.hasSharedMarker) actionLabel = formatMessage("share.restoreLink")
+
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent>
@@ -539,13 +527,7 @@ export function TimerShareDialog(
 
         <DialogFooter>
           <Button type="button" loading={props.shareLoading} onClick={props.onCreateAndCopy}>
-            {formatMessage(
-              props.shareUrl
-                ? "share.copyLinkAction"
-                : props.hasSharedMarker
-                  ? "share.restoreLink"
-                  : "share.createLink",
-            )}
+            {actionLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

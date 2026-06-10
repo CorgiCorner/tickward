@@ -7,6 +7,10 @@ import { formatMessage } from "@/lib/i18n/messages"
  *
  * No environment variable is read at module load time; callers read on demand
  * so build-time evaluation stays free of runtime config requirements.
+ *
+ * Webhook delivery is optional for self-hosted installs. Configure
+ * TICKWARD_SCHEDULER_SECRET when exposing /api/internal/scheduler/tick to a
+ * cron runner.
  */
 export type ServerEnvVar =
   | "UPSTASH_REDIS_REST_URL"
@@ -23,6 +27,11 @@ export type ServerEnvVar =
   | "WEB_PUSH_VAPID_PRIVATE_KEY"
   | "WEB_PUSH_VAPID_SUBJECT"
   | "TICKWARD_MCP_REMOTE_URL"
+  | "TICKWARD_ENVIRONMENT"
+  | "TICKWARD_SCHEDULER_SECRET"
+  | "TICKWARD_WEBHOOK_ALLOW_PRIVATE_NETWORKS"
+  | "TICKWARD_WEBHOOK_MAX_ENDPOINTS"
+  | "TICKWARD_WEBHOOK_AUTO_DISABLE_FAILURES"
 
 /**
  * Read a required environment variable, trimmed. Throws when it is absent or

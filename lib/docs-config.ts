@@ -2,6 +2,7 @@ const DOCS_ROUTE_PATHS = [
   "/docs",
   "/docs/guides/self-hosting",
   "/docs/guides/api-quickstart",
+  "/docs/guides/webhooks",
   "/docs/guides/mcp",
   "/docs/guides/agent-usage",
   "/docs/api-reference",

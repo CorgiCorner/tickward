@@ -512,7 +512,7 @@ describe("prisma project repository", () => {
 
     expect(prisma.project.findFirst).toHaveBeenCalledWith({
       where: { id: "project_123", ownerId: "user_123" },
-      select: { id: true, ownerId: true },
+      select: { id: true, ownerId: true, snapshot: true },
     })
     expect(prisma.$transaction).toHaveBeenCalledWith([
       { model: "project", args: expect.any(Object) },
@@ -527,6 +527,63 @@ describe("prisma project repository", () => {
         args: expect.objectContaining({ data: [expect.objectContaining({ ownerId: "user_123" })] }),
       },
     ])
+  })
+
+  it("emits webhook events when account-backed timer snapshots change", async () => {
+    const { prismaProjectRepository } = await import("./prisma-project-repository.server")
+    const prisma = prismaMock()
+    const previous = makeProjectSnapshot({ timers: [], spaces: [] })
+    const next = makeProjectSnapshot({
+      timers: [
+        makeTimer({
+          id: "timer-a",
+          label: "Launch",
+          targetDate: "2026-12-01T10:00:00.000Z",
+          timezone: "UTC",
+        }),
+      ],
+      spaces: [],
+    })
+    const webhookEvent = {
+      create: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({}),
+      upsert: vi.fn().mockResolvedValue({}),
+    }
+    Object.assign(prisma, { webhookEvent })
+    prisma.project.findFirst.mockResolvedValue({ id: "project_123", ownerId: "user_123", snapshot: previous })
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+
+    await expect(
+      prismaProjectRepository.saveUserProject?.({
+        projectId: "project_123",
+        user: { id: "user_123" },
+        project: next,
+      }),
+    ).resolves.toBe(true)
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function))
+    expect(webhookEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        aggregateId: "timer-a",
+        aggregateType: "timer",
+        projectId: "project_123",
+        timerId: "timer-a",
+        type: "timer.created",
+        userId: "user_123",
+      }),
+    })
+    expect(webhookEvent.upsert).toHaveBeenCalledWith({
+      create: expect.objectContaining({
+        aggregateId: "timer-a",
+        aggregateType: "timer",
+        projectId: "project_123",
+        timerId: "timer-a",
+        type: "timer.ended",
+        userId: "user_123",
+      }),
+      update: expect.objectContaining({ status: "pending" }),
+      where: { dedupeKey: expect.stringContaining("timer.ended:user_123:project_123:timer-a:") },
+    })
   })
 
   it("clears user projects only when the signed-in user can access them", async () => {

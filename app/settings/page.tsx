@@ -17,6 +17,7 @@ import { noIndexRobots } from "@/lib/seo-metadata"
 import { TimerStoreProvider } from "@/lib/store"
 import type { Space, Timer } from "@/lib/types"
 import { isSpaceArray, isTimerArray } from "@/lib/validate"
+import { listWebhookEndpointsForUser } from "@/lib/webhooks.server"
 import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 
@@ -43,10 +44,11 @@ async function requireSignedInSettingsUser(): Promise<UserActor> {
 }
 
 export async function readInitialAccountData(user: UserActor["user"]): Promise<AccountPageInitialData> {
-  const [preferencesResult, apiKeysResult, mcpConnectionsResult] = await Promise.allSettled([
+  const [preferencesResult, apiKeysResult, mcpConnectionsResult, webhooksResult] = await Promise.allSettled([
     getAccountPreferencesForUser(user),
     listApiKeysForUser(user),
     listMcpConnectionsForUser(user),
+    listWebhookEndpointsForUser(user),
   ])
 
   if (preferencesResult.status === "rejected") {
@@ -57,6 +59,9 @@ export async function readInitialAccountData(user: UserActor["user"]): Promise<A
   }
   if (mcpConnectionsResult.status === "rejected") {
     console.error("[tickward] settings.initialMcpConnections", mcpConnectionsResult.reason)
+  }
+  if (webhooksResult.status === "rejected") {
+    console.error("[tickward] settings.initialWebhooks", webhooksResult.reason)
   }
 
   return {
@@ -69,6 +74,9 @@ export async function readInitialAccountData(user: UserActor["user"]): Promise<A
     mcpRemoteUrl: getMcpRemoteUrl(),
     preferences: preferencesResult.status === "fulfilled" ? preferencesResult.value : DEFAULT_ACCOUNT_PREFERENCES,
     preferencesError: preferencesResult.status === "fulfilled" ? null : formatMessage("settings.preferencesLoadFailed"),
+    webhooksDocsHref: getDocsPageHref("/guides/webhooks"),
+    webhooks: webhooksResult.status === "fulfilled" ? webhooksResult.value : [],
+    webhooksError: webhooksResult.status === "fulfilled" ? null : formatMessage("webhooks.unavailable"),
   }
 }
 

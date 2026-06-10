@@ -1,9 +1,12 @@
 "use client"
 
 import { BookOpenIcon, BotIcon, CopyIcon, KeyRoundIcon, ServerIcon, Trash2Icon } from "lucide-react"
+import type { ReactNode } from "react"
 import { useState } from "react"
 import { toast } from "sonner"
 
+import { ConfirmActionButton } from "@/components/confirm-action-button"
+import { SettingsDateMetadata } from "@/components/settings-metadata"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { formatMessage } from "@/lib/i18n/messages"
@@ -59,17 +62,6 @@ async function copyToClipboard(value: string) {
   }
 }
 
-function formatDate(value: string | null) {
-  if (!value) return formatMessage("apiKeys.never")
-  return new Intl.DateTimeFormat("en", {
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(value))
-}
-
 function mcpConnectionsLoadErrorMessage(error: unknown) {
   if (error instanceof McpConnectionRequestError) {
     if (error.type === "storage_unavailable" || error.type === "rate_limit_unavailable" || error.status >= 500) {
@@ -103,45 +95,49 @@ function McpConnectionRow(
 ) {
   const revoked = Boolean(props.connection.revoked_at)
   return (
-    <div className="grid gap-3 rounded-lg border bg-background p-3 sm:grid-cols-[1fr_auto] sm:items-center">
-      <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <div className="truncate text-sm font-medium">{props.connection.client_name ?? props.connection.name}</div>
-          <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-            {mcpConnectionAccessLabel(props.connection.scopes)}
-          </span>
-          {revoked ? (
-            <span className="rounded-full border border-destructive/30 px-2 py-0.5 text-[11px] text-destructive">
-              {formatMessage("apiKeys.revoked")}
+    <div className="grid gap-3 rounded-lg border bg-background p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="truncate text-sm font-medium">{props.connection.client_name ?? props.connection.name}</div>
+            <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+              {mcpConnectionAccessLabel(props.connection.scopes)}
             </span>
-          ) : null}
+            {revoked ? (
+              <span className="rounded-full border border-destructive/30 px-2 py-0.5 text-[11px] text-destructive">
+                {formatMessage("apiKeys.revoked")}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1 font-mono text-xs text-muted-foreground">
+            {props.connection.key_prefix}...{props.connection.key_last4}
+          </div>
         </div>
-        <div className="mt-1 font-mono text-xs text-muted-foreground">
-          {props.connection.key_prefix}...{props.connection.key_last4}
-        </div>
-        <div className="mt-2 flex flex-wrap gap-1">
-          {props.connection.scopes.map((scope) => (
-            <span key={scope} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-              {formatScope(scope)}
-            </span>
-          ))}
-        </div>
-        <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-          <span>{formatMessage("apiKeys.createdAt", { date: formatDate(props.connection.created_at) })}</span>
-          <span>{formatMessage("apiKeys.lastUsedAt", { date: formatDate(props.connection.last_used_at) })}</span>
+        <div className="shrink-0">
+          <ConfirmActionButton
+            actionLabel={formatMessage("mcp.connectionRevokeAction")}
+            confirmAction={() => props.onRevoke(props.connection.id)}
+            description={formatMessage("mcp.connectionRevokeConfirmDescription")}
+            icon={<Trash2Icon className="size-4" />}
+            loading={props.revokeLoading === props.connection.id}
+            disabled={revoked}
+            title={formatMessage("mcp.connectionRevokeConfirmTitle")}
+          >
+            {formatMessage("mcp.connectionRevokeConnection")}
+          </ConfirmActionButton>
         </div>
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        loading={props.revokeLoading === props.connection.id}
-        disabled={revoked}
-        onClick={() => props.onRevoke(props.connection.id)}
-      >
-        {!props.revokeLoading && <Trash2Icon className="size-4" />}
-        {formatMessage("mcp.connectionRevoke")}
-      </Button>
+      <div className="flex flex-wrap gap-1">
+        {props.connection.scopes.map((scope) => (
+          <span key={scope} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+            {formatScope(scope)}
+          </span>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
+        <SettingsDateMetadata label={formatMessage("apiKeys.createdLabel")} value={props.connection.created_at} />
+        <SettingsDateMetadata label={formatMessage("apiKeys.lastUsedLabel")} value={props.connection.last_used_at} />
+      </div>
     </div>
   )
 }
@@ -186,6 +182,37 @@ export function McpSettingsPanel(
     } finally {
       setRevokeLoading(null)
     }
+  }
+
+  let connectionsContent: ReactNode
+  if (loadError) {
+    connectionsContent = (
+      <div className="flex flex-col gap-3 rounded-md border border-dashed bg-background p-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <p>{loadError}</p>
+        <Button type="button" variant="outline" size="sm" loading={loading} onClick={() => void refreshConnections()}>
+          {formatMessage("apiKeys.retry")}
+        </Button>
+      </div>
+    )
+  } else if (connections.length > 0) {
+    connectionsContent = (
+      <div className="grid gap-2">
+        {connections.map((connection) => (
+          <McpConnectionRow
+            key={connection.id}
+            connection={connection}
+            revokeLoading={revokeLoading}
+            onRevoke={(id) => void revokeConnection(id)}
+          />
+        ))}
+      </div>
+    )
+  } else {
+    connectionsContent = (
+      <div className="rounded-md border border-dashed bg-background p-3 text-xs text-muted-foreground">
+        {formatMessage("mcp.connectionsEmpty")}
+      </div>
+    )
   }
 
   return (
@@ -242,35 +269,7 @@ export function McpSettingsPanel(
           <div className="text-sm font-medium">{formatMessage("mcp.connectionsTitle")}</div>
           <p className="text-xs text-muted-foreground">{formatMessage("mcp.connectionsDescription")}</p>
         </div>
-        {loadError ? (
-          <div className="flex flex-col gap-3 rounded-md border border-dashed bg-background p-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-            <p>{loadError}</p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              loading={loading}
-              onClick={() => void refreshConnections()}
-            >
-              {formatMessage("apiKeys.retry")}
-            </Button>
-          </div>
-        ) : connections.length > 0 ? (
-          <div className="grid gap-2">
-            {connections.map((connection) => (
-              <McpConnectionRow
-                key={connection.id}
-                connection={connection}
-                revokeLoading={revokeLoading}
-                onRevoke={(id) => void revokeConnection(id)}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-md border border-dashed bg-background p-3 text-xs text-muted-foreground">
-            {formatMessage("mcp.connectionsEmpty")}
-          </div>
-        )}
+        {connectionsContent}
       </div>
 
       <div className="grid gap-3 rounded-lg bg-muted/30 p-3">

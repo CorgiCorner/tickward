@@ -63,6 +63,9 @@ Use host-reachable URLs in `.env` when you run services outside Compose.
 | `WEB_PUSH_VAPID_PRIVATE_KEY`                |       No | Private VAPID key for push-capable deployments.                                     |
 | `WEB_PUSH_VAPID_SUBJECT`                    |       No | Optional VAPID subject.                                                             |
 | `TICKWARD_MCP_REMOTE_URL`                   |       No | Remote MCP endpoint shown in account settings when configured.                      |
+| `TICKWARD_ENVIRONMENT`                      |       No | Environment label included in webhook payloads.                                     |
+| `TICKWARD_SCHEDULER_SECRET`                 |       No | Bearer secret for `/api/internal/scheduler/tick` when webhooks are enabled.         |
+| `TICKWARD_WEBHOOK_ALLOW_PRIVATE_NETWORKS`   |       No | Set to `true` only when a self-hosted deployment must call trusted internal URLs.   |
 | `SEED_ADMIN_EMAIL`                          |       No | Email used by seed scripts to create or promote an admin account.                   |
 | `SEED_ADMIN_NAME`                           |       No | Optional display name for the seeded admin account.                                 |
 | `SEED_ADMIN_ID`                             |       No | Optional custom user id for the seeded admin account.                               |

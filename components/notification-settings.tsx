@@ -9,29 +9,26 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import type { AccountPreferencesPatch, AccountPreferencesRecord } from "@/lib/account-preferences"
 import { formatMessage } from "@/lib/i18n/messages"
+import {
+  setLocalBrowserNotificationsEnabled,
+  useLocalNotificationPreferences,
+} from "@/lib/local-notification-preferences.client"
 import { playNotificationSound } from "@/lib/notification-audio.client"
 import { NOTIFICATION_SOUND_OPTIONS, type NotificationSound } from "@/lib/notification-preferences"
 
-function systemAlertsAllowed(preferences: AccountPreferencesRecord) {
+function systemAlertsAllowed(browserNotificationsEnabled: boolean) {
   return (
-    preferences.browser_notifications_enabled &&
+    browserNotificationsEnabled &&
     globalThis.window !== undefined &&
     "Notification" in globalThis &&
     Notification.permission === "granted"
   )
 }
 
-async function toggleSystemAlerts(
-  systemAlertsEnabled: boolean,
-  updatePreferences: (patch: AccountPreferencesPatch) => Promise<AccountPreferencesRecord>,
-) {
+async function toggleSystemAlerts(systemAlertsEnabled: boolean) {
   if (systemAlertsEnabled) {
-    try {
-      await updatePreferences({ browser_notifications_enabled: false })
-      toast.success(formatMessage("notifications.browser.disabled"))
-    } catch {
-      toast.error(formatMessage("settings.preferencesUnavailable"))
-    }
+    setLocalBrowserNotificationsEnabled(false)
+    toast.success(formatMessage("notifications.browser.disabled"))
     return
   }
 
@@ -43,7 +40,7 @@ async function toggleSystemAlerts(
   try {
     const permission = await Notification.requestPermission()
     const enabled = permission === "granted"
-    await updatePreferences({ browser_notifications_enabled: enabled })
+    setLocalBrowserNotificationsEnabled(enabled)
     if (enabled) {
       toast.success(formatMessage("notifications.browser.enabled"))
     } else {
@@ -183,8 +180,10 @@ function LocalAlarmsSection(
 
 export function NotificationSettingsPanel() {
   const { loading, preferences, saving, updatePreferences } = useAccountPreferences()
-  const disabled = loading || saving
-  const systemAlertsEnabled = systemAlertsAllowed(preferences)
+  const localPreferences = useLocalNotificationPreferences()
+  const accountControlsDisabled = loading || saving
+  const deviceControlsDisabled = loading
+  const systemAlertsEnabled = systemAlertsAllowed(localPreferences.browserNotificationsEnabled)
 
   return (
     <section id="alerts" className="grid scroll-mt-6 gap-4 rounded-lg border p-4">
@@ -193,12 +192,12 @@ export function NotificationSettingsPanel() {
         <p className="text-sm text-muted-foreground">{formatMessage("settings.alertsDescription")}</p>
       </div>
       <DeviceNotificationsSection
-        disabled={disabled}
+        disabled={deviceControlsDisabled}
         systemAlertsEnabled={systemAlertsEnabled}
-        onToggleNotifications={() => void toggleSystemAlerts(systemAlertsEnabled, updatePreferences)}
+        onToggleNotifications={() => void toggleSystemAlerts(systemAlertsEnabled)}
       />
       <LocalAlarmsSection
-        disabled={disabled}
+        disabled={accountControlsDisabled}
         fullPageAlarm={preferences.full_page_alarm}
         sound={preferences.notification_sound}
         onFullPageAlarmChange={(enabled) =>

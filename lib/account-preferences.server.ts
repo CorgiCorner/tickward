@@ -12,7 +12,6 @@ import { notificationSoundSchema } from "@/lib/schemas/timer"
 
 type UserPreferenceRow = {
   defaultTimezone: string | null
-  browserNotificationsEnabled: boolean
   fullPageAlarm: boolean
   notificationSound: string
 }
@@ -68,7 +67,6 @@ function publicAccountPreferences(row: UserPreferenceRow | null | undefined): Ac
 
   return {
     object: "account_preferences",
-    browser_notifications_enabled: row.browserNotificationsEnabled,
     default_timezone: row.defaultTimezone,
     full_page_alarm: row.fullPageAlarm,
     notification_sound: sound.success ? sound.data : "none",
@@ -89,18 +87,11 @@ export async function updateAccountPreferencesForUser(
 ): Promise<AccountPreferencesRecord> {
   const data: Prisma.UserPreferenceUncheckedUpdateInput = {}
   if (patch.default_timezone !== undefined) data.defaultTimezone = patch.default_timezone
-  if (patch.browser_notifications_enabled !== undefined) {
-    data.browserNotificationsEnabled = patch.browser_notifications_enabled
-  }
   if (patch.full_page_alarm !== undefined) data.fullPageAlarm = patch.full_page_alarm
   if (patch.notification_sound !== undefined) data.notificationSound = patch.notification_sound
 
   const create: Prisma.UserPreferenceUncheckedCreateInput = {
     userId: user.id,
-    browserNotificationsEnabled:
-      typeof data.browserNotificationsEnabled === "boolean"
-        ? data.browserNotificationsEnabled
-        : DEFAULT_ACCOUNT_PREFERENCES.browser_notifications_enabled,
     defaultTimezone: typeof data.defaultTimezone === "string" ? data.defaultTimezone : null,
     fullPageAlarm:
       typeof data.fullPageAlarm === "boolean" ? data.fullPageAlarm : DEFAULT_ACCOUNT_PREFERENCES.full_page_alarm,

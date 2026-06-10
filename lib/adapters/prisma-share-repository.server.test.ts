@@ -90,6 +90,53 @@ describe("prisma share repositories", () => {
     })
   })
 
+  it("emits a webhook event when publishing a new user-project share", async () => {
+    const { prismaShareRepository } = await import("./prisma-share-repository.server")
+    const base = prismaMock()
+    const prisma = {
+      ...base,
+      $transaction: vi.fn(),
+      share: {
+        ...base.share,
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+      webhookEvent: {
+        create: vi.fn().mockResolvedValue({}),
+      },
+    }
+    prisma.$transaction.mockImplementation(async (callback: (client: typeof prisma) => unknown | Promise<unknown>) =>
+      callback(prisma),
+    )
+    prisma.project.findFirst.mockResolvedValue({
+      id: "project_123",
+      name: "Main",
+      ownerId: "user_123",
+    })
+    prisma.timer.findFirst.mockResolvedValue({ data: timerData, id: "timer-a" })
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+
+    await expect(
+      prismaShareRepository.publishTimer({
+        access: { kind: "user-project", projectId: "project_123", user: { id: "user_123", role: "user" } },
+        shareId: "shareId_12345",
+        timerId: "timer-a",
+        sharedAt: "2026-05-24T00:00:00.000Z",
+      }),
+    ).resolves.toBe(true)
+
+    expect(prisma.webhookEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        aggregateId: "shareId_12345",
+        aggregateType: "share",
+        projectId: "project_123",
+        shareId: "shareId_12345",
+        timerId: "timer-a",
+        type: "share.created",
+        userId: "user_123",
+      }),
+    })
+  })
+
   it("checks whether a live timer share reference already exists", async () => {
     const { prismaShareRepository } = await import("./prisma-share-repository.server")
     const prisma = prismaMock()

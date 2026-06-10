@@ -59,7 +59,6 @@ describe("TimerDefaultsSettingsPanel", () => {
     mocks.updatePreferences.mockReset()
     mocks.updatePreferences.mockResolvedValue({
       object: "account_preferences",
-      browser_notifications_enabled: false,
       default_timezone: null,
       full_page_alarm: false,
       notification_sound: "none",

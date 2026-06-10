@@ -4,6 +4,25 @@
 
 No unreleased public changes.
 
+## 0.2.0 - 2026-06-09
+
+### Added
+
+- Added account webhooks with signed deliveries, event subscriptions, retryable
+  dispatch, and delivery history.
+- Added a Webhooks panel in Settings with signing-secret copy, event selection,
+  and a direct docs link.
+- Added a self-hosted scheduler endpoint for webhook delivery and retry
+  processing.
+- Added agent discovery metadata endpoints, API catalog metadata, and readable
+  agent docs routes.
+
+### Changed
+
+- Expanded public API and MCP metadata so agents can discover capabilities and
+  auth requirements more easily.
+- Updated self-hosting docs with scheduler and webhook security setup notes.
+
 ## 0.1.2 - 2026-06-08
 
 ### Added

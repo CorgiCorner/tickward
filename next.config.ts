@@ -2,7 +2,7 @@ import type { NextConfig } from "next"
 
 const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
-    "/*": ["./prisma/rds-ca.pem"],
+    "/*": ["./prisma/rds-ca.pem", "./skill.md"],
   },
   images: {
     remotePatterns: [

@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { WebhooksSettingsPanel } from "@/components/webhooks-settings"
 import type { AccountPreferencesRecord } from "@/lib/account-preferences"
 import { authClient } from "@/lib/auth/auth-client"
 import { authErrorMessage } from "@/lib/auth/auth-client-errors"
@@ -23,6 +24,7 @@ import { formatMessage } from "@/lib/i18n/messages"
 import type { McpConnectionPublicRecord } from "@/lib/mcp-oauth"
 import { useTimerStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
+import type { WebhookEndpointPublicRecord } from "@/lib/webhook-events"
 
 type AccountUser = {
   name?: string | null
@@ -222,6 +224,9 @@ function AccountPreferencesSections(
     mcpConnectionsError?: string | null
     mcpDocsHref?: string | null
     mcpRemoteUrl?: string | null
+    webhooksDocsHref?: string | null
+    webhooks?: WebhookEndpointPublicRecord[]
+    webhooksError?: string | null
   }>,
 ) {
   const { error, loading, refreshPreferences } = useAccountPreferences()
@@ -230,7 +235,7 @@ function AccountPreferencesSections(
     <div className="grid gap-6">
       {error ? (
         <div
-          role="status"
+          aria-live="polite"
           className="flex flex-col gap-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between"
         >
           <p>{error}</p>
@@ -248,6 +253,11 @@ function AccountPreferencesSections(
       <TimerDefaultsSettingsPanel />
       <NotificationSettingsPanel />
       <ApiKeysSettingsPanel initialApiKeys={props.apiKeys} initialLoadError={props.apiKeysError} />
+      <WebhooksSettingsPanel
+        docsHref={props.webhooksDocsHref}
+        initialWebhooks={props.webhooks}
+        initialLoadError={props.webhooksError}
+      />
       <McpSettingsPanel
         initialConnections={props.mcpConnections}
         initialLoadError={props.mcpConnectionsError}
@@ -258,7 +268,7 @@ function AccountPreferencesSections(
   )
 }
 
-const SETTINGS_SECTION_IDS = new Set(["profile", "defaults", "alerts", "api-keys", "mcp"])
+const SETTINGS_SECTION_IDS = new Set(["profile", "defaults", "alerts", "api-keys", "webhooks", "mcp"])
 
 function normalizedSettingsHashId() {
   const raw = globalThis.location.hash.slice(1)
@@ -315,6 +325,9 @@ export type AccountPageInitialData = {
   mcpRemoteUrl?: string | null
   preferences?: AccountPreferencesRecord
   preferencesError?: string | null
+  webhooksDocsHref?: string | null
+  webhooks?: WebhookEndpointPublicRecord[]
+  webhooksError?: string | null
 }
 
 export function AccountPageClient(props: Readonly<AccountPageInitialData> = {}) {
@@ -395,6 +408,9 @@ export function AccountPageClient(props: Readonly<AccountPageInitialData> = {}) 
             mcpConnectionsError={props.mcpConnectionsError}
             mcpDocsHref={props.mcpDocsHref}
             mcpRemoteUrl={props.mcpRemoteUrl}
+            webhooksDocsHref={props.webhooksDocsHref}
+            webhooks={props.webhooks}
+            webhooksError={props.webhooksError}
           />
         </AccountPreferencesProvider>
       ) : null}

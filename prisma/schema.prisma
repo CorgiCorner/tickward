@@ -33,6 +33,9 @@ model User {
   mcpAuthorizationGrants   McpAuthorizationGrant[]
   publicApiIdempotencyKeys PublicApiIdempotencyKey[]
   preference               UserPreference?
+  webhookEndpoints         WebhookEndpoint[]
+  webhookEvents            WebhookEvent[]
+  webhookDeliveries        WebhookDelivery[]
 
   @@map("user")
 }
@@ -41,7 +44,6 @@ model UserPreference {
   id                          String   @id @default(cuid())
   userId                      String   @unique
   defaultTimezone             String?
-  browserNotificationsEnabled Boolean  @default(false)
   fullPageAlarm               Boolean  @default(true)
   notificationSound           String   @default("polite")
   createdAt                   DateTime @default(now())
@@ -254,6 +256,87 @@ model Share {
   @@index([projectId])
   @@index([ownerId])
   @@map("share")
+}
+
+model WebhookEndpoint {
+  id              String    @id @default(cuid())
+  userId          String
+  name            String
+  url             String
+  secret          String
+  eventTypes      Json
+  status          String    @default("active")
+  failureCount    Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  disabledAt      DateTime?
+  lastDeliveredAt DateTime?
+  lastFailedAt    DateTime?
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([userId, status])
+  @@map("webhook_endpoint")
+}
+
+model WebhookEvent {
+  id            String    @id @default(cuid())
+  userId        String
+  type          String
+  aggregateType String
+  aggregateId   String
+  projectId     String?
+  timerId       String?
+  shareId       String?
+  payload       Json
+  dedupeKey     String?   @unique
+  status        String    @default("pending")
+  attemptCount  Int       @default(0)
+  availableAt   DateTime  @default(now())
+  occurredAt    DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  processedAt   DateTime?
+  cancelledAt   DateTime?
+  error         String?
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([status, availableAt])
+  @@index([userId, type, occurredAt])
+  @@index([projectId, type])
+  @@index([timerId, type])
+  @@map("webhook_event")
+}
+
+model WebhookDelivery {
+  id             String    @id @default(cuid())
+  userId         String
+  eventId        String
+  endpointId     String
+  status         String    @default("pending")
+  attemptCount   Int       @default(0)
+  nextAttemptAt  DateTime  @default(now())
+  lastAttemptAt  DateTime?
+  deliveredAt    DateTime?
+  failedAt       DateTime?
+  responseStatus Int?
+  responseBody   String?
+  error          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event    WebhookEvent    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, endpointId])
+  @@index([status, nextAttemptAt])
+  @@index([endpointId, status])
+  @@index([userId, createdAt])
+  @@map("webhook_delivery")
 }
 
 model NotificationPreference {

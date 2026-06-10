@@ -11,7 +11,7 @@ import {
   SettingsIcon,
   Trash2Icon,
 } from "lucide-react"
-import { useRef, useState, type ComponentProps, type WheelEvent } from "react"
+import { useRef, useState, type ComponentProps, type ReactNode, type WheelEvent } from "react"
 import { toast } from "sonner"
 
 import {
@@ -149,6 +149,254 @@ function SyncErrorStatus(props: Readonly<{ message: string | null }>) {
   )
 }
 
+function SettingsTrigger(
+  props: Readonly<{
+    showTooltip: boolean
+    trigger: ReactNode
+  }>,
+) {
+  if (!props.showTooltip) return <>{props.trigger}</>
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{props.trigger}</TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={8}>
+        {formatMessage("settings.title")}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+function ProjectStorageSection(
+  props: Readonly<{
+    accountBackedProject: boolean
+    activeProjectName: string
+    cloudProjectId?: string
+    lastSyncError: string | null
+    onToggleRestoreKey: () => void
+    restoreKey: string | null
+    restoreKeyRevealed: boolean
+    visibleRestoreKey: string | null
+  }>,
+) {
+  if (props.accountBackedProject) {
+    return (
+      <div className="rounded-xl border bg-muted/30 p-3">
+        <div className="flex gap-3">
+          <CloudIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <div className="text-sm font-medium">{formatMessage("project.accountStorageTitle")}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {formatMessage("project.accountStorageDescription")}
+            </div>
+          </div>
+        </div>
+        <SyncErrorStatus message={props.lastSyncError} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor="restoreKey">{formatMessage("project.restoreKey")}</Label>
+      <div className="flex items-center gap-2">
+        <Input
+          id="restoreKey"
+          type={props.restoreKeyRevealed ? "text" : "password"}
+          value={props.visibleRestoreKey ?? ""}
+          readOnly
+          {...passwordManagerIgnoreProps}
+          placeholder={formatMessage("project.noKeyYet")}
+        />
+        <Button
+          variant="outline"
+          size="icon"
+          className="shrink-0"
+          aria-label={formatMessage(props.restoreKeyRevealed ? "project.hideRestoreKey" : "project.showRestoreKey")}
+          disabled={!props.visibleRestoreKey}
+          onClick={props.onToggleRestoreKey}
+        >
+          {props.restoreKeyRevealed ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="shrink-0"
+          aria-label={formatMessage("project.copyRestoreKey")}
+          disabled={!props.visibleRestoreKey}
+          onClick={async () => {
+            if (!props.visibleRestoreKey) return
+            await copy(props.visibleRestoreKey)
+            toast.success(formatMessage("project.keyCopied"))
+          }}
+        >
+          <CopyIcon className="size-4" />
+        </Button>
+      </div>
+      {props.visibleRestoreKey ? (
+        <div className="text-xs text-muted-foreground">{formatMessage("project.restoreKeyDescription")}</div>
+      ) : null}
+      <ProjectClaimSlot
+        restoreKey={props.restoreKey}
+        projectName={props.activeProjectName}
+        cloudProjectId={props.cloudProjectId}
+      />
+      <SyncErrorStatus message={props.lastSyncError} />
+    </div>
+  )
+}
+
+function ConfirmProjectNameField(
+  props: Readonly<{
+    id: string
+    projectName: string
+    value: string
+    onChange: (value: string) => void
+  }>,
+) {
+  return (
+    <div className="grid gap-2 text-left">
+      <Label htmlFor={props.id}>{formatMessage("settings.confirmProjectName", { project: props.projectName })}</Label>
+      <Input
+        id={props.id}
+        value={props.value}
+        placeholder={props.projectName}
+        {...passwordManagerIgnoreProps}
+        onChange={(event) => props.onChange(event.target.value)}
+      />
+    </div>
+  )
+}
+
+function ProjectCleanupSection(
+  props: Readonly<{
+    accountBackedProject: boolean
+    activeProjectName: string
+    canClearProject: boolean
+    canDeleteProject: boolean
+    clearAllTimers: () => void
+    clearProjectConfirmation: string
+    deleteProjectConfirmation: string
+    deleteProjectLoading: boolean
+    onClearProjectConfirmationChange: (value: string) => void
+    onDeleteProject: () => void
+    onDeleteProjectConfirmationChange: (value: string) => void
+    timerCount: number
+  }>,
+) {
+  return (
+    <div data-settings-section="cleanup" className="grid scroll-mt-3 gap-4 rounded-lg border p-4">
+      <div className="grid gap-1">
+        <div className="text-sm font-medium">{formatMessage("settings.projectCleanup")}</div>
+        <div className="text-xs text-muted-foreground">{formatMessage("settings.projectCleanupDescription")}</div>
+      </div>
+
+      <div className="rounded-xl border p-3">
+        <div className="text-sm font-medium">{formatMessage("timer.clearProjectTitle")}</div>
+        <div className="mt-1 text-xs text-muted-foreground">{formatMessage("timer.clearProjectDescription")}</div>
+        <AlertDialog
+          onOpenChange={(nextOpen) => {
+            if (nextOpen) props.onClearProjectConfirmationChange("")
+          }}
+        >
+          <AlertDialogTrigger asChild>
+            <Button variant="destructive" size="sm" className="mt-3 w-full">
+              <Trash2Icon className="mr-1.5 size-4" />
+              {formatMessage("timer.clearProject")}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{formatMessage("timer.clearProjectTitle")}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {formatMessage("timer.removeAllDescription", {
+                  count: props.timerCount,
+                  timerLabel: formatMessage(props.timerCount === 1 ? "timer.count.one" : "timer.count.many", {
+                    count: props.timerCount,
+                  }),
+                })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <ConfirmProjectNameField
+              id="clear-project-confirm"
+              projectName={props.activeProjectName}
+              value={props.clearProjectConfirmation}
+              onChange={props.onClearProjectConfirmationChange}
+            />
+            <AlertDialogFooter>
+              <AlertDialogCancel>{formatMessage("common.cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                disabled={!props.canClearProject}
+                onClick={(event) => {
+                  if (!props.canClearProject) {
+                    event.preventDefault()
+                    return
+                  }
+                  props.clearAllTimers()
+                  toast.success(formatMessage("timer.removedAll"))
+                }}
+              >
+                {formatMessage("timer.clearAll")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+
+      <div className="rounded-xl border p-3">
+        <div className="text-sm font-medium">{formatMessage("project.delete")}</div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {formatMessage(props.accountBackedProject ? "project.deleteAccountDescription" : "project.deleteDescription")}
+        </div>
+        <AlertDialog
+          onOpenChange={(nextOpen) => {
+            if (nextOpen) props.onDeleteProjectConfirmationChange("")
+          }}
+        >
+          <AlertDialogTrigger asChild>
+            <Button variant="destructive" size="sm" className="mt-3 w-full">
+              <Trash2Icon className="mr-1.5 size-4" />
+              {formatMessage("project.delete")}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{formatMessage("project.deleteTitle")}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {formatMessage(props.accountBackedProject ? "project.deleteAccountWarning" : "project.deleteWarning")}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <ConfirmProjectNameField
+              id="delete-project-confirm"
+              projectName={props.activeProjectName}
+              value={props.deleteProjectConfirmation}
+              onChange={props.onDeleteProjectConfirmationChange}
+            />
+            <AlertDialogFooter>
+              <AlertDialogCancel>{formatMessage("common.cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                disabled={props.deleteProjectLoading || !props.canDeleteProject}
+                onClick={(event) => {
+                  if (!props.canDeleteProject) {
+                    event.preventDefault()
+                    return
+                  }
+                  event.preventDefault()
+                  props.onDeleteProject()
+                }}
+              >
+                {formatMessage("project.delete")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </div>
+  )
+}
+
 export function SettingsSheet({ showTriggerTooltip = true, ...props }: Readonly<SettingsSheetProps>) {
   const [open, setOpen] = useState(false)
   const initialFocusRef = useRef<HTMLDivElement>(null)
@@ -246,16 +494,7 @@ export function SettingsSheet({ showTriggerTooltip = true, ...props }: Readonly<
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
-      {showTriggerTooltip ? (
-        <Tooltip>
-          <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={8}>
-            {formatMessage("settings.title")}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
-        trigger
-      )}
+      <SettingsTrigger showTooltip={showTriggerTooltip} trigger={trigger} />
       <SheetContent
         side={side}
         className={sheetContentClassName(side)}
@@ -309,71 +548,16 @@ export function SettingsSheet({ showTriggerTooltip = true, ...props }: Readonly<
                 </div>
               </div>
 
-              {accountBackedProject ? (
-                <div className="rounded-xl border bg-muted/30 p-3">
-                  <div className="flex gap-3">
-                    <CloudIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium">{formatMessage("project.accountStorageTitle")}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {formatMessage("project.accountStorageDescription")}
-                      </div>
-                    </div>
-                  </div>
-                  <SyncErrorStatus message={lastSyncError} />
-                </div>
-              ) : (
-                <div className="grid gap-2">
-                  <Label htmlFor="restoreKey">{formatMessage("project.restoreKey")}</Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="restoreKey"
-                      type={restoreKeyRevealed ? "text" : "password"}
-                      value={visibleRestoreKey ?? ""}
-                      readOnly
-                      {...passwordManagerIgnoreProps}
-                      placeholder={formatMessage("project.noKeyYet")}
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="shrink-0"
-                      aria-label={formatMessage(
-                        restoreKeyRevealed ? "project.hideRestoreKey" : "project.showRestoreKey",
-                      )}
-                      disabled={!visibleRestoreKey}
-                      onClick={() => setRestoreKeyRevealed((revealed) => !revealed)}
-                    >
-                      {restoreKeyRevealed ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="shrink-0"
-                      aria-label={formatMessage("project.copyRestoreKey")}
-                      disabled={!visibleRestoreKey}
-                      onClick={async () => {
-                        if (!visibleRestoreKey) return
-                        await copy(visibleRestoreKey)
-                        toast.success(formatMessage("project.keyCopied"))
-                      }}
-                    >
-                      <CopyIcon className="size-4" />
-                    </Button>
-                  </div>
-                  {visibleRestoreKey ? (
-                    <div className="text-xs text-muted-foreground">
-                      {formatMessage("project.restoreKeyDescription")}
-                    </div>
-                  ) : null}
-                  <ProjectClaimSlot
-                    restoreKey={restoreKey}
-                    projectName={activeProject?.name ?? formatMessage("project.defaultName")}
-                    cloudProjectId={activeProject?.cloudProjectId}
-                  />
-                  <SyncErrorStatus message={lastSyncError} />
-                </div>
-              )}
+              <ProjectStorageSection
+                accountBackedProject={accountBackedProject}
+                activeProjectName={activeProjectName}
+                cloudProjectId={activeProject?.cloudProjectId}
+                lastSyncError={lastSyncError}
+                restoreKey={restoreKey}
+                restoreKeyRevealed={restoreKeyRevealed}
+                visibleRestoreKey={visibleRestoreKey}
+                onToggleRestoreKey={() => setRestoreKeyRevealed((revealed) => !revealed)}
+              />
 
               <div className="grid grid-cols-2 gap-2">
                 <Button
@@ -397,133 +581,20 @@ export function SettingsSheet({ showTriggerTooltip = true, ...props }: Readonly<
               </div>
             </div>
 
-            <div data-settings-section="cleanup" className="grid scroll-mt-3 gap-4 rounded-lg border p-4">
-              <div className="grid gap-1">
-                <div className="text-sm font-medium">{formatMessage("settings.projectCleanup")}</div>
-                <div className="text-xs text-muted-foreground">
-                  {formatMessage("settings.projectCleanupDescription")}
-                </div>
-              </div>
-
-              <div className="rounded-xl border p-3">
-                <div className="text-sm font-medium">{formatMessage("timer.clearProjectTitle")}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {formatMessage("timer.clearProjectDescription")}
-                </div>
-                <AlertDialog
-                  onOpenChange={(nextOpen) => {
-                    if (nextOpen) setClearProjectConfirmation("")
-                  }}
-                >
-                  <AlertDialogTrigger asChild>
-                    <Button variant="destructive" size="sm" className="mt-3 w-full">
-                      <Trash2Icon className="mr-1.5 size-4" />
-                      {formatMessage("timer.clearProject")}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>{formatMessage("timer.clearProjectTitle")}</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {formatMessage("timer.removeAllDescription", {
-                          count: timers.length,
-                          timerLabel: formatMessage(timers.length === 1 ? "timer.count.one" : "timer.count.many", {
-                            count: timers.length,
-                          }),
-                        })}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <div className="grid gap-2 text-left">
-                      <Label htmlFor="clear-project-confirm">
-                        {formatMessage("settings.confirmProjectName", { project: activeProjectName })}
-                      </Label>
-                      <Input
-                        id="clear-project-confirm"
-                        value={clearProjectConfirmation}
-                        placeholder={activeProjectName}
-                        {...passwordManagerIgnoreProps}
-                        onChange={(event) => setClearProjectConfirmation(event.target.value)}
-                      />
-                    </div>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>{formatMessage("common.cancel")}</AlertDialogCancel>
-                      <AlertDialogAction
-                        variant="destructive"
-                        disabled={!canClearProject}
-                        onClick={(event) => {
-                          if (!canClearProject) {
-                            event.preventDefault()
-                            return
-                          }
-                          clearAllTimers()
-                          toast.success(formatMessage("timer.removedAll"))
-                        }}
-                      >
-                        {formatMessage("timer.clearAll")}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-
-              <div className="rounded-xl border p-3">
-                <div className="text-sm font-medium">{formatMessage("project.delete")}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {formatMessage(
-                    accountBackedProject ? "project.deleteAccountDescription" : "project.deleteDescription",
-                  )}
-                </div>
-                <AlertDialog
-                  onOpenChange={(nextOpen) => {
-                    if (nextOpen) setDeleteProjectConfirmation("")
-                  }}
-                >
-                  <AlertDialogTrigger asChild>
-                    <Button variant="destructive" size="sm" className="mt-3 w-full">
-                      <Trash2Icon className="mr-1.5 size-4" />
-                      {formatMessage("project.delete")}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>{formatMessage("project.deleteTitle")}</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {formatMessage(accountBackedProject ? "project.deleteAccountWarning" : "project.deleteWarning")}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <div className="grid gap-2 text-left">
-                      <Label htmlFor="delete-project-confirm">
-                        {formatMessage("settings.confirmProjectName", { project: activeProjectName })}
-                      </Label>
-                      <Input
-                        id="delete-project-confirm"
-                        value={deleteProjectConfirmation}
-                        placeholder={activeProjectName}
-                        {...passwordManagerIgnoreProps}
-                        onChange={(event) => setDeleteProjectConfirmation(event.target.value)}
-                      />
-                    </div>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>{formatMessage("common.cancel")}</AlertDialogCancel>
-                      <AlertDialogAction
-                        variant="destructive"
-                        disabled={deleteProjectLoading || !canDeleteProject}
-                        onClick={(event) => {
-                          if (!canDeleteProject) {
-                            event.preventDefault()
-                            return
-                          }
-                          event.preventDefault()
-                          void handleDeleteProject()
-                        }}
-                      >
-                        {formatMessage("project.delete")}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            </div>
+            <ProjectCleanupSection
+              accountBackedProject={accountBackedProject}
+              activeProjectName={activeProjectName}
+              canClearProject={canClearProject}
+              canDeleteProject={canDeleteProject}
+              clearAllTimers={clearAllTimers}
+              clearProjectConfirmation={clearProjectConfirmation}
+              deleteProjectConfirmation={deleteProjectConfirmation}
+              deleteProjectLoading={deleteProjectLoading}
+              timerCount={timers.length}
+              onClearProjectConfirmationChange={setClearProjectConfirmation}
+              onDeleteProject={() => void handleDeleteProject()}
+              onDeleteProjectConfirmationChange={setDeleteProjectConfirmation}
+            />
           </div>
         </div>
       </SheetContent>

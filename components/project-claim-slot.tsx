@@ -75,7 +75,7 @@ export function ProjectClaimSlot(
       variant="outline"
       size="sm"
       loading={loading}
-      className={variant === "card" ? "w-full justify-start" : "w-full justify-start"}
+      className="w-full justify-start"
       onClick={() => void claimProject()}
     >
       <ShieldCheckIcon className="size-4" />

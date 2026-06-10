@@ -290,7 +290,16 @@ describe("public API v1", () => {
     )
 
     expect(res.status).toBe(403)
-    await expect(res.json()).resolves.toMatchObject({ error: { type: "insufficient_scope" } })
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        details: {
+          granted_scopes: ["projects:read"],
+          required_scope: "projects:write",
+        },
+        remediation: { hint: expect.any(String) },
+        type: "insufficient_scope",
+      },
+    })
     expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
   })
 
@@ -457,6 +466,11 @@ describe("public API v1", () => {
       },
       space: { create: vi.fn().mockResolvedValue({}) },
       timer: { create: vi.fn().mockResolvedValue({}) },
+      webhookEvent: {
+        create: vi.fn().mockResolvedValue({}),
+        updateMany: vi.fn().mockResolvedValue({}),
+        upsert: vi.fn().mockResolvedValue({}),
+      },
     }
     const transaction = vi.fn(async (callback: (client: typeof tx) => unknown | Promise<unknown>) => callback(tx))
     mocks.requirePrismaClient.mockReturnValue({ $transaction: transaction })
@@ -485,6 +499,37 @@ describe("public API v1", () => {
     expect(tx.timer.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ id: "timer-gpt-pro", projectId: "project_123" }) }),
     )
+    expect(tx.webhookEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        aggregateId: "project_123",
+        aggregateType: "project",
+        projectId: "project_123",
+        type: "project.created",
+        userId: "user_123",
+      }),
+    })
+    expect(tx.webhookEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        aggregateId: "timer-gpt-pro",
+        aggregateType: "timer",
+        projectId: "project_123",
+        timerId: "timer-gpt-pro",
+        type: "timer.created",
+        userId: "user_123",
+      }),
+    })
+    expect(tx.webhookEvent.upsert).toHaveBeenCalledWith({
+      create: expect.objectContaining({
+        aggregateId: "timer-gpt-pro",
+        aggregateType: "timer",
+        projectId: "project_123",
+        timerId: "timer-gpt-pro",
+        type: "timer.ended",
+        userId: "user_123",
+      }),
+      update: expect.objectContaining({ status: "pending" }),
+      where: { dedupeKey: expect.stringContaining("timer.ended:user_123:project_123:timer-gpt-pro:") },
+    })
   })
 
   it("rejects project creates when expected plan hash does not match", async () => {
@@ -960,13 +1005,18 @@ describe("public API v1", () => {
       dry_run: true,
       object: "delete_preview",
       operation: "delete_project",
+      changes: [
+        { action: "delete", id: "project_123", name: "Main", type: "project" },
+        { action: "delete", id: "space-a", name: "Work", reason: "cascade", type: "space" },
+        { action: "delete", id: "timer-a", label: "Launch", reason: "cascade", type: "timer" },
+      ],
       summary: {
         projects: { delete: 1 },
         share_links: { delete: 2 },
         spaces: { delete: 1 },
         timers: { delete: 1 },
       },
-      target: { id: "project_123", type: "project" },
+      target: { id: "project_123", name: "Main", type: "project" },
     })
     expect(count).toHaveBeenCalledWith({ where: { projectId: "project_123" } })
     expect(prisma).not.toHaveProperty("publicApiIdempotencyKey")
@@ -1019,8 +1069,23 @@ describe("public API v1", () => {
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toMatchObject({
       changes: [
-        { action: "delete", id: "space-a", type: "space" },
-        { action: "update", id: "timer-a", reason: "space_removed", type: "timer" },
+        {
+          action: "delete",
+          id: "space-a",
+          name: "Work",
+          project_id: "project_123",
+          project_name: "Main",
+          type: "space",
+        },
+        {
+          action: "update",
+          id: "timer-a",
+          label: "Launch",
+          project_id: "project_123",
+          project_name: "Main",
+          reason: "space_removed",
+          type: "timer",
+        },
       ],
       operation: "delete_space",
       summary: {
@@ -1028,6 +1093,103 @@ describe("public API v1", () => {
         spaces: { delete: 1 },
         timers: { update: 1 },
       },
+      target: { id: "space-a", name: "Work", project_id: "project_123", project_name: "Main", type: "space" },
+    })
+  })
+
+  it("includes project names in space responses for agent confirmations", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const snapshot = makeProjectSnapshot({
+      name: "Main",
+      spaces: [{ id: "space-a", name: "Work", createdAt: "2026-05-20T00:00:00.000Z" }],
+    })
+    const findFirst = vi.fn().mockResolvedValue({
+      id: "project_123",
+      ownerId: "user_123",
+      name: "Main",
+      color: null,
+      snapshot,
+      createdAt: new Date("2026-06-07T00:00:00.000Z"),
+      updatedAt: new Date(snapshot.updatedAt),
+      claimedAt: null,
+    })
+    mocks.requirePrismaClient.mockReturnValue({ project: { findFirst } })
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/projects/project_123/spaces", {
+        headers: { authorization: "Bearer tw_read" },
+      }),
+      ["projects", "project_123", "spaces"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      data: [
+        {
+          id: "space-a",
+          name: "Work",
+          project_id: "project_123",
+          project_name: "Main",
+        },
+      ],
+    })
+  })
+
+  it("includes project and timer labels in share responses for agent confirmations", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const snapshot = makeProjectSnapshot({
+      name: "Main",
+      timers: [
+        {
+          id: "timer-a",
+          label: "Launch",
+          targetDate: "2026-05-25T12:00:00.000Z",
+          timezone: "Europe/Warsaw",
+          createdAt: "2026-05-20T00:00:00.000Z",
+        },
+      ],
+    })
+    const findFirst = vi.fn().mockResolvedValue({
+      id: "project_123",
+      ownerId: "user_123",
+      name: "Main",
+      color: null,
+      snapshot,
+      createdAt: new Date("2026-06-07T00:00:00.000Z"),
+      updatedAt: new Date(snapshot.updatedAt),
+      claimedAt: null,
+    })
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        id: "share_123",
+        data: { sharedAt: "2026-06-07T12:10:00.000Z", timerId: "timer-a" },
+        createdAt: new Date("2026-06-07T12:10:00.000Z"),
+        updatedAt: new Date("2026-06-07T12:10:00.000Z"),
+      },
+    ])
+    mocks.requirePrismaClient.mockReturnValue({ project: { findFirst }, share: { findMany } })
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/projects/project_123/shares", {
+        headers: { authorization: "Bearer tw_read" },
+      }),
+      ["projects", "project_123", "shares"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      data: [
+        {
+          id: "share_123",
+          project_id: "project_123",
+          project_name: "Main",
+          timer_id: "timer-a",
+          timer_label: "Launch",
+          url_path: "/share/share_123",
+        },
+      ],
     })
   })
 

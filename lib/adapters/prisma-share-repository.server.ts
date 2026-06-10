@@ -4,9 +4,11 @@ import { hashRestoreKeyToken, type RestoreKeyTokenHash } from "@/lib/auth/restor
 import { requirePrismaClient } from "@/lib/db/prisma.server"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ShareRepository, TimerShareAccess } from "@/lib/repositories"
+import { timerSchema } from "@/lib/schemas/timer"
 import type { ResolvedShare, ShareRecord } from "@/lib/share-model"
 import { isValidShareId, sharedTimerFromTimer } from "@/lib/share-model"
 import { isTimerArray } from "@/lib/validate"
+import { emitWebhookEvent } from "@/lib/webhooks.server"
 
 const SHARE_KIND_TIMER = "timer"
 
@@ -46,21 +48,29 @@ function ownedProjectWhere(projectId: string, access: Extract<TimerShareAccess, 
   return access.user.role === "admin" ? { id: projectId } : { id: projectId, ownerId: access.user.id }
 }
 
-async function projectForShareAccess(prisma: ReturnType<typeof requirePrismaClient>, access: TimerShareAccess) {
+async function projectForShareAccess(
+  prisma: ReturnType<typeof requirePrismaClient>,
+  access: TimerShareAccess,
+  options: { includeName?: boolean } = {},
+) {
   if (access.kind === "restore-key") {
     const token = await prisma.projectAccessToken.findFirst({
       where: activeAccessTokenWhere(hashRestoreKeyToken(access.restoreKey)),
-      select: { projectId: true, project: { select: { ownerId: true } } },
+      select: { projectId: true, project: { select: { name: options.includeName, ownerId: true } } },
     })
     if (!token) return null
-    return { id: token.projectId, ownerId: token.project.ownerId }
+    return {
+      id: token.projectId,
+      name: options.includeName && "name" in token.project ? token.project.name : "",
+      ownerId: token.project.ownerId,
+    }
   }
 
   const project = await prisma.project.findFirst({
     where: ownedProjectWhere(access.projectId, access),
-    select: { id: true, ownerId: true },
+    select: { id: true, ...(options.includeName ? { name: true } : {}), ownerId: true },
   })
-  return project
+  return project ? { id: project.id, name: "name" in project ? project.name : "", ownerId: project.ownerId } : null
 }
 
 function shareRecord(timerId: string, sharedAt: string): ShareRecord {
@@ -109,32 +119,78 @@ async function findPublishedTimer(args: { timerId: string; access: TimerShareAcc
 export const prismaShareRepository: ShareRepository = {
   async publishTimer(args) {
     const prisma = requirePrismaClient()
-    const project = await projectForShareAccess(prisma, args.access)
+    const project = await projectForShareAccess(prisma, args.access, { includeName: true })
     if (!project) return false
 
     const timer = await prisma.timer.findFirst({
       where: { id: args.timerId, projectId: project.id },
-      select: { id: true },
+      select:
+        typeof (prisma as { $transaction?: unknown }).$transaction === "function"
+          ? { data: true, id: true }
+          : { id: true },
     })
     if (!timer) return false
 
     const data = jsonInput(shareRecord(args.timerId, args.sharedAt))
 
-    await prisma.share.upsert({
-      where: { id: args.shareId },
-      update: {
-        kind: SHARE_KIND_TIMER,
-        projectId: project.id,
-        ownerId: project.ownerId,
-        data,
-      },
-      create: {
-        id: args.shareId,
-        kind: SHARE_KIND_TIMER,
-        projectId: project.id,
-        ownerId: project.ownerId,
-        data,
-      },
+    if (typeof (prisma as { $transaction?: unknown }).$transaction !== "function") {
+      await prisma.share.upsert({
+        where: { id: args.shareId },
+        update: {
+          kind: SHARE_KIND_TIMER,
+          projectId: project.id,
+          ownerId: project.ownerId,
+          data,
+        },
+        create: {
+          id: args.shareId,
+          kind: SHARE_KIND_TIMER,
+          projectId: project.id,
+          ownerId: project.ownerId,
+          data,
+        },
+      })
+      return true
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.share.findUnique({ where: { id: args.shareId } })
+      await tx.share.upsert({
+        where: { id: args.shareId },
+        update: {
+          kind: SHARE_KIND_TIMER,
+          projectId: project.id,
+          ownerId: project.ownerId,
+          data,
+        },
+        create: {
+          id: args.shareId,
+          kind: SHARE_KIND_TIMER,
+          projectId: project.id,
+          ownerId: project.ownerId,
+          data,
+        },
+      })
+
+      const parsedTimer = timerSchema.safeParse((timer as { data?: unknown }).data)
+      if (!existing && project.ownerId && parsedTimer.success) {
+        await emitWebhookEvent(tx, {
+          aggregateId: args.shareId,
+          aggregateType: "share",
+          payload: {
+            project_id: project.id,
+            project_name: project.name,
+            share_id: args.shareId,
+            timer_id: args.timerId,
+            timer_label: parsedTimer.data.label,
+          },
+          projectId: project.id,
+          shareId: args.shareId,
+          timerId: args.timerId,
+          type: "share.created",
+          userId: project.ownerId,
+        })
+      }
     })
     return true
   },

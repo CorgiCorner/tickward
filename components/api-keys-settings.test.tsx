@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -91,10 +91,10 @@ describe("ApiKeysSettingsPanel", () => {
     render(<ApiKeysSettingsPanel />)
 
     await screen.findByText("No active API keys yet.")
-    await user.click(screen.getByRole("button", { name: "Create key" }))
+    await user.click(screen.getByRole("button", { name: "Create" }))
     await user.type(screen.getByLabelText("Name"), "Production")
     await user.click(screen.getByRole("button", { name: "Full access" }))
-    await user.click(screen.getAllByRole("button", { name: "Create key" }).at(-1)!)
+    await user.click(screen.getAllByRole("button", { name: "Create" }).at(-1)!)
 
     expect(await screen.findByDisplayValue("tw_secret_token")).toBeVisible()
     expect(screen.getByText("Production")).toBeVisible()
@@ -122,15 +122,17 @@ describe("ApiKeysSettingsPanel", () => {
     render(<ApiKeysSettingsPanel />)
 
     await screen.findByText("No active API keys yet.")
-    await user.click(screen.getByRole("button", { name: "Create key" }))
+    await user.click(screen.getByRole("button", { name: "Create" }))
     await user.type(screen.getByLabelText("Name"), "First")
-    await user.click(screen.getAllByRole("button", { name: "Create key" }).at(-1)!)
+    await user.click(screen.getAllByRole("button", { name: "Create" }).at(-1)!)
     expect(await screen.findByDisplayValue("tw_first_secret")).toBeVisible()
 
     await user.click(screen.getByRole("button", { name: "Done" }))
     await user.click(screen.getByRole("button", { name: "Revoke" }))
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Revoke this API key?")
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Revoke" }))
     await waitFor(() => expect(screen.getByText("No active API keys yet.")).toBeVisible())
-    await user.click(screen.getByRole("button", { name: "Create key" }))
+    await user.click(screen.getByRole("button", { name: "Create" }))
 
     expect(screen.queryByDisplayValue("tw_first_secret")).not.toBeInTheDocument()
     expect(screen.getByLabelText("Name")).toHaveValue("")
@@ -146,6 +148,8 @@ describe("ApiKeysSettingsPanel", () => {
 
     await screen.findByText("Production")
     await user.click(screen.getByRole("button", { name: "Revoke" }))
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("This key will stop working")
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Revoke" }))
 
     await waitFor(() => expect(fetch).toHaveBeenLastCalledWith("/api/account/api-keys/key_123", { method: "DELETE" }))
     expect(toastMocks.success).toHaveBeenCalledWith("API key revoked.")

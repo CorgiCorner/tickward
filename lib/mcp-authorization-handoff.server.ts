@@ -70,7 +70,7 @@ export async function readMcpAuthorizationHandoff(args: {
   if (scopes.length === 0) return null
 
   return {
-    clientName: data.data.client_name || "MCP client",
+    clientName: data.data.client_name ?? "MCP client",
     expiresAt: data.data.expires_at,
     handoff,
     mcpOrigin,

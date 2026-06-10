@@ -5,6 +5,7 @@ export type ApiErrorType =
   | "idempotency_key_in_progress"
   | "invalid_api_key"
   | "insufficient_scope"
+  | "limit_exceeded"
   | "missing_api_key"
   | "method_not_allowed"
   | "not_found"

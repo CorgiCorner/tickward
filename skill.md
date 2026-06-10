@@ -18,6 +18,7 @@ spaces, or create static share links.
 - List, create, update, archive, and delete timers.
 - List, create, update, and delete spaces.
 - Create, inspect, and delete timer share links.
+- Manage webhook endpoints from Settings for event-driven integrations.
 - Use MCP clients for agent workflows when a remote endpoint or API key is
   configured.
 
@@ -30,6 +31,9 @@ Authorization: Bearer tw_your_api_key
 ```
 
 Use read-only keys for questions and full-access keys for requested changes.
+Remote MCP connections use OAuth scopes. If a write fails with
+`insufficient_scope`, tell the user which `required_scope` is missing and ask
+them to reconnect the MCP client with that scope.
 
 ## Workflow
 
@@ -52,8 +56,11 @@ Use read-only keys for questions and full-access keys for requested changes.
   date. For recurring timers, `target_date` is the original schedule anchor.
 - When confirming timer changes, show `project_name`, timer label, and date.
   Do not show raw project ids unless the user asks for ids.
+- When confirming space or share changes, show `project_name`. Share responses
+  include `timer_label` when the timer still exists.
 - `Idempotency-Key` replays the same write response for up to 24 hours when the method, path, query, and JSON body match.
 - Generate `Idempotency-Key` with a random UUID plus an operation prefix, for example `timer-create-${crypto.randomUUID()}`.
 - `DELETE ...?dry_run=true` previews project and space deletes without mutating data.
 - `POST /projects/preview` returns a `plan_hash`; send it as `expected_plan_hash` when creating the project.
-- Errors use `{ "error": { "type": "...", "message": "..." } }`.
+- Webhook delivery is asynchronous. Self-hosted deployments must run the scheduler tick endpoint for delivery and retry.
+- Errors use `{ "error": { "type": "...", "message": "...", "remediation": { "hint": "..." } } }`.

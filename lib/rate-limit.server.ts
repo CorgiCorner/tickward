@@ -19,6 +19,8 @@ const RATE_LIMITS = {
   "public-api": { limit: 120, window: "60 s", prefix: "tickward:ratelimit:public-api" },
   "public-api-ip": { limit: 300, window: "60 s", prefix: "tickward:ratelimit:public-api-ip" },
   "api-key-management": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:api-key-management" },
+  "webhook-management": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:webhook-management" },
+  "webhook-test": { limit: 3, window: "60 s", prefix: "tickward:ratelimit:webhook-test" },
   "mcp-connection-management": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:mcp-connection-management" },
   "mcp-oauth-exchange": { limit: 30, window: "60 s", prefix: "tickward:ratelimit:mcp-oauth-exchange" },
   "mcp-oauth-grant": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:mcp-oauth-grant" },

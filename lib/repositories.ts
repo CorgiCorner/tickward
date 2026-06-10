@@ -53,6 +53,8 @@ export type RateLimitBucket =
   | "public-api"
   | "public-api-ip"
   | "api-key-management"
+  | "webhook-management"
+  | "webhook-test"
   | "mcp-connection-management"
   | "mcp-oauth-exchange"
   | "mcp-oauth-grant"

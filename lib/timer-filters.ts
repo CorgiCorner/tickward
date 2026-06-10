@@ -5,7 +5,7 @@ export function timerHasNotifications(timer: Timer) {
 }
 
 export function timerIsShared(timer: Timer) {
-  return Boolean(timer.sharedAt || timer.sourceShareId)
+  return Boolean(timer.sharedAt ?? timer.sourceShareId)
 }
 
 export function timerMatchesFilters(timer: Timer, filters: TimerFilters) {

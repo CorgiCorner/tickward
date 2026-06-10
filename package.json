@@ -1,6 +1,6 @@
 {
   "name": "tickward",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "engines": {
@@ -26,6 +26,7 @@
     "smoke:app": "node scripts/smoke-app.mjs",
     "smoke:visual": "node scripts/smoke-visual.mjs",
     "smoke:email-otp": "node scripts/smoke-email-otp.mjs",
+    "smoke:webhook-receivers": "node scripts/smoke-webhook-receivers.mjs",
     "smoke:docker": "node scripts/smoke-docker.mjs",
     "demo:seed": "node scripts/open-demo-seed.mjs",
     "release:check": "npm run check:node && npm run lint && npx tsc --noEmit && npm run test:unit && npm run test:storybook && npm run smoke:app && npm run smoke:visual && npm run smoke:email-otp && npm run build && npm run build-storybook && npm run smoke:docker",

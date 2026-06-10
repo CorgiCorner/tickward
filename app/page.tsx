@@ -2,6 +2,8 @@ import type { Metadata } from "next"
 import { headers } from "next/headers"
 import { AccountPreferencesProvider } from "@/components/account-preferences-provider"
 import { HomeClient } from "@/components/home-client"
+import { webMcpInlineScript } from "@/components/webmcp-inline-script"
+import { WebMcpTools } from "@/components/webmcp-tools"
 import { getCurrentActor } from "@/lib/actor.server"
 import { DEFAULT_ACCOUNT_PREFERENCES, type AccountPreferencesRecord } from "@/lib/account-preferences"
 import { getAccountPreferencesForUser } from "@/lib/account-preferences.server"
@@ -52,6 +54,10 @@ export default async function Home() {
 
   return (
     <TimerStoreProvider initialState={{ timers, spaces, restoreKey }}>
+      {/* Register WebMCP tools during HTML parsing — agent scanners snapshot before hydration. */}
+      {/* biome-ignore lint/security/noDangerouslySetInnerHtml: static first-party script built from constants */}
+      <script dangerouslySetInnerHTML={{ __html: webMcpInlineScript() }} />
+      <WebMcpTools />
       {accountPreferences ? (
         <AccountPreferencesProvider initialPreferences={accountPreferences} initialError={null}>
           {home}

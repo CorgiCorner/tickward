@@ -25,7 +25,7 @@ export default defineConfig({
           ...sharedTestConfig,
           name: "unit",
           include: ["**/*.test.{ts,tsx}"],
-          exclude: ["storybook-static/**", "**/node_modules/**", ".claude/**"],
+          exclude: ["storybook-static/**", "**/node_modules/**", ".claude/**", ".worktrees/**", "**/.worktrees/**"],
         },
       },
       {
@@ -46,6 +46,8 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html", "lcov"],
       include: [
+        "app/api/account/webhooks/**/route.ts",
+        "app/api/internal/scheduler/tick/route.ts",
         "app/api/projects/**/route.ts",
         "app/api/share/create/route.ts",
         "app/api/share/status/route.ts",
@@ -58,6 +60,7 @@ export default defineConfig({
         "lib/share-model.ts",
         "lib/utils.ts",
         "lib/validate.ts",
+        "lib/webhook-events.ts",
       ],
       exclude: ["**/*.test.*", "test/**"],
       thresholds: {

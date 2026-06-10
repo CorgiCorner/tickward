@@ -135,6 +135,40 @@ function projectMetaFromAccountSummary(summary: UserProjectSummary, existing: Pr
   }
 }
 
+function projectsByCloudId(projects: ProjectMeta[]) {
+  const pairs = projects.flatMap((project) =>
+    project.cloudProjectId ? [[project.cloudProjectId, project] as const] : [],
+  )
+  return new Map(pairs)
+}
+
+function syncedAccountProjectMetas(summaries: UserProjectSummary[], projects: ProjectMeta[]) {
+  const existingByCloudId = projectsByCloudId(projects)
+  const accountProjects = summaries.map((project) =>
+    projectMetaFromAccountSummary(project, existingByCloudId.get(project.projectId)),
+  )
+  const localProjects = projects.filter((project) => !project.cloudProjectId)
+  return [...accountProjects, ...localProjects].slice(0, MAX_PROJECTS)
+}
+
+function applyProjectPayloadToState(state: TimerStore, project: ProjectMeta | null) {
+  if (!project) {
+    state.timers = []
+    state.spaces = []
+    state.activeSpaceId = null
+    state.sortMode = "manual"
+    state.timerFilters = { ...DEFAULT_TIMER_FILTERS }
+    return
+  }
+
+  const payload = payloadForProject(project)
+  state.timers = payload.timers
+  state.spaces = payload.spaces
+  state.activeSpaceId = payload.activeSpaceId
+  state.sortMode = safeSortMode(payload.sortMode)
+  state.timerFilters = safeTimerFilters(payload.timerFilters)
+}
+
 export function createTimerStore(init?: TimerStoreInit) {
   const syncScheduler = createSyncScheduler(() => {
     void store.getState().syncToCloud()
@@ -266,40 +300,20 @@ export function createTimerStore(init?: TimerStoreInit) {
           }
         }
 
-        let shouldRefreshActiveProject = false
-        set((s) => {
-          const existingByCloudId = new Map(
-            s.projects
-              .filter((project) => project.cloudProjectId)
-              .map((project) => [project.cloudProjectId as string, project]),
-          )
-          const accountProjects = result.projects.map((project) =>
-            projectMetaFromAccountSummary(project, existingByCloudId.get(project.projectId)),
-          )
-          const localProjects = s.projects.filter((project) => !project.cloudProjectId)
-          const nextProjects = [...accountProjects, ...localProjects].slice(0, MAX_PROJECTS)
-          const nextActiveProject = nextProjects.find((project) => project.id === s.activeProjectId) ?? nextProjects[0]
-          const activeChanged = nextActiveProject?.id !== s.activeProjectId
+        const currentProjects = get().projects
+        const nextProjects = syncedAccountProjectMetas(result.projects, currentProjects)
+        const currentActiveProjectId = get().activeProjectId
+        const nextActiveProject =
+          nextProjects.find((project) => project.id === currentActiveProjectId) ?? nextProjects[0] ?? null
+        const activeChanged = nextActiveProject?.id !== currentActiveProjectId
+        const shouldRefreshActiveProject = activeChanged && Boolean(nextActiveProject?.cloudProjectId)
 
+        set((s) => {
           s.projects = nextProjects
           s.activeProjectId = nextActiveProject?.id ?? null
           s.restoreKey = nextActiveProject?.restoreKey ?? null
           if (activeChanged) {
-            if (nextActiveProject) {
-              const payload = payloadForProject(nextActiveProject)
-              s.timers = payload.timers
-              s.spaces = payload.spaces
-              s.activeSpaceId = payload.activeSpaceId
-              s.sortMode = safeSortMode(payload.sortMode)
-              s.timerFilters = safeTimerFilters(payload.timerFilters)
-              shouldRefreshActiveProject = Boolean(nextActiveProject.cloudProjectId)
-            } else {
-              s.timers = []
-              s.spaces = []
-              s.activeSpaceId = null
-              s.sortMode = "manual"
-              s.timerFilters = { ...DEFAULT_TIMER_FILTERS }
-            }
+            applyProjectPayloadToState(s, nextActiveProject)
             s.lastSyncAt = nextActiveProject?.lastSyncedAt ?? null
             s.lastSyncError = null
             s.projectConflict = null

@@ -7,6 +7,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 import { type ProjectSnapshotV2, isProjectSnapshot } from "@/lib/project-model"
 import type { ClaimedProject, ProjectRepository } from "@/lib/repositories"
 import type { Space, Timer } from "@/lib/types"
+import { cancelPendingTimerEndedEvents, emitWebhookEvent, scheduleTimerEndedEvent } from "@/lib/webhooks.server"
 
 function prismaProjectFields(project: ProjectSnapshotV2) {
   return {
@@ -110,14 +111,139 @@ function ownedProjectsWhere(user: UserRef) {
   return user.role === "admin" ? {} : { ownerId: user.id }
 }
 
+function timerEventPayload(project: { id: string; name: string }, timer: Timer) {
+  return {
+    project_id: project.id,
+    project_name: project.name,
+    timer_id: timer.id,
+    timer_label: timer.label,
+  }
+}
+
+function timerEventType(previous: Timer, next: Timer) {
+  if (!previous.archivedAt && next.archivedAt) return "timer.archived" as const
+  if (previous.archivedAt && !next.archivedAt) return "timer.restored" as const
+  return "timer.updated" as const
+}
+
+async function emitUserProjectSnapshotEvents(
+  tx: Prisma.TransactionClient,
+  args: {
+    next: ProjectSnapshotV2
+    previous: ProjectSnapshotV2
+    project: { id: string; name: string; ownerId: string | null }
+  },
+) {
+  if (!args.project.ownerId) return
+
+  if (args.previous.name !== args.next.name || args.previous.color !== args.next.color) {
+    await emitWebhookEvent(tx, {
+      aggregateId: args.project.id,
+      aggregateType: "project",
+      payload: {
+        project_id: args.project.id,
+        project_name: args.next.name,
+        previous_name: args.previous.name,
+      },
+      projectId: args.project.id,
+      type: "project.updated",
+      userId: args.project.ownerId,
+    })
+  }
+
+  const previousTimers = new Map(args.previous.timers.map((timer) => [timer.id, timer]))
+  const nextTimers = new Map(args.next.timers.map((timer) => [timer.id, timer]))
+
+  for (const timer of args.next.timers) {
+    const previous = previousTimers.get(timer.id)
+    if (!previous) {
+      await emitWebhookEvent(tx, {
+        aggregateId: timer.id,
+        aggregateType: "timer",
+        payload: {
+          ...timerEventPayload(args.project, timer),
+          target_date: timer.targetDate,
+          timezone: timer.timezone,
+        },
+        projectId: args.project.id,
+        timerId: timer.id,
+        type: "timer.created",
+        userId: args.project.ownerId,
+      })
+      await scheduleTimerEndedEvent(tx, { project: args.project, timer })
+      continue
+    }
+
+    if (JSON.stringify(previous) === JSON.stringify(timer)) continue
+
+    await emitWebhookEvent(tx, {
+      aggregateId: timer.id,
+      aggregateType: "timer",
+      payload: {
+        ...timerEventPayload(args.project, timer),
+        target_date: timer.targetDate,
+        timezone: timer.timezone,
+      },
+      projectId: args.project.id,
+      timerId: timer.id,
+      type: timerEventType(previous, timer),
+      userId: args.project.ownerId,
+    })
+    await scheduleTimerEndedEvent(tx, { project: args.project, timer })
+  }
+
+  for (const timer of args.previous.timers) {
+    if (nextTimers.has(timer.id)) continue
+    await cancelPendingTimerEndedEvents(tx, {
+      projectId: args.project.id,
+      timerId: timer.id,
+      userId: args.project.ownerId,
+    })
+    await emitWebhookEvent(tx, {
+      aggregateId: timer.id,
+      aggregateType: "timer",
+      payload: timerEventPayload(args.project, timer),
+      projectId: args.project.id,
+      timerId: timer.id,
+      type: "timer.deleted",
+      userId: args.project.ownerId,
+    })
+  }
+}
+
 async function deleteProjectGraph(
   prisma: ReturnType<typeof requirePrismaClient>,
   args: { projectId: string; restoreKeyHash?: RestoreKeyTokenHash },
 ) {
   await prisma.$transaction(async (tx) => {
+    const project =
+      typeof (tx.project as { findUnique?: unknown }).findUnique === "function"
+        ? await tx.project.findUnique({
+            where: { id: args.projectId },
+            select: { id: true, name: true, ownerId: true },
+          })
+        : null
     const timerIds = (await tx.timer.findMany({ where: { projectId: args.projectId }, select: { id: true } })).map(
       (timer) => timer.id,
     )
+
+    if (project?.ownerId) {
+      await (tx as { webhookEvent?: { updateMany?: (args: unknown) => Promise<unknown> } }).webhookEvent?.updateMany?.({
+        data: { cancelledAt: new Date(), status: "cancelled" },
+        where: { projectId: args.projectId, status: "pending", userId: project.ownerId },
+      })
+      await emitWebhookEvent(tx, {
+        aggregateId: args.projectId,
+        aggregateType: "project",
+        payload: {
+          project_id: args.projectId,
+          project_name: project.name,
+        },
+        projectId: args.projectId,
+        type: "project.deleted",
+        userId: project.ownerId,
+      })
+    }
 
     if (timerIds.length > 0) {
       await tx.notificationOutboxItem.deleteMany({ where: { timerId: { in: timerIds } } })
@@ -314,23 +440,43 @@ export const prismaProjectRepository: ProjectRepository = {
 
     const existing = await prisma.project.findFirst({
       where: ownedProjectWhere(args.projectId, args.user),
-      select: { id: true, ownerId: true },
+      select: { id: true, ownerId: true, snapshot: true },
     })
     if (!existing) return false
+    const previousSnapshot = isProjectSnapshot(existing.snapshot) ? existing.snapshot : null
 
     const timerRows = timerCreateManyData(existing.id, existing.ownerId, args.project)
     const spaceRows = spaceCreateManyData(existing.id, existing.ownerId, args.project)
 
-    await prisma.$transaction([
-      prisma.project.update({
+    if (!previousSnapshot) {
+      await prisma.$transaction([
+        prisma.project.update({
+          where: { id: existing.id },
+          data: prismaProjectFields(args.project),
+        }),
+        prisma.timer.deleteMany({ where: { projectId: existing.id } }),
+        prisma.space.deleteMany({ where: { projectId: existing.id } }),
+        ...(timerRows.length > 0 ? [prisma.timer.createMany({ data: timerRows })] : []),
+        ...(spaceRows.length > 0 ? [prisma.space.createMany({ data: spaceRows })] : []),
+      ])
+      return true
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await emitUserProjectSnapshotEvents(tx, {
+        next: args.project,
+        previous: previousSnapshot,
+        project: { id: existing.id, name: args.project.name, ownerId: existing.ownerId },
+      })
+      await tx.project.update({
         where: { id: existing.id },
         data: prismaProjectFields(args.project),
-      }),
-      prisma.timer.deleteMany({ where: { projectId: existing.id } }),
-      prisma.space.deleteMany({ where: { projectId: existing.id } }),
-      ...(timerRows.length > 0 ? [prisma.timer.createMany({ data: timerRows })] : []),
-      ...(spaceRows.length > 0 ? [prisma.space.createMany({ data: spaceRows })] : []),
-    ])
+      })
+      await tx.timer.deleteMany({ where: { projectId: existing.id } })
+      await tx.space.deleteMany({ where: { projectId: existing.id } })
+      if (timerRows.length > 0) await tx.timer.createMany({ data: timerRows })
+      if (spaceRows.length > 0) await tx.space.createMany({ data: spaceRows })
+    })
 
     return true
   },

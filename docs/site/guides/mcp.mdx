@@ -30,6 +30,21 @@ remote MCP connector.
 The icon upload file is a 256 x 256 PNG under 10 KB, which fits ChatGPT's custom
 app icon limits.
 
+## Permissions
+
+The consent screen groups OAuth scopes into three labels:
+
+| Label | Meaning |
+| --- | --- |
+| Read-only | The connector can inspect projects, timers, spaces, and share links. |
+| Scoped write | The connector can write only for the selected resource scopes. |
+| Full access | The connector can read and write all supported MCP resources. |
+
+The scope list is authoritative. If a connector calls an endpoint outside its
+granted scopes, the API returns `insufficient_scope` with `required_scope` and
+`granted_scopes` in the error details. Reconnect the client with the missing
+scope when the user approves that broader access.
+
 ## Web apps
 
 The ChatGPT and Claude steps below describe how to add tickward from their web

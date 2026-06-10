@@ -19,7 +19,6 @@ vi.mock("@/lib/account-preferences.server", async (importOriginal) => ({
 const actor = { kind: "user" as const, user: { id: "user_123", email: "ada@example.com" } }
 const preferences = {
   object: "account_preferences",
-  browser_notifications_enabled: false,
   default_timezone: "Europe/Warsaw",
   full_page_alarm: true,
   notification_sound: "polite",
@@ -50,7 +49,6 @@ describe("/api/account/preferences", () => {
   it("patches account preferences after validation", async () => {
     const { PATCH } = await import("./route")
     const patch = {
-      browser_notifications_enabled: true,
       default_timezone: null,
       full_page_alarm: false,
       notification_sound: "glass",
@@ -90,6 +88,26 @@ describe("/api/account/preferences", () => {
 
     expect(res.status).toBe(400)
     await expect(res.json()).resolves.toMatchObject({ error: { type: "validation_error" } })
+    expect(mocks.updateAccountPreferencesForUser).not.toHaveBeenCalled()
+  })
+
+  it("rejects device notification capability as an account preference", async () => {
+    const { PATCH } = await import("./route")
+
+    const res = await PATCH(
+      new Request("https://app.example.test/api/account/preferences", {
+        method: "PATCH",
+        body: JSON.stringify({ browser_notifications_enabled: true }),
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        details: [expect.objectContaining({ message: expect.stringContaining("Unrecognized key") })],
+        type: "validation_error",
+      },
+    })
     expect(mocks.updateAccountPreferencesForUser).not.toHaveBeenCalled()
   })
 

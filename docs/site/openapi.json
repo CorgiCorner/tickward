@@ -1837,6 +1837,7 @@
                   "idempotency_key_in_progress",
                   "idempotency_conflict",
                   "invalid_api_key",
+                  "insufficient_scope",
                   "missing_api_key",
                   "method_not_allowed",
                   "not_found",
@@ -2343,7 +2344,7 @@
       },
       "Space": {
         "type": "object",
-        "required": ["object", "id", "project_id", "name", "color", "created_at"],
+        "required": ["object", "id", "project_id", "project_name", "name", "color", "created_at"],
         "properties": {
           "object": {
             "type": "string",
@@ -2354,6 +2355,10 @@
           },
           "project_id": {
             "type": "string"
+          },
+          "project_name": {
+            "type": "string",
+            "description": "Human-readable project name for agent confirmations."
           },
           "name": {
             "type": "string",
@@ -2370,6 +2375,7 @@
           "object": "space",
           "id": "travel",
           "project_id": "project_123",
+          "project_name": "Main",
           "name": "Travel",
           "color": "#2563eb",
           "created_at": "2026-06-07T12:00:00.000Z"
@@ -2408,7 +2414,18 @@
       },
       "Share": {
         "type": "object",
-        "required": ["object", "id", "project_id", "timer_id", "shared_at", "url_path", "created_at", "updated_at"],
+        "required": [
+          "object",
+          "id",
+          "project_id",
+          "project_name",
+          "timer_id",
+          "timer_label",
+          "shared_at",
+          "url_path",
+          "created_at",
+          "updated_at"
+        ],
         "properties": {
           "object": {
             "type": "string",
@@ -2420,8 +2437,16 @@
           "project_id": {
             "type": "string"
           },
+          "project_name": {
+            "type": "string",
+            "description": "Human-readable project name for agent confirmations."
+          },
           "timer_id": {
             "type": ["string", "null"]
+          },
+          "timer_label": {
+            "type": ["string", "null"],
+            "description": "Current timer label when the share still points at a timer in this project."
           },
           "shared_at": {
             "$ref": "#/components/schemas/NullableIsoDateTime"
@@ -2441,7 +2466,9 @@
           "object": "share",
           "id": "share_123",
           "project_id": "project_123",
+          "project_name": "Main",
           "timer_id": "timer_123",
+          "timer_label": "Flight check-in",
           "shared_at": "2026-06-07T12:10:00.000Z",
           "url_path": "/share/share_123",
           "created_at": "2026-06-07T12:10:00.000Z",
@@ -2467,6 +2494,30 @@
           },
           "id": {
             "type": "string"
+          },
+          "project_id": {
+            "type": "string",
+            "description": "Project id when the deleted resource belongs to a project."
+          },
+          "project_name": {
+            "type": "string",
+            "description": "Human-readable project name for agent confirmations."
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable project or space name when available."
+          },
+          "label": {
+            "type": "string",
+            "description": "Human-readable timer label when available."
+          },
+          "timer_id": {
+            "type": "string",
+            "description": "Timer id when a deleted share belonged to a timer."
+          },
+          "timer_label": {
+            "type": "string",
+            "description": "Timer label when a deleted share belonged to an existing timer."
           },
           "deleted": {
             "type": "boolean",
@@ -2722,7 +2773,7 @@
             "mcp": {
               "remote_oauth": false
             },
-            "timer_webhooks": false,
+            "timer_webhooks": true,
             "timer_reminders": false
           },
           "limits": {
@@ -2746,6 +2797,22 @@
           },
           "id": {
             "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable project or space name when available."
+          },
+          "label": {
+            "type": "string",
+            "description": "Human-readable timer label when available."
+          },
+          "project_id": {
+            "type": "string",
+            "description": "Project id when the affected resource belongs to a project."
+          },
+          "project_name": {
+            "type": "string",
+            "description": "Human-readable project name when available."
           },
           "reason": {
             "type": "string"
@@ -2788,6 +2855,18 @@
               },
               "id": {
                 "type": "string"
+              },
+              "name": {
+                "type": "string",
+                "description": "Human-readable project or space name when available."
+              },
+              "project_id": {
+                "type": "string",
+                "description": "Project id when the target is nested under a project."
+              },
+              "project_name": {
+                "type": "string",
+                "description": "Human-readable project name when available."
               }
             }
           },

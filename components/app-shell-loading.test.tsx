@@ -22,11 +22,16 @@ function loadingRegion(container: HTMLElement, region: string) {
   return container.querySelector(`[data-loading-region="${region}"]`)
 }
 
+function expectLoadingShell(container: HTMLElement, label: string) {
+  const shell = container.querySelector(`[aria-live="polite"][aria-label="${label}"]`)
+  expect(shell).toHaveAttribute("aria-busy", "true")
+}
+
 describe("app shell loading skeletons", () => {
   it("renders a neutral route loading fallback", () => {
     const { container } = render(<AppShellLoading />)
 
-    expect(screen.getByRole("status", { name: "Loading" })).toHaveAttribute("aria-busy", "true")
+    expectLoadingShell(container, "Loading")
     expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
     expect(loadingRegion(container, "generic-main")).toBeInTheDocument()
     expect(loadingRegion(container, "timer-card")).not.toBeInTheDocument()
@@ -36,7 +41,7 @@ describe("app shell loading skeletons", () => {
   it("renders a home-specific full page loader separately from the route fallback", () => {
     const { container } = render(<HomePageLoading />)
 
-    expect(screen.getByRole("status", { name: "Loading project" })).toHaveAttribute("aria-busy", "true")
+    expectLoadingShell(container, "Loading project")
     expect(screen.getByRole("contentinfo")).toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "Countdown Timer to Any Date" })).not.toBeInTheDocument()
     expect(screen.queryByText(/Create a Countdown Timer that counts down/)).not.toBeInTheDocument()
@@ -49,7 +54,7 @@ describe("app shell loading skeletons", () => {
   it("renders a settings-specific loading layout", () => {
     const { container } = render(<SettingsPageLoading />)
 
-    expect(screen.getByRole("status", { name: "Loading settings" })).toHaveAttribute("aria-busy", "true")
+    expectLoadingShell(container, "Loading settings")
     expect(screen.getByRole("contentinfo")).toBeInTheDocument()
     expect(loadingRegion(container, "settings-main")).toBeInTheDocument()
     expect(loadingRegion(container, "settings-profile")).toBeInTheDocument()
@@ -65,7 +70,7 @@ describe("app shell loading skeletons", () => {
   it("renders an auth-specific loading layout", () => {
     const { container } = render(<AuthPageLoading />)
 
-    expect(screen.getByRole("status", { name: "Loading sign-in" })).toHaveAttribute("aria-busy", "true")
+    expectLoadingShell(container, "Loading sign-in")
     expect(screen.getByRole("contentinfo")).toBeInTheDocument()
     expect(loadingRegion(container, "auth-main")).toBeInTheDocument()
     expect(loadingRegion(container, "generic-main")).not.toBeInTheDocument()
@@ -79,7 +84,7 @@ describe("app shell loading skeletons", () => {
   it("renders a shared timer loading layout", () => {
     const { container } = render(<SharedTimerPageLoading />)
 
-    expect(screen.getByRole("status", { name: "Loading shared timer" })).toHaveAttribute("aria-busy", "true")
+    expectLoadingShell(container, "Loading shared timer")
     expect(screen.getByRole("contentinfo")).toBeInTheDocument()
     expect(loadingRegion(container, "shared-timer-main")).toBeInTheDocument()
     expect(loadingRegion(container, "auth-main")).not.toBeInTheDocument()

@@ -25,11 +25,20 @@ export type EmailOtpCommand = {
   type: EmailOtpType
 }
 
+export type WebhookEndpointDisabledEmailCommand = {
+  to: string
+  endpointId: string
+  endpointName: string
+  endpointUrl: string
+  failureCount: number
+}
+
 export interface MailProvider {
   id: string
   isConfigured(): boolean
   sendTimerFinishedEmail(command: TimerFinishedEmailCommand): Promise<void>
   sendEmailOtp(command: EmailOtpCommand): Promise<void>
+  sendWebhookEndpointDisabledEmail(command: WebhookEndpointDisabledEmailCommand): Promise<void>
 }
 
 /**
@@ -43,6 +52,7 @@ export const nullMailProvider: MailProvider = {
   },
   async sendTimerFinishedEmail(): Promise<void> {},
   async sendEmailOtp(): Promise<void> {},
+  async sendWebhookEndpointDisabledEmail(): Promise<void> {},
 }
 
 export function getMailProvider(): MailProvider {

@@ -1,7 +1,13 @@
 import "server-only"
 
 import { formatMessage } from "@/lib/i18n/messages"
-import type { EmailOtpCommand, EmailOtpType, MailProvider, TimerFinishedEmailCommand } from "@/lib/mail-provider"
+import type {
+  EmailOtpCommand,
+  EmailOtpType,
+  MailProvider,
+  TimerFinishedEmailCommand,
+  WebhookEndpointDisabledEmailCommand,
+} from "@/lib/mail-provider"
 import { getResendConfig } from "@/lib/private-config.server"
 
 function escapeHtml(value: string) {
@@ -29,6 +35,16 @@ function otpEmailHtml(command: EmailOtpCommand) {
   const body = formatMessage("email.otp.body", { otp: `<strong>${otp}</strong>` })
   const expires = formatMessage("email.otp.expires")
   return `<p>${body}</p><p>${expires}</p>`
+}
+
+function webhookDisabledEmailHtml(command: WebhookEndpointDisabledEmailCommand) {
+  const body = formatMessage("email.webhookDisabled.body", {
+    count: command.failureCount,
+    name: `<strong>${escapeHtml(command.endpointName)}</strong>`,
+    url: escapeHtml(command.endpointUrl),
+  })
+  const action = formatMessage("email.webhookDisabled.action")
+  return `<p>${body}</p><p>${action}</p>`
 }
 
 function resendHeaders(config: { apiKey: string }, idempotencyKey?: string) {
@@ -91,6 +107,26 @@ export const resendMailProvider: MailProvider = {
 
     if (!res.ok) {
       throw new Error(formatMessage("errors.resendOtpEmailFailed", { status: res.status }))
+    }
+  },
+  async sendWebhookEndpointDisabledEmail(command: WebhookEndpointDisabledEmailCommand): Promise<void> {
+    const config = getResendConfig()
+    if (!config) return
+
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: resendHeaders(config, `webhook-disabled:${command.endpointId}:${command.failureCount}`),
+      body: JSON.stringify(
+        resendPayload(config, {
+          to: [command.to],
+          subject: formatMessage("email.webhookDisabled.subject", { name: command.endpointName }),
+          html: webhookDisabledEmailHtml(command),
+        }),
+      ),
+    })
+
+    if (!res.ok) {
+      throw new Error(formatMessage("errors.resendWebhookEmailFailed", { status: res.status }))
     }
   },
 }
