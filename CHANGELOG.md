@@ -4,6 +4,21 @@
 
 No unreleased public changes.
 
+## 0.2.1 - 2026-06-11
+
+### Added
+
+- Added an Agent Ready smoke check for the public site.
+
+### Changed
+
+- Shortened webhook row actions and made enable/disable icons easier to scan.
+
+### Fixed
+
+- Moved the WebMCP registration script to Next.js `beforeInteractive` loading so
+  the homepage no longer logs a client-side script warning.
+
 ## 0.2.0 - 2026-06-09
 
 ### Added

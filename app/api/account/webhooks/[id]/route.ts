@@ -5,7 +5,7 @@ import { checkRateLimit } from "@/lib/rate-limit.server"
 import {
   WEBHOOK_UPDATE_SCHEMA,
   WebhookUrlSecurityError,
-  disableWebhookEndpointForUser,
+  removeWebhookEndpointForUser,
   updateWebhookEndpointForUser,
 } from "@/lib/webhooks.server"
 
@@ -97,10 +97,10 @@ export async function DELETE(req: Request, context: WebhookRouteContext) {
 
   const { id } = await context.params
   try {
-    const disabled = await disableWebhookEndpointForUser({ id, user: actor.user })
-    if (!disabled) return apiError("not_found", "Webhook endpoint not found.", { status: 404 })
-    return apiJson({ ...disabled, disabled: true })
+    const removed = await removeWebhookEndpointForUser({ id, user: actor.user })
+    if (!removed) return apiError("not_found", "Webhook endpoint not found.", { status: 404 })
+    return apiJson({ deleted: true, id, object: "webhook_endpoint" })
   } catch (error) {
-    return webhookStorageUnavailable("disable", error)
+    return webhookStorageUnavailable("remove", error)
   }
 }

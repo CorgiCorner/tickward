@@ -23,8 +23,21 @@ import { checkRateLimit } from "@/lib/rate-limit.server"
 import { stableShareId } from "@/lib/static-share-id.server"
 import type { Space, Timer } from "@/lib/types"
 import { effectiveTargetDate } from "@/lib/utils"
-import { cancelPendingTimerEndedEvents, emitWebhookEvent, scheduleTimerEndedEvent } from "@/lib/webhooks.server"
-import type { WebhookEventType } from "@/lib/webhook-events"
+import {
+  WEBHOOK_CREATE_SCHEMA,
+  WebhookEndpointLimitError,
+  WebhookUrlSecurityError,
+  cancelPendingTimerEndedEvents,
+  createWebhookEndpointForUser,
+  emitWebhookEvent,
+  listRecentWebhookDeliveriesForUser,
+  listWebhookEndpointsForUser,
+  removeWebhookEndpointForUser,
+  scheduleTimerEndedEvent,
+  sendTestWebhookForUser,
+  updateWebhookEndpointForUser,
+} from "@/lib/webhooks.server"
+import { webhookEventTypeSchema, type WebhookEventType } from "@/lib/webhook-events"
 import {
   colorSchema,
   recurrenceSchema,
@@ -622,6 +635,7 @@ function requiredMcpScope(method: string, path: string[]): McpOAuthScope | null 
   const [resource, projectId, child] = path
   const action = method === "GET" ? "read" : "write"
 
+  if (resource === "webhooks") return `webhooks:${action}` as McpOAuthScope
   if (resource === "projects" && projectId === "preview" && path.length === 2) return "projects:write"
   if (resource === "projects" && path.length <= 2) return `projects:${action}` as McpOAuthScope
   if (resource === "projects" && projectId && child === "timers") return `timers:${action}` as McpOAuthScope
@@ -666,6 +680,7 @@ function publicApiCapabilities() {
         remote_oauth: Boolean(getMcpRemoteUrl()),
       },
       timer_webhooks: true,
+      webhook_management: true,
       timer_reminders: false,
     },
     limits: {
@@ -755,6 +770,23 @@ const shareDataSchema = z.object({
   sharedAt: z.string(),
   timerId: z.string(),
 })
+
+const webhookPublicPatchSchema = z
+  .object({
+    event_types: WEBHOOK_CREATE_SCHEMA.shape.event_types,
+    name: WEBHOOK_CREATE_SCHEMA.shape.name.optional(),
+    status: z.enum(["active", "disabled"]).optional(),
+  })
+  .strict()
+  .refine((data) => data.event_types !== undefined || data.name !== undefined || data.status !== undefined, {
+    message: "Provide at least one webhook field to update.",
+  })
+
+const webhookTestSchema = z
+  .object({
+    event_type: webhookEventTypeSchema.optional(),
+  })
+  .strict()
 
 function validationResponse(error: z.ZodError) {
   return apiError("validation_error", "We found an error with one or more fields in the request.", {
@@ -1828,6 +1860,162 @@ async function deleteShare(ctx: PublicApiContext, projectId: string, shareId: st
   return isResponse(result) ? result : apiJson(result)
 }
 
+function webhookMutationError(operation: string, error: unknown) {
+  if (error instanceof WebhookUrlSecurityError) {
+    return apiError("validation_error", error.message, { status: 400 })
+  }
+  if (error instanceof WebhookEndpointLimitError) {
+    return apiError("limit_exceeded", error.message, { status: 409 })
+  }
+  console.error(`[tickward] public_api.webhooks.${operation}`, error)
+  return apiError("storage_unavailable", "Webhook storage is unavailable.", { status: 503 })
+}
+
+function webhookDeliveryListLimit(req: Request) {
+  const rawLimit = new URL(req.url).searchParams.get("limit")
+  const parsedLimit = rawLimit ? Number(rawLimit) : 10
+  if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
+    return apiError("validation_error", "limit must be an integer between 1 and 100.", { status: 400 })
+  }
+  return parsedLimit
+}
+
+async function readOptionalJson(req: Request) {
+  const text = await req.text()
+  if (!text.trim()) return null
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return apiError("validation_error", "Request body must be valid JSON.", { status: 400 })
+  }
+}
+
+async function enforceWebhookTestRateLimit(userId: string, webhookId: string) {
+  try {
+    const rateLimit = await checkRateLimit("webhook-test", `user:${userId}:webhook:${webhookId}`)
+    if (rateLimit.allowed) return null
+    return apiError("rate_limited", "Too many test webhook requests.", { headers: rateLimit.headers, status: 429 })
+  } catch {
+    return apiError("rate_limit_unavailable", "Rate limit unavailable.", { status: 503 })
+  }
+}
+
+async function findWebhookEndpointForApi(ctx: PublicApiContext, webhookId: string) {
+  return (await listWebhookEndpointsForUser(ctx.apiKey.user)).find((record) => record.id === webhookId) ?? null
+}
+
+async function getWebhookEndpointForApi(ctx: PublicApiContext, webhookId: string) {
+  const endpoint = await findWebhookEndpointForApi(ctx, webhookId)
+  if (!endpoint) return apiError("not_found", "Webhook endpoint not found.", { status: 404 })
+  return apiJson(endpoint)
+}
+
+async function listWebhookEndpoints(ctx: PublicApiContext) {
+  return apiJson(apiList(await listWebhookEndpointsForUser(ctx.apiKey.user)))
+}
+
+async function createWebhookEndpoint(ctx: PublicApiContext, req: Request) {
+  const denied = validateProjectWriteAccess(ctx)
+  if (denied) return denied
+
+  const body = await readJson(req)
+  if (isResponse(body)) return body
+
+  const parsed = WEBHOOK_CREATE_SCHEMA.safeParse(body)
+  if (!parsed.success) return validationResponse(parsed.error)
+
+  try {
+    const created = await createWebhookEndpointForUser({
+      eventTypes: parsed.data.event_types,
+      name: parsed.data.name,
+      url: parsed.data.url,
+      user: ctx.apiKey.user,
+    })
+    return apiJson(created, { status: 201 })
+  } catch (error) {
+    return webhookMutationError("create", error)
+  }
+}
+
+async function updateWebhookEndpoint(ctx: PublicApiContext, webhookId: string, req: Request) {
+  const denied = validateProjectWriteAccess(ctx)
+  if (denied) return denied
+
+  const body = await readJson(req)
+  if (isResponse(body)) return body
+
+  const parsed = webhookPublicPatchSchema.safeParse(body)
+  if (!parsed.success) return validationResponse(parsed.error)
+
+  try {
+    const updated = await updateWebhookEndpointForUser({
+      eventTypes: parsed.data.event_types,
+      id: webhookId,
+      name: parsed.data.name,
+      status: parsed.data.status,
+      user: ctx.apiKey.user,
+    })
+    if (!updated) return apiError("not_found", "Webhook endpoint not found.", { status: 404 })
+    return apiJson(updated)
+  } catch (error) {
+    return webhookMutationError("update", error)
+  }
+}
+
+async function removeWebhookEndpoint(ctx: PublicApiContext, webhookId: string) {
+  const denied = validateProjectWriteAccess(ctx)
+  if (denied) return denied
+
+  try {
+    const removed = await removeWebhookEndpointForUser({ id: webhookId, user: ctx.apiKey.user })
+    if (!removed) return apiError("not_found", "Webhook endpoint not found.", { status: 404 })
+    return apiJson({ deleted: true, id: webhookId, object: "webhook_endpoint" })
+  } catch (error) {
+    return webhookMutationError("remove", error)
+  }
+}
+
+async function sendTestWebhook(ctx: PublicApiContext, webhookId: string, req: Request) {
+  const denied = validateProjectWriteAccess(ctx)
+  if (denied) return denied
+
+  const rateLimit = await enforceWebhookTestRateLimit(ctx.apiKey.user.id, webhookId)
+  if (rateLimit) return rateLimit
+
+  const body = await readOptionalJson(req)
+  if (isResponse(body)) return body
+
+  const parsed = webhookTestSchema.safeParse(body ?? {})
+  if (!parsed.success) return validationResponse(parsed.error)
+
+  try {
+    const result = await sendTestWebhookForUser({
+      eventType: parsed.data.event_type,
+      id: webhookId,
+      user: ctx.apiKey.user,
+    })
+    if (!result) return apiError("not_found", "Webhook endpoint not found.", { status: 404 })
+    return apiJson(result)
+  } catch (error) {
+    return webhookMutationError("test", error)
+  }
+}
+
+async function listWebhookDeliveries(ctx: PublicApiContext, webhookId: string, req: Request) {
+  const limit = webhookDeliveryListLimit(req)
+  if (isResponse(limit)) return limit
+
+  try {
+    const endpoint = await findWebhookEndpointForApi(ctx, webhookId)
+    if (!endpoint) return apiError("not_found", "Webhook endpoint not found.", { status: 404 })
+    const deliveries = await listRecentWebhookDeliveriesForUser(ctx.apiKey.user, { endpointId: webhookId, limit })
+    return apiJson(apiList(deliveries))
+  } catch (error) {
+    console.error("[tickward] public_api.webhooks.deliveries", error)
+    return apiError("storage_unavailable", "Webhook storage is unavailable.", { status: 503 })
+  }
+}
+
 async function authenticate(req: Request): Promise<{ ctx: PublicApiContext; headers: HeadersInit } | Response> {
   try {
     const ipRateLimit = await checkRateLimit("public-api-ip", `ip:${clientIp(req)}`)
@@ -1964,6 +2152,31 @@ function routeShareResource(method: string, ctx: PublicApiContext, projectId: st
   return methodNotAllowed()
 }
 
+function routeWebhooksCollection(method: string, ctx: PublicApiContext, req: Request) {
+  if (method === "GET") return listWebhookEndpoints(ctx)
+  if (method === "POST") return createWebhookEndpoint(ctx, req)
+  return methodNotAllowed()
+}
+
+function routeWebhookResource(method: string, ctx: PublicApiContext, webhookId: string, req: Request) {
+  if (method === "GET") return getWebhookEndpointForApi(ctx, webhookId)
+  if (method === "PATCH") return updateWebhookEndpoint(ctx, webhookId, req)
+  if (method === "DELETE") return removeWebhookEndpoint(ctx, webhookId)
+  return methodNotAllowed()
+}
+
+function routeWebhookChild(method: string, ctx: PublicApiContext, webhookId: string, child: string, req: Request) {
+  if (child === "test") {
+    if (method === "POST") return sendTestWebhook(ctx, webhookId, req)
+    return methodNotAllowed()
+  }
+  if (child === "deliveries") {
+    if (method === "GET") return listWebhookDeliveries(ctx, webhookId, req)
+    return methodNotAllowed()
+  }
+  return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+}
+
 function routeProjectChildResource(
   method: string,
   ctx: PublicApiContext,
@@ -1981,6 +2194,13 @@ function routeProjectChildResource(
 
 function routePublicApi(method: string, ctx: PublicApiContext, req: Request, path: string[]) {
   const [resource, projectId, child, childId] = path
+  if (resource === "webhooks") {
+    if (path.length === 1) return routeWebhooksCollection(method, ctx, req)
+    if (!projectId) return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+    if (path.length === 2) return routeWebhookResource(method, ctx, projectId, req)
+    if (path.length === 3 && child) return routeWebhookChild(method, ctx, projectId, child, req)
+    return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+  }
   if (resource !== "projects") return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
   if (projectId === "preview" && path.length === 2) return routeProjectPreview(method, req)
   if (path.length === 1) return routeProjectsCollection(method, ctx, req)

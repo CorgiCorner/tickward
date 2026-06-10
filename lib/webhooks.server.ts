@@ -411,6 +411,13 @@ export async function disableWebhookEndpointForUser(args: {
   return updateWebhookEndpointForUser({ id: args.id, status: "disabled", user: args.user })
 }
 
+export async function removeWebhookEndpointForUser(args: { id: string; user: UserRef }): Promise<boolean> {
+  const result = await requirePrismaClient().webhookEndpoint.deleteMany({
+    where: { id: args.id, userId: args.user.id },
+  })
+  return result.count > 0
+}
+
 export async function emitWebhookEvent(tx: WebhookTx, input: EmitWebhookEventInput) {
   if (!input.userId) return null
   const delegate = webhookEventDelegate(tx)

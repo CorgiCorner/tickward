@@ -22,6 +22,7 @@ describe("webMcpInlineScript", () => {
     delete (navigator as Navigator & { modelContext?: unknown }).modelContext
     delete window.__tickwardWebMcp
     delete window.__tickwardWebMcpRegistered
+    window.history.replaceState(null, "", "/")
     vi.useRealTimers()
   })
 
@@ -63,6 +64,17 @@ describe("webMcpInlineScript", () => {
     runInlineScript()
 
     expect(registerTool).not.toHaveBeenCalled()
+  })
+
+  it("does nothing outside the homepage", () => {
+    window.history.replaceState(null, "", "/settings")
+    const registerTool = vi.fn()
+    setModelContext({ registerTool })
+
+    runInlineScript()
+
+    expect(registerTool).not.toHaveBeenCalled()
+    expect(window.__tickwardWebMcpRegistered).toBeUndefined()
   })
 
   it("forwards execute calls to the client bridge when it is ready", () => {

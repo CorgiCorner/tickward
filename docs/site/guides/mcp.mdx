@@ -15,7 +15,7 @@ Use these values when a client asks for connector metadata:
 | Field | Value |
 | --- | --- |
 | Name | `tickward` |
-| Description | `Manage countdown timers, projects, spaces, and share links.` |
+| Description | `Manage countdown timers, projects, spaces, share links, and webhooks.` |
 | Server URL | `https://mcp.tickward.com/mcp` |
 | Authentication | OAuth |
 | Icon upload | [Download 256 x 256 PNG](https://tickward.com/mcp-connector-icon-256.png) |
@@ -36,7 +36,7 @@ The consent screen groups OAuth scopes into three labels:
 
 | Label | Meaning |
 | --- | --- |
-| Read-only | The connector can inspect projects, timers, spaces, and share links. |
+| Read-only | The connector can inspect projects, timers, spaces, share links, and webhooks. |
 | Scoped write | The connector can write only for the selected resource scopes. |
 | Full access | The connector can read and write all supported MCP resources. |
 
@@ -44,6 +44,9 @@ The scope list is authoritative. If a connector calls an endpoint outside its
 granted scopes, the API returns `insufficient_scope` with `required_scope` and
 `granted_scopes` in the error details. Reconnect the client with the missing
 scope when the user approves that broader access.
+
+Existing connections keep the scopes they were granted. Reconnect a client if
+you want it to use newly added webhook tools.
 
 ## Web apps
 
@@ -80,6 +83,8 @@ spaces:read
 spaces:write
 shares:read
 shares:write
+webhooks:read
+webhooks:write
 ```
 
 The discovered endpoints should be:

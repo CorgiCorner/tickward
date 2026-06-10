@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { formatMessage } from "@/lib/i18n/messages"
 import type { McpOAuthScope } from "@/lib/mcp-oauth"
 
-type ScopeResource = "projects" | "timers" | "spaces" | "shares"
+type ScopeResource = "projects" | "timers" | "spaces" | "shares" | "webhooks"
 type ScopeAction = "read" | "write"
 
 type ScopeSummary = {
@@ -13,7 +13,7 @@ type ScopeSummary = {
   title: string
 }
 
-const RESOURCE_ORDER: ScopeResource[] = ["projects", "timers", "spaces", "shares"]
+const RESOURCE_ORDER: ScopeResource[] = ["projects", "timers", "spaces", "shares", "webhooks"]
 
 export function McpAuthorizationCard(
   props: Readonly<{
@@ -145,6 +145,8 @@ function scopeTitleKey(resource: ScopeResource) {
       return "mcp.authorize.scope.spaces.title"
     case "shares":
       return "mcp.authorize.scope.shares.title"
+    case "webhooks":
+      return "mcp.authorize.scope.webhooks.title"
   }
 }
 
@@ -158,6 +160,8 @@ function scopeReadDescriptionKey(resource: ScopeResource) {
       return "mcp.authorize.scope.spaces.readDescription"
     case "shares":
       return "mcp.authorize.scope.shares.readDescription"
+    case "webhooks":
+      return "mcp.authorize.scope.webhooks.readDescription"
   }
 }
 
@@ -171,5 +175,7 @@ function scopeWriteDescriptionKey(resource: ScopeResource) {
       return "mcp.authorize.scope.spaces.writeDescription"
     case "shares":
       return "mcp.authorize.scope.shares.writeDescription"
+    case "webhooks":
+      return "mcp.authorize.scope.webhooks.writeDescription"
   }
 }

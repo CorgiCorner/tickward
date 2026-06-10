@@ -1,11 +1,13 @@
 import type { Metadata, Viewport } from "next"
 import type { ReactNode } from "react"
 import { Geist, Geist_Mono } from "next/font/google"
+import Script from "next/script"
 import "./globals.css"
 import { appExtensions } from "@/lib/app-extensions"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { webMcpInlineScript } from "@/components/webmcp-inline-script"
 import { socialImageAlt, socialImageContentType, socialImageSize } from "@/app/social-image"
 import { formatMessage } from "@/lib/i18n/messages"
 import { getSiteOrigin, getSiteUrl } from "@/lib/site-config"
@@ -83,6 +85,11 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icon-192.png" />
         <meta property="og:image:alt" content={socialImageAlt()} />
         <meta name="twitter:image:alt" content={socialImageAlt()} />
+        <Script
+          id="tickward-webmcp-tools"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: webMcpInlineScript() }}
+        />
         {appExtensions.renderHead?.()}
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>

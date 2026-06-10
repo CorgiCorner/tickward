@@ -64,6 +64,7 @@ const BRIDGE_POLL_BUDGET_MS = 10_000
 export function webMcpInlineScript(): string {
   return `(function () {
   var modelContext = typeof navigator === "undefined" ? null : navigator.modelContext;
+  if (typeof window === "undefined" || window.location.pathname !== "/") return;
   if (!modelContext || window.__tickwardWebMcpRegistered) return;
   function callBridge(name, args) {
     var bridge = window.__tickwardWebMcp;

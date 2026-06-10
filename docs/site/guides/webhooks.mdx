@@ -58,9 +58,36 @@ Supported event types:
 - `share.created`
 - `share.deleted`
 
+## API management
+
+Webhook endpoints can be managed from Settings or through the public API:
+
+```bash
+curl "https://tickward.com/api/v1/webhooks" \
+  -H "Authorization: Bearer $TICKWARD_API_KEY"
+```
+
+Use `PATCH /webhooks/{webhook_id}` to edit the subscribed `event_types` or to
+disable and enable an endpoint:
+
+```json
+{
+  "event_types": ["timer.ended", "share.created"]
+}
+```
+
+```json
+{
+  "status": "disabled"
+}
+```
+
+`DELETE /webhooks/{webhook_id}` removes the endpoint and its delivery history.
+Use disable when you only want to pause deliveries.
+
 ## Test delivery
 
-Use `Send test` in Settings to send a one-off `webhook.test` event to the
+Use `Send` in Settings to send a one-off `webhook.test` event to the
 endpoint immediately. Test deliveries are rate limited and do not retry
 automatically. They use the same signing headers and payload envelope as normal
 webhook deliveries.
@@ -85,7 +112,7 @@ use `"share"`.
 
 ### Sample events
 
-The `Send test` menu can also send a sample of any event type the endpoint is
+The `Send` menu can also send a sample of any event type the endpoint is
 subscribed to, for example `timer.ended`. Sample events use the same envelope
 and signing as real deliveries, with placeholder data such as
 `"id": "timer_sample"` and `"timer_label": "Sample timer"`. Use them to map
@@ -108,12 +135,12 @@ This mode does not verify the HMAC signature.
 | Webhook name | Use a short name such as `tickward-events`. |
 | API Key authentication | Leave disabled for now. Make expects `x-make-apikey`, and tickward sends HMAC signing headers instead. |
 | IP restrictions | Leave empty unless your tickward deployment has fixed outbound IPs. |
-| Data structure | Leave empty at first, then use `Send test` in tickward so Make can detect the payload fields. |
+| Data structure | Leave empty at first, then use `Send` in tickward so Make can detect the payload fields. |
 | Get request headers | No, unless you want to inspect delivery headers. |
 | Get request HTTP method | No, unless you want it for debugging. tickward sends `POST`. |
 | JSON pass-through | No. Make will parse the JSON body into fields you can map in later steps. |
 
-After saving the Make webhook, click `Send test` in tickward. Make should detect
+After saving the Make webhook, click `Send` in tickward. Make should detect
 fields such as `type`, `environment`, `event_version`, and `data.object.object`.
 For the test event, `data.object.object` is `webhook_endpoint`. Timer deliveries
 use timer fields such as `data.object.timer_label`.
@@ -130,9 +157,9 @@ Webhook settings:
 | Get request headers | Yes. This exposes `tickward-signature`, `tickward-event-id`, `tickward-delivery-id`, and `tickward-event-type`. |
 | JSON pass-through | Yes. Make keeps the original JSON body as text, which is required for signature verification. |
 
-Recommended module names:
+Example module names:
 
-| Step | Module | Recommended name |
+| Step | Module | Example name |
 | --- | --- | --- |
 | 1 | `Webhooks > Custom webhook` | `Webhook` |
 | 2 | `Tools > Set multiple variables` | `Signature` |
@@ -236,7 +263,7 @@ tickward endpoint URL. n8n shows a separate test URL that only works while the
 workflow editor is listening; register the production URL in tickward and
 activate the workflow.
 
-For field mapping, send a sample event from tickward (`Send test`, then pick an
+For field mapping, send a sample event from tickward (`Send`, then pick an
 event type) while the n8n workflow is listening.
 
 ### HMAC verification setup
@@ -295,7 +322,7 @@ the Zap receives the unparsed body and headers needed for HMAC verification.
 ### Simple setup
 
 Create a `Webhooks by Zapier > Catch Hook` trigger, copy the webhook URL into
-tickward, then use `Send test` so Zapier can detect the payload fields. This is
+tickward, then use `Send` so Zapier can detect the payload fields. This is
 easy to map in later Zap steps, but the request is not verified.
 
 ### HMAC verification setup
@@ -406,9 +433,12 @@ default retry policy that equals 5 events that exhausted all retries. Any
 successful delivery resets the failure counter.
 
 When an endpoint is disabled automatically, tickward emails the account owner
-if a mail provider is configured. Fix the receiver, then use `Re-enable` on the
+if a mail provider is configured. Fix the receiver, then use `Enable` on the
 endpoint in Settings (or `PATCH /api/account/webhooks/:id` with
 `{"status": "active"}`). Re-enabling resets the failure counter.
+
+Use `Disable` when you want to pause deliveries and keep the endpoint history.
+Use `Remove` only when the endpoint and its delivery history should be deleted.
 
 Each endpoint row in Settings also shows its recent deliveries with status,
 HTTP response code, attempt count, and the last error - check there first when

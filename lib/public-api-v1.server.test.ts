@@ -34,6 +34,24 @@ const fullKey = {
   permission: "full_access" as const,
 }
 
+function webhookEndpointRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "wh_123",
+    name: "Production",
+    secret: "whsec_test",
+    url: "https://example.com/tickward",
+    eventTypes: ["timer.ended"],
+    status: "active",
+    failureCount: 0,
+    createdAt: new Date("2026-06-09T09:00:00.000Z"),
+    updatedAt: new Date("2026-06-09T09:00:00.000Z"),
+    disabledAt: null,
+    lastDeliveredAt: null,
+    lastFailedAt: null,
+    ...overrides,
+  }
+}
+
 function idempotencyCacheKey(data: { apiKeyId: string; keyHash: string }) {
   return `${data.apiKeyId}:${data.keyHash}`
 }
@@ -301,6 +319,89 @@ describe("public API v1", () => {
       },
     })
     expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  it("blocks MCP webhook writes without the webhooks write scope", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce({
+      ...fullKey,
+      kind: "mcp_connection",
+      scopes: ["projects:write"],
+    })
+
+    const res = await handlePublicApiV1Request(
+      "PATCH",
+      new Request("https://tickward.test/api/v1/webhooks/wh_123", {
+        method: "PATCH",
+        headers: { authorization: "Bearer tw_mcp" },
+        body: JSON.stringify({ event_types: ["timer.created"] }),
+      }),
+      ["webhooks", "wh_123"],
+    )
+
+    expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        details: {
+          granted_scopes: ["projects:write"],
+          required_scope: "webhooks:write",
+        },
+        type: "insufficient_scope",
+      },
+    })
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  it("lists webhook endpoints through the public API", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const findMany = vi.fn().mockResolvedValue([webhookEndpointRow()])
+    mocks.requirePrismaClient.mockReturnValue({ webhookEndpoint: { findMany } })
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/webhooks", { headers: { authorization: "Bearer tw_read" } }),
+      ["webhooks"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      object: "list",
+      data: [{ id: "wh_123", object: "webhook_endpoint", event_types: ["timer.ended"] }],
+    })
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "user_123" } }))
+  })
+
+  it("updates webhook event subscriptions through the public API", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const updateManyAndReturn = vi.fn().mockResolvedValue([
+      webhookEndpointRow({
+        eventTypes: ["timer.created", "timer.ended"],
+        updatedAt: new Date("2026-06-10T09:00:00Z"),
+      }),
+    ])
+    mocks.requirePrismaClient.mockReturnValue({ webhookEndpoint: { updateManyAndReturn } })
+
+    const res = await handlePublicApiV1Request(
+      "PATCH",
+      new Request("https://tickward.test/api/v1/webhooks/wh_123", {
+        method: "PATCH",
+        headers: { authorization: "Bearer tw_full" },
+        body: JSON.stringify({ event_types: ["timer.created", "timer.ended"] }),
+      }),
+      ["webhooks", "wh_123"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      id: "wh_123",
+      event_types: ["timer.created", "timer.ended"],
+      object: "webhook_endpoint",
+    })
+    expect(updateManyAndReturn).toHaveBeenCalledWith({
+      where: { id: "wh_123", userId: "user_123" },
+      data: { eventTypes: ["timer.created", "timer.ended"] },
+    })
   })
 
   it("does not allow moving a share link to another timer", async () => {

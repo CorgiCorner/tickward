@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "tickward API",
-    "summary": "Versioned API for tickward projects, timers, spaces, and public share links.",
-    "description": "The tickward API lets users automate countdown projects, timers, spaces, and public share links. Use Bearer API keys created in tickward settings. Read-only keys can inspect data. Full-access keys can create, update, and delete resources. Agents should prefer read-only keys for answering questions, ask for explicit confirmation before destructive changes, and use ISO 8601 datetimes plus IANA timezones when creating timers.",
+    "summary": "Versioned API for tickward projects, timers, spaces, share links, and webhooks.",
+    "description": "The tickward API lets users automate countdown projects, timers, spaces, public share links, and webhook endpoints. Use Bearer API keys created in tickward settings. Read-only keys can inspect data. Full-access keys can create, update, and delete resources. Agents should prefer read-only keys for answering questions, ask for explicit confirmation before destructive changes, and use ISO 8601 datetimes plus IANA timezones when creating timers.",
     "version": "1.0.0",
     "license": {
       "name": "AGPL-3.0-only",
@@ -37,6 +37,10 @@
     {
       "name": "Shares",
       "description": "Public links for individual timers."
+    },
+    {
+      "name": "Webhooks",
+      "description": "HTTPS webhook endpoints for account events."
     }
   ],
   "paths": {
@@ -983,6 +987,261 @@
           }
         }
       }
+    },
+    "/webhooks": {
+      "get": {
+        "operationId": "listWebhooks",
+        "summary": "List webhook endpoints",
+        "description": "List webhook endpoints for the authenticated account.",
+        "tags": ["Webhooks"],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/WebhookEndpointListResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createWebhook",
+        "summary": "Create webhook endpoint",
+        "description": "Create a webhook endpoint. The signing secret is returned only once.",
+        "tags": ["Webhooks"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/WebhookEndpointCreate"
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/CreatedWebhookEndpointResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        }
+      }
+    },
+    "/webhooks/{webhook_id}": {
+      "get": {
+        "operationId": "getWebhook",
+        "summary": "Retrieve webhook endpoint",
+        "tags": ["Webhooks"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WebhookId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/WebhookEndpointResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateWebhook",
+        "summary": "Update webhook endpoint",
+        "description": "Update the name, status, or subscribed event types. URL changes should use a new endpoint.",
+        "tags": ["Webhooks"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WebhookId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/WebhookEndpointUpdate"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/WebhookEndpointResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteWebhook",
+        "summary": "Remove webhook endpoint",
+        "description": "Remove a webhook endpoint and its delivery history. Use PATCH status=disabled to pause without deleting history.",
+        "tags": ["Webhooks"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WebhookId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DeletedWebhookEndpointResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        }
+      }
+    },
+    "/webhooks/{webhook_id}/test": {
+      "post": {
+        "operationId": "sendTestWebhook",
+        "summary": "Send test webhook",
+        "description": "Send one sample delivery to a webhook endpoint. This endpoint is rate-limited per user and webhook.",
+        "tags": ["Webhooks"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WebhookId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/WebhookTest"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/WebhookTestResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflictError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        }
+      }
+    },
+    "/webhooks/{webhook_id}/deliveries": {
+      "get": {
+        "operationId": "listWebhookDeliveries",
+        "summary": "List webhook deliveries",
+        "description": "List recent delivery attempts for a webhook endpoint.",
+        "tags": ["Webhooks"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WebhookId"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/WebhookDeliveryListResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFoundError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1076,6 +1335,15 @@
           "enum": [true]
         },
         "description": "When true, return a preview of what would change without mutating data or recording idempotency."
+      },
+      "WebhookId": {
+        "name": "webhook_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Webhook endpoint id."
       }
     },
     "headers": {
@@ -1249,6 +1517,36 @@
                   "timer_id": "timer_123"
                 }
               }
+            }
+          }
+        }
+      },
+      "WebhookEndpointCreate": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/WebhookEndpointCreateRequest"
+            }
+          }
+        }
+      },
+      "WebhookEndpointUpdate": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/WebhookEndpointUpdateRequest"
+            }
+          }
+        }
+      },
+      "WebhookTest": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/WebhookTestRequest"
             }
           }
         }
@@ -1809,6 +2107,114 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "WebhookEndpointListResponse": {
+        "description": "Successful response.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/WebhookEndpointList"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "WebhookEndpointResponse": {
+        "description": "Successful response.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/WebhookEndpoint"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "CreatedWebhookEndpointResponse": {
+        "description": "Successful response.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/CreatedWebhookEndpoint"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "WebhookDeliveryListResponse": {
+        "description": "Successful response.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/WebhookDeliveryList"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "WebhookTestResponse": {
+        "description": "Successful response.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/WebhookTestResult"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
+      "DeletedWebhookEndpointResponse": {
+        "description": "Successful response.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DeletedWebhookEndpoint"
             }
           }
         },
@@ -2682,7 +3088,8 @@
               "nested_project_create",
               "mcp",
               "timer_webhooks",
-              "timer_reminders"
+              "timer_reminders",
+              "webhook_management"
             ],
             "properties": {
               "idempotency_key": {
@@ -2732,6 +3139,9 @@
                 "type": "boolean"
               },
               "timer_reminders": {
+                "type": "boolean"
+              },
+              "webhook_management": {
                 "type": "boolean"
               }
             }
@@ -3223,6 +3633,301 @@
             "path": "/api/v1/projects",
             "requires_idempotency_key": true,
             "expected_plan_hash": "sha256:7f1a0c6b1a7e0a7237918ec31e6a03ca690ad802d6f28d62101a3f27819cb622"
+          }
+        }
+      },
+      "WebhookEventType": {
+        "type": "string",
+        "enum": [
+          "project.created",
+          "project.updated",
+          "project.deleted",
+          "timer.created",
+          "timer.updated",
+          "timer.archived",
+          "timer.restored",
+          "timer.deleted",
+          "timer.ended",
+          "share.created",
+          "share.deleted"
+        ],
+        "description": "Event type delivered to webhook endpoints."
+      },
+      "WebhookEndpoint": {
+        "type": "object",
+        "required": [
+          "id",
+          "object",
+          "name",
+          "url",
+          "event_types",
+          "status",
+          "failure_count",
+          "created_at",
+          "updated_at",
+          "disabled_at",
+          "last_delivered_at",
+          "last_failed_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "wh_123"
+          },
+          "object": {
+            "type": "string",
+            "enum": ["webhook_endpoint"]
+          },
+          "name": {
+            "type": "string",
+            "example": "Production automation"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://example.com/tickward/webhooks"
+          },
+          "event_types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookEventType"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "disabled"]
+          },
+          "failure_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "disabled_at": {
+            "$ref": "#/components/schemas/NullableIsoDateTime"
+          },
+          "last_delivered_at": {
+            "$ref": "#/components/schemas/NullableIsoDateTime"
+          },
+          "last_failed_at": {
+            "$ref": "#/components/schemas/NullableIsoDateTime"
+          }
+        }
+      },
+      "CreatedWebhookEndpoint": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/WebhookEndpoint"
+          },
+          {
+            "type": "object",
+            "required": ["signing_secret"],
+            "properties": {
+              "signing_secret": {
+                "type": "string",
+                "description": "Shown only once. Store it and use it to verify tickward-signature.",
+                "example": "whsec_example"
+              }
+            }
+          }
+        ]
+      },
+      "WebhookEndpointList": {
+        "type": "object",
+        "required": ["object", "data", "has_more"],
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": ["list"]
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookEndpoint"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        }
+      },
+      "WebhookEndpointCreateRequest": {
+        "type": "object",
+        "required": ["name", "url"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "event_types": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 11,
+            "items": {
+              "$ref": "#/components/schemas/WebhookEventType"
+            },
+            "description": "If omitted, the endpoint receives every supported event type."
+          }
+        }
+      },
+      "WebhookEndpointUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "event_types": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 11,
+            "items": {
+              "$ref": "#/components/schemas/WebhookEventType"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "disabled"]
+          }
+        },
+        "description": "Update webhook metadata, event subscriptions, or status. To change the URL, create a new endpoint and remove the old one.",
+        "minProperties": 1
+      },
+      "WebhookTestRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "event_type": {
+            "$ref": "#/components/schemas/WebhookEventType"
+          }
+        }
+      },
+      "WebhookDelivery": {
+        "type": "object",
+        "required": [
+          "id",
+          "object",
+          "endpoint_id",
+          "event_id",
+          "status",
+          "attempt_count",
+          "next_attempt_at",
+          "last_attempt_at",
+          "delivered_at",
+          "failed_at",
+          "response_status",
+          "error",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string",
+            "enum": ["webhook_delivery"]
+          },
+          "endpoint_id": {
+            "type": "string"
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "processing", "delivered", "failed"]
+          },
+          "attempt_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "next_attempt_at": {
+            "$ref": "#/components/schemas/NullableIsoDateTime"
+          },
+          "last_attempt_at": {
+            "$ref": "#/components/schemas/NullableIsoDateTime"
+          },
+          "delivered_at": {
+            "$ref": "#/components/schemas/NullableIsoDateTime"
+          },
+          "failed_at": {
+            "$ref": "#/components/schemas/NullableIsoDateTime"
+          },
+          "response_status": {
+            "type": ["integer", "null"]
+          },
+          "error": {
+            "type": ["string", "null"]
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/IsoDateTime"
+          }
+        }
+      },
+      "WebhookDeliveryList": {
+        "type": "object",
+        "required": ["object", "data", "has_more"],
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": ["list"]
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookDelivery"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        }
+      },
+      "WebhookTestResult": {
+        "type": "object",
+        "required": ["object", "endpoint", "delivery"],
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": ["webhook_test"]
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/WebhookEndpoint"
+          },
+          "delivery": {
+            "$ref": "#/components/schemas/WebhookDelivery"
+          }
+        }
+      },
+      "DeletedWebhookEndpoint": {
+        "type": "object",
+        "required": ["object", "id", "deleted"],
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": ["webhook_endpoint"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean",
+            "enum": [true]
           }
         }
       }

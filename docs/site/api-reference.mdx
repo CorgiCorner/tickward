@@ -1,6 +1,6 @@
 ---
 title: "API Reference"
-description: "Use tickward's versioned API to manage projects, timers, spaces, and share links."
+description: "Use tickward's versioned API to manage projects, timers, spaces, share links, and webhooks."
 ---
 
 The tickward API is available under:
@@ -28,9 +28,10 @@ For multi-resource project setup, call `POST /projects/preview` with the same
 payload you plan to create. Then call `POST /projects` with the returned
 `plan_hash` as `expected_plan_hash`.
 
-Webhook delivery is asynchronous. Create webhook endpoints in Settings, then run
-the scheduler tick endpoint from Cloudflare Cron, EventBridge, a VPS cron job,
-or another scheduler. See [Webhooks and scheduler](/guides/webhooks).
+Webhook delivery is asynchronous. Create and manage webhook endpoints in
+Settings or through `/webhooks`, then run the scheduler tick endpoint from
+Cloudflare Cron, EventBridge, a VPS cron job, or another scheduler. See
+[Webhooks and scheduler](/guides/webhooks).
 
 Remote MCP clients use OAuth through the configured MCP endpoint. Local scripts,
 CLI tools, and self-hosted agents can use API keys created in settings.
@@ -52,6 +53,9 @@ return `insufficient_scope` with the missing `required_scope`.
   `project_name`.
 - Shares create static public links for individual timers. Share responses
   include `project_name` and `timer_label` when the timer still exists.
+- Webhooks send account events to HTTPS endpoints. Use `PATCH /webhooks/{id}`
+  to edit event subscriptions or pause an endpoint, and `DELETE /webhooks/{id}`
+  only when the endpoint and delivery history should be removed.
 
 ## For agents
 

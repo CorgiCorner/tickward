@@ -9,6 +9,8 @@ export const MCP_OAUTH_SCOPES = [
   "spaces:write",
   "shares:read",
   "shares:write",
+  "webhooks:read",
+  "webhooks:write",
 ] as const
 
 export type McpOAuthScope = (typeof MCP_OAUTH_SCOPES)[number]

@@ -5,10 +5,12 @@ import {
   BookOpenIcon,
   ChevronDownIcon,
   ChevronUpIcon,
+  CirclePlayIcon,
+  CircleStopIcon,
   HistoryIcon,
+  PencilIcon,
   PlusIcon,
   RadioTowerIcon,
-  RotateCcwIcon,
   SendIcon,
   ShieldCheckIcon,
   Trash2Icon,
@@ -113,8 +115,26 @@ async function createWebhook(input: { event_types: WebhookEventType[]; name: str
 }
 
 async function disableWebhook(id: string) {
+  const res = await fetch(`/api/account/webhooks/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ status: "disabled" }),
+  })
+  return responseJson<WebhookEndpointPublicRecord>(res, formatMessage("webhooks.disableFailed"))
+}
+
+async function updateWebhookEvents(id: string, eventTypes: WebhookEventType[]) {
+  const res = await fetch(`/api/account/webhooks/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ event_types: eventTypes }),
+  })
+  return responseJson<WebhookEndpointPublicRecord>(res, formatMessage("webhooks.eventsUpdateFailed"))
+}
+
+async function removeWebhook(id: string) {
   const res = await fetch(`/api/account/webhooks/${encodeURIComponent(id)}`, { method: "DELETE" })
-  await responseJson<unknown>(res, formatMessage("webhooks.disableFailed"))
+  await responseJson<unknown>(res, formatMessage("webhooks.removeFailed"))
 }
 
 async function sendTestWebhook(id: string, eventType?: WebhookEventType) {
@@ -328,8 +348,12 @@ function WebhookEndpointRow(
   props: Readonly<{
     endpoint: WebhookEndpointPublicRecord
     disableLoading: string | null
+    eventsLoading: string | null
+    removeLoading: string | null
     onSendTest: (id: string, eventType?: WebhookEventType) => void
     onDisable: (id: string) => void
+    onEventsUpdate: (id: string, eventTypes: WebhookEventType[]) => Promise<boolean>
+    onRemove: (id: string) => void
     onReenable: (id: string) => void
     reenableLoading: string | null
     testLoading: string | null
@@ -338,6 +362,26 @@ function WebhookEndpointRow(
   const disabled = props.endpoint.status === "disabled"
   const [deliveriesOpen, setDeliveriesOpen] = useState(false)
   const [testMenuOpen, setTestMenuOpen] = useState(false)
+  const [eventsOpen, setEventsOpen] = useState(false)
+  const [selectedEvents, setSelectedEvents] = useState<WebhookEventType[]>(props.endpoint.event_types)
+  const eventEditBusy = props.eventsLoading === props.endpoint.id
+  const endpointBusy =
+    props.disableLoading === props.endpoint.id ||
+    props.eventsLoading === props.endpoint.id ||
+    props.removeLoading === props.endpoint.id ||
+    props.reenableLoading === props.endpoint.id ||
+    props.testLoading === props.endpoint.id
+
+  function openEventsDialog() {
+    setSelectedEvents(props.endpoint.event_types)
+    setEventsOpen(true)
+  }
+
+  async function submitEventsUpdate() {
+    const ok = await props.onEventsUpdate(props.endpoint.id, selectedEvents)
+    if (ok) setEventsOpen(false)
+  }
+
   return (
     <div className="grid gap-3 rounded-lg border p-3">
       <div className="flex items-start justify-between gap-3">
@@ -363,69 +407,109 @@ function WebhookEndpointRow(
               variant="outline"
               size="sm"
               loading={props.reenableLoading === props.endpoint.id}
+              disabled={endpointBusy && props.reenableLoading !== props.endpoint.id}
               onClick={() => props.onReenable(props.endpoint.id)}
             >
-              {props.reenableLoading !== props.endpoint.id ? <RotateCcwIcon className="size-4" /> : null}
+              {props.reenableLoading !== props.endpoint.id ? <CirclePlayIcon className="size-4" /> : null}
               {formatMessage("webhooks.reenable")}
             </Button>
           ) : (
-            <>
-              <Popover open={testMenuOpen} onOpenChange={setTestMenuOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    loading={props.testLoading === props.endpoint.id}
-                    disabled={props.disableLoading === props.endpoint.id}
-                  >
-                    {props.testLoading !== props.endpoint.id ? <SendIcon className="size-4" /> : null}
-                    {formatMessage("webhooks.test")}
-                    <ChevronDownIcon className="size-3.5" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="grid w-56 gap-0.5 p-1">
-                  <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
-                    {formatMessage("webhooks.testMenuLabel")}
-                  </div>
+            <Popover open={testMenuOpen} onOpenChange={setTestMenuOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  loading={props.testLoading === props.endpoint.id}
+                  disabled={endpointBusy && props.testLoading !== props.endpoint.id}
+                >
+                  {props.testLoading !== props.endpoint.id ? <SendIcon className="size-4" /> : null}
+                  {formatMessage("webhooks.test")}
+                  <ChevronDownIcon className="size-3.5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="grid w-56 gap-0.5 p-1">
+                <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
+                  {formatMessage("webhooks.testMenuLabel")}
+                </div>
+                <button
+                  type="button"
+                  className="rounded-sm px-2 py-1.5 text-left font-mono text-xs hover:bg-muted"
+                  onClick={() => {
+                    setTestMenuOpen(false)
+                    props.onSendTest(props.endpoint.id)
+                  }}
+                >
+                  webhook.test
+                </button>
+                {props.endpoint.event_types.map((type) => (
                   <button
+                    key={type}
                     type="button"
                     className="rounded-sm px-2 py-1.5 text-left font-mono text-xs hover:bg-muted"
                     onClick={() => {
                       setTestMenuOpen(false)
-                      props.onSendTest(props.endpoint.id)
+                      props.onSendTest(props.endpoint.id, type)
                     }}
                   >
-                    webhook.test
+                    {type}
                   </button>
-                  {props.endpoint.event_types.map((type) => (
-                    <button
-                      key={type}
-                      type="button"
-                      className="rounded-sm px-2 py-1.5 text-left font-mono text-xs hover:bg-muted"
-                      onClick={() => {
-                        setTestMenuOpen(false)
-                        props.onSendTest(props.endpoint.id, type)
-                      }}
-                    >
-                      {type}
-                    </button>
-                  ))}
-                </PopoverContent>
-              </Popover>
-              <ConfirmActionButton
-                actionLabel={formatMessage("webhooks.removeAction")}
-                confirmAction={() => props.onDisable(props.endpoint.id)}
-                description={formatMessage("webhooks.removeConfirmDescription")}
-                icon={<Trash2Icon className="size-4" />}
-                loading={props.disableLoading === props.endpoint.id}
-                disabled={props.testLoading === props.endpoint.id}
-                title={formatMessage("webhooks.removeConfirmTitle")}
-              >
-                {formatMessage("webhooks.remove")}
-              </ConfirmActionButton>
-            </>
+                ))}
+              </PopoverContent>
+            </Popover>
           )}
+          <Dialog open={eventsOpen} onOpenChange={(open) => (open ? openEventsDialog() : setEventsOpen(false))}>
+            <DialogTrigger asChild>
+              <Button type="button" variant="outline" size="sm" disabled={endpointBusy} onClick={openEventsDialog}>
+                <PencilIcon className="size-4" />
+                {formatMessage("webhooks.editEvents")}
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[min(680px,90dvh)] overflow-y-auto sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>{formatMessage("webhooks.editEventsTitle")}</DialogTitle>
+                <DialogDescription>{formatMessage("webhooks.editEventsDescription")}</DialogDescription>
+              </DialogHeader>
+              <EventTypeChoice selected={selectedEvents} setSelected={setSelectedEvents} />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setEventsOpen(false)}>
+                  {formatMessage("common.cancel")}
+                </Button>
+                <Button
+                  type="button"
+                  loading={eventEditBusy}
+                  disabled={selectedEvents.length === 0}
+                  onClick={() => void submitEventsUpdate()}
+                >
+                  {formatMessage("common.save")}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          {!disabled ? (
+            <ConfirmActionButton
+              actionLabel={formatMessage("webhooks.disableAction")}
+              confirmAction={() => props.onDisable(props.endpoint.id)}
+              description={formatMessage("webhooks.disableConfirmDescription")}
+              icon={<CircleStopIcon className="size-4" />}
+              loading={props.disableLoading === props.endpoint.id}
+              disabled={endpointBusy && props.disableLoading !== props.endpoint.id}
+              title={formatMessage("webhooks.disableConfirmTitle")}
+            >
+              {formatMessage("webhooks.disable")}
+            </ConfirmActionButton>
+          ) : null}
+          <ConfirmActionButton
+            actionLabel={formatMessage("webhooks.removeAction")}
+            confirmAction={() => props.onRemove(props.endpoint.id)}
+            description={formatMessage("webhooks.removeConfirmDescription")}
+            icon={<Trash2Icon className="size-4" />}
+            loading={props.removeLoading === props.endpoint.id}
+            disabled={endpointBusy && props.removeLoading !== props.endpoint.id}
+            title={formatMessage("webhooks.removeConfirmTitle")}
+          >
+            {formatMessage("webhooks.remove")}
+          </ConfirmActionButton>
         </div>
       </div>
       <div className="flex flex-wrap gap-1">
@@ -469,6 +553,8 @@ export function WebhooksSettingsPanel(
   const [loadError, setLoadError] = useState<string | null>(() => props.initialLoadError ?? null)
   const [createLoading, setCreateLoading] = useState(false)
   const [disableLoading, setDisableLoading] = useState<string | null>(null)
+  const [eventsLoading, setEventsLoading] = useState<string | null>(null)
+  const [removeLoading, setRemoveLoading] = useState<string | null>(null)
   const [reenableLoading, setReenableLoading] = useState<string | null>(null)
   const [testLoading, setTestLoading] = useState<string | null>(null)
   const visibleWebhooks = useMemo(() => {
@@ -539,18 +625,44 @@ export function WebhooksSettingsPanel(
   async function submitDisable(id: string) {
     setDisableLoading(id)
     try {
-      await disableWebhook(id)
-      setWebhooks((records) =>
-        records.map((record) =>
-          record.id === id ? { ...record, disabled_at: new Date().toISOString(), status: "disabled" } : record,
-        ),
-      )
+      const updated = await disableWebhook(id)
+      setWebhooks((records) => records.map((record) => (record.id === id ? updated : record)))
       setLoadError(null)
       toast.success(formatMessage("webhooks.disabled"))
     } catch (error) {
       toast.error(error instanceof Error ? error.message : formatMessage("webhooks.disableFailed"))
     } finally {
       setDisableLoading(null)
+    }
+  }
+
+  async function submitEventsUpdate(id: string, eventTypes: WebhookEventType[]) {
+    setEventsLoading(id)
+    try {
+      const updated = await updateWebhookEvents(id, eventTypes)
+      setWebhooks((records) => records.map((record) => (record.id === id ? updated : record)))
+      setLoadError(null)
+      toast.success(formatMessage("webhooks.eventsUpdated"))
+      return true
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : formatMessage("webhooks.eventsUpdateFailed"))
+      return false
+    } finally {
+      setEventsLoading(null)
+    }
+  }
+
+  async function submitRemove(id: string) {
+    setRemoveLoading(id)
+    try {
+      await removeWebhook(id)
+      setWebhooks((records) => records.filter((record) => record.id !== id))
+      setLoadError(null)
+      toast.success(formatMessage("webhooks.removed"))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : formatMessage("webhooks.removeFailed"))
+    } finally {
+      setRemoveLoading(null)
     }
   }
 
@@ -618,10 +730,14 @@ export function WebhooksSettingsPanel(
             key={endpoint.id}
             endpoint={endpoint}
             disableLoading={disableLoading}
+            eventsLoading={eventsLoading}
+            removeLoading={removeLoading}
             reenableLoading={reenableLoading}
             testLoading={testLoading}
             onSendTest={(id, eventType) => void submitTest(id, eventType)}
             onDisable={(id) => void submitDisable(id)}
+            onEventsUpdate={submitEventsUpdate}
+            onRemove={(id) => void submitRemove(id)}
             onReenable={(id) => void submitReenable(id)}
           />
         ))}

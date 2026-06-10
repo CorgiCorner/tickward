@@ -10,6 +10,7 @@ import {
   deliverDueWebhooks,
   isUnsafeWebhookAddress,
   isUnsafeWebhookHostname,
+  removeWebhookEndpointForUser,
   signWebhookPayload,
   webhookAutoDisableFailureThreshold,
   webhookMaxEndpointsPerUser,
@@ -161,6 +162,64 @@ describe("webhook abuse protections", () => {
       where: { id: "wh_123", userId: "user_123" },
       data: { status: "active", disabledAt: null, failureCount: 0 },
     })
+  })
+
+  it("updates endpoint event subscriptions by owner", async () => {
+    const updatedAt = new Date("2026-06-10T09:00:00.000Z")
+    const updateManyAndReturn = vi.fn().mockResolvedValue([
+      {
+        id: "wh_123",
+        name: "Production",
+        secret: "whsec_test",
+        url: "https://example.com/tickward",
+        eventTypes: ["timer.created", "timer.ended"],
+        status: "active",
+        failureCount: 0,
+        createdAt: updatedAt,
+        updatedAt,
+        disabledAt: null,
+        lastDeliveredAt: null,
+        lastFailedAt: null,
+      },
+    ])
+    prismaMocks.requirePrismaClient.mockReturnValue({
+      webhookEndpoint: { updateManyAndReturn },
+    })
+    const { updateWebhookEndpointForUser } = await import("@/lib/webhooks.server")
+
+    await expect(
+      updateWebhookEndpointForUser({
+        eventTypes: ["timer.created", "timer.ended"],
+        id: "wh_123",
+        user: { id: "user_123" },
+      }),
+    ).resolves.toMatchObject({ event_types: ["timer.created", "timer.ended"] })
+
+    expect(updateManyAndReturn).toHaveBeenCalledWith({
+      where: { id: "wh_123", userId: "user_123" },
+      data: { eventTypes: ["timer.created", "timer.ended"] },
+    })
+  })
+
+  it("removes endpoints by owner", async () => {
+    const deleteMany = vi.fn().mockResolvedValue({ count: 1 })
+    prismaMocks.requirePrismaClient.mockReturnValue({
+      webhookEndpoint: { deleteMany },
+    })
+
+    await expect(removeWebhookEndpointForUser({ id: "wh_123", user: { id: "user_123" } })).resolves.toBe(true)
+
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: { id: "wh_123", userId: "user_123" },
+    })
+  })
+
+  it("reports missing endpoints while removing", async () => {
+    prismaMocks.requirePrismaClient.mockReturnValue({
+      webhookEndpoint: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    })
+
+    await expect(removeWebhookEndpointForUser({ id: "wh_123", user: { id: "user_123" } })).resolves.toBe(false)
   })
 
   it("auto-disables an endpoint past the consecutive failure threshold and emails the owner", async () => {
