@@ -471,20 +471,68 @@ You can run the scheduler anywhere that can reach your tickward deployment:
 - a container worker
 - another hosted scheduler
 
-Cloudflare Worker example:
+Cloudflare Cron Trigger is the smallest production setup for most self-hosted
+deployments. Keep the scheduler secret in Worker secrets and keep the app URL as
+a normal Wrangler variable.
+
+Worker:
 
 ```ts
+type Env = {
+  TICKWARD_BASE_URL: string
+  TICKWARD_SCHEDULER_SECRET: string
+}
+
 export default {
-  async scheduled(_event: ScheduledEvent, env: Env) {
-    await fetch(`${env.TICKWARD_BASE_URL}/api/internal/scheduler/tick`, {
+  async scheduled(_controller: ScheduledController, env: Env) {
+    const response = await fetch(`${env.TICKWARD_BASE_URL}/api/internal/scheduler/tick`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.TICKWARD_SCHEDULER_SECRET}`,
       },
     })
+
+    if (!response.ok) {
+      throw new Error(`tickward scheduler failed with ${response.status}`)
+    }
   },
 }
 ```
+
+Wrangler config:
+
+```json
+{
+  "name": "tickward-scheduler",
+  "main": "worker.ts",
+  "compatibility_date": "2026-06-11",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "TICKWARD_BASE_URL": "https://yourdomain.com"
+  },
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
+}
+```
+
+Set the secret:
+
+```bash
+wrangler secret put TICKWARD_SCHEDULER_SECRET
+```
+
+Test locally with Wrangler, then trigger the scheduled handler:
+
+```bash
+curl "http://localhost:8787/cdn-cgi/handler/scheduled?format=json"
+```
+
+See `examples/scheduler/cloudflare-worker` for a copy-paste starter.
 
 Run it every minute for near-real-time webhook delivery. Browser-local alarms can
 still fire immediately while tickward is open. Long-term, the same event

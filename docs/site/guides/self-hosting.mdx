@@ -76,6 +76,10 @@ Use host-reachable URLs in `.env` when you run services outside Compose.
 `SITE_URL` and `NEXT_PUBLIC_*` values affect build-time metadata or browser
 bundles. Rebuild the app after changing them.
 
+Webhook delivery needs a scheduler caller in production. See
+[Webhooks and scheduler](/guides/webhooks) for the Cloudflare Cron, EventBridge,
+and VPS cron options.
+
 ## Accounts and email
 
 Accounts are optional. Without account configuration, tickward still works with

@@ -4,6 +4,21 @@
 
 No unreleased public changes.
 
+## 0.2.2 - 2026-06-11
+
+### Added
+
+- Added a Cloudflare Workers cron scheduler example under
+  `examples/scheduler/cloudflare-worker` and expanded the webhooks guide with a
+  scheduler playbook covering cron setup, the scheduler secret, and local
+  handler testing.
+
+### Fixed
+
+- Made webhook delivery history easier to scan: attempts, HTTP status, last
+  attempt, and created time now render on separate lines, and delivery errors
+  wrap instead of being truncated.
+
 ## 0.2.1 - 2026-06-11
 
 ### Added

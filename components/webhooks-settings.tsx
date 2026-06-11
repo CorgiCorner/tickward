@@ -23,7 +23,7 @@ import { z } from "zod"
 
 import { ConfirmActionButton } from "@/components/confirm-action-button"
 import { SecretRevealField } from "@/components/secret-reveal-field"
-import { SettingsDateMetadata, formatSettingsDate } from "@/components/settings-metadata"
+import { formatSettingsDate } from "@/components/settings-metadata"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import {
@@ -275,11 +275,24 @@ function deliveryStatusLabel(status: WebhookDeliveryPublicRecord["status"]) {
   return formatMessage("webhooks.deliveryStatus.pending")
 }
 
+function WebhookMetadataItem(props: Readonly<{ label: string; value: ReactNode }>) {
+  return (
+    <div className="grid gap-0.5">
+      <div className="text-[11px] text-muted-foreground">{props.label}</div>
+      <div className="text-xs text-foreground/80">{props.value}</div>
+    </div>
+  )
+}
+
+function WebhookDateMetadata(props: Readonly<{ label: string; value: string | null }>) {
+  return <WebhookMetadataItem label={props.label} value={formatSettingsDate(props.value)} />
+}
+
 function WebhookDeliveryRow(props: Readonly<{ delivery: WebhookDeliveryPublicRecord }>) {
   const failed = props.delivery.status === "failed"
   return (
-    <div className="grid gap-1 rounded-md border bg-background p-2 text-xs">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <div className="grid gap-2 rounded-md border bg-background p-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
         <span
           className={
             failed
@@ -289,17 +302,33 @@ function WebhookDeliveryRow(props: Readonly<{ delivery: WebhookDeliveryPublicRec
         >
           {deliveryStatusLabel(props.delivery.status)}
         </span>
-        {props.delivery.response_status != null ? (
-          <span className="text-muted-foreground">HTTP {props.delivery.response_status}</span>
-        ) : null}
-        <span className="text-muted-foreground">
-          {formatMessage("webhooks.deliveryAttempts", { count: props.delivery.attempt_count })}
-        </span>
-        <span className="text-muted-foreground">
-          {formatSettingsDate(props.delivery.last_attempt_at ?? props.delivery.created_at)}
-        </span>
       </div>
-      {props.delivery.error ? <p className="truncate text-destructive">{props.delivery.error}</p> : null}
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <WebhookMetadataItem
+          label={formatMessage("webhooks.deliveryAttemptsLabel")}
+          value={props.delivery.attempt_count}
+        />
+        {props.delivery.response_status != null ? (
+          <WebhookMetadataItem
+            label={formatMessage("webhooks.deliveryHttpLabel")}
+            value={props.delivery.response_status}
+          />
+        ) : null}
+        <WebhookDateMetadata
+          label={formatMessage("webhooks.deliveryLastAttemptLabel")}
+          value={props.delivery.last_attempt_at}
+        />
+        {props.delivery.next_attempt_at ? (
+          <WebhookDateMetadata
+            label={formatMessage("webhooks.deliveryNextAttemptLabel")}
+            value={props.delivery.next_attempt_at}
+          />
+        ) : null}
+        <WebhookDateMetadata label={formatMessage("webhooks.deliveryCreatedLabel")} value={props.delivery.created_at} />
+      </div>
+      {props.delivery.error ? (
+        <p className="break-words rounded-md bg-destructive/5 px-2 py-1 text-destructive">{props.delivery.error}</p>
+      ) : null}
     </div>
   )
 }
@@ -519,15 +548,21 @@ function WebhookEndpointRow(
           </span>
         ))}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
-        <div className="flex flex-wrap gap-x-4 gap-y-1">
-          <SettingsDateMetadata label={formatMessage("apiKeys.createdLabel")} value={props.endpoint.created_at} />
-          <SettingsDateMetadata
+      <div className="grid gap-3 border-t pt-3 sm:grid-cols-[1fr_auto] sm:items-start">
+        <div data-slot="webhook-endpoint-metadata" className="grid gap-1 text-xs">
+          <WebhookDateMetadata label={formatMessage("apiKeys.createdLabel")} value={props.endpoint.created_at} />
+          <WebhookDateMetadata
             label={formatMessage("webhooks.lastDeliveredLabel")}
             value={props.endpoint.last_delivered_at}
           />
         </div>
-        <Button type="button" variant="ghost" size="xs" onClick={() => setDeliveriesOpen((open) => !open)}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="justify-self-start sm:justify-self-end"
+          onClick={() => setDeliveriesOpen((open) => !open)}
+        >
           <HistoryIcon className="size-3.5" />
           {formatMessage("webhooks.deliveries")}
           {deliveriesOpen ? <ChevronUpIcon className="size-3.5" /> : <ChevronDownIcon className="size-3.5" />}
