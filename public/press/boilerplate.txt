@@ -1,0 +1,5 @@
+tickward is an open-source countdown timer web app launched in 2026. It helps people create timezone-aware timers, organize them into projects and spaces, and share read-only timer pages. Timer state can sync and restore through restore keys, while reminders can use device notifications, web push, and full-page alarms. For integrations, tickward provides a versioned public API, webhooks, and MCP support for AI agents. The project is licensed under AGPL-3.0, is hosted at tickward.com, and can be self-hosted with Docker Compose using PostgreSQL and Redis.
+
+Press contact: press@tickward.com
+Website: https://tickward.com
+Source: https://github.com/CorgiCorner/tickward

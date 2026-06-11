@@ -1,22 +1,10 @@
-import {
-  ArchiveIcon,
-  ArchiveRestoreIcon,
-  BellIcon,
-  BellOffIcon,
-  CopyIcon,
-  Link2OffIcon,
-  LockIcon,
-  PencilIcon,
-  PinIcon,
-  PinOffIcon,
-  RepeatIcon,
-  Share2Icon,
-  TrashIcon,
-} from "lucide-react"
+import { EllipsisVerticalIcon, LockIcon, PencilIcon, PinIcon, PinOffIcon, RepeatIcon } from "lucide-react"
 import Image from "next/image"
-import { useState, type ReactNode } from "react"
+import { useState, type MouseEvent, type ReactNode } from "react"
 
 import { CountdownDisplay } from "@/components/countdown-display"
+import { EmbedSnippetControls, parseShareUrl } from "@/components/embed-snippet"
+import { TimerFocusAction } from "@/components/timer-focus-mode"
 import { TimerForm, type TimerFormSubmitValue } from "@/components/timer-form"
 import { Button } from "@/components/ui/button"
 import {
@@ -27,18 +15,30 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatMessage } from "@/lib/i18n/messages"
 import type { Timer } from "@/lib/types"
-import { formatTargetInTimeZone } from "@/lib/utils"
+import { cn, formatTargetInTimeZone } from "@/lib/utils"
 
 type RecurrenceHistory = {
   count: number
   last: string | null
 }
 
-const timerActionClassName = "text-muted-foreground/75 hover:text-muted-foreground"
+const timerActionClassName =
+  "text-muted-foreground/75 hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50"
+
+type StopPropagationEvent = {
+  stopPropagation: () => void
+}
 
 export function TimerCardContent(
   props: Readonly<{
@@ -53,8 +53,15 @@ export function TimerCardContent(
     dragHandle?: ReactNode
     mobileActions: ReactNode
     desktopActions: ReactNode
+    onMobileCardTap?: () => void
   }>,
 ) {
+  function handleRootClick(event: MouseEvent<HTMLDivElement>) {
+    if (!props.onMobileCardTap) return
+    if (event.target instanceof Element && event.target.closest("[data-timer-card-action]")) return
+    props.onMobileCardTap()
+  }
+
   return (
     <div
       className={[
@@ -64,6 +71,7 @@ export function TimerCardContent(
           : "md:border-border",
         props.isArchived ? "bg-muted/30" : "",
       ].join(" ")}
+      onClick={handleRootClick}
     >
       {props.mobileActions}
 
@@ -163,53 +171,86 @@ export function TimerCardMobileActions(
   props: Readonly<{
     isArchived: boolean
     isPinned: boolean
+    isFollowed: boolean
     notificationsEnabled: boolean
     onTogglePin: () => void
     onToggleNotification: () => void
     onOpenShare: () => void
+    onOpenFocus: () => void
+    onOpenEdit: () => void
+    onUnfollow: () => void
+    onDuplicate: () => void
+    onToggleArchive: () => void
+    onDelete: () => void
   }>,
 ) {
   return (
-    <div className="absolute right-3 top-3 z-10 flex items-center gap-1 md:hidden">
+    <div data-timer-card-action="" className="absolute right-3 top-3 z-10 flex items-center gap-1 md:hidden">
       {props.isArchived ? null : (
-        <button
-          type="button"
-          className={`rounded-full p-1.5 ${timerActionClassName}`}
-          aria-label={formatMessage(props.isPinned ? "timer.unpinAction" : "timer.pinAction")}
-          aria-pressed={props.isPinned}
-          onClick={(event) => {
-            event.stopPropagation()
-            props.onTogglePin()
-          }}
-        >
-          {props.isPinned ? <PinOffIcon className="size-4" /> : <PinIcon className="size-4" />}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={`rounded-full p-1.5 ${timerActionClassName}`}
+              aria-label={formatMessage(props.isPinned ? "timer.unpinAction" : "timer.pinAction")}
+              aria-pressed={props.isPinned}
+              onClick={(event) => {
+                event.stopPropagation()
+                props.onTogglePin()
+              }}
+            >
+              {props.isPinned ? <PinOffIcon className="size-4" /> : <PinIcon className="size-4" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={6}>
+            {formatMessage(props.isPinned ? "timer.unpin" : "timer.pin")}
+          </TooltipContent>
+        </Tooltip>
       )}
-      <button
-        type="button"
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex">
+            <button
+              type="button"
+              className={`rounded-full p-1.5 ${timerActionClassName}`}
+              aria-label={formatMessage(props.isFollowed ? "timer.unfollowOrDuplicate" : "timer.edit")}
+              disabled={props.isFollowed}
+              onClick={(event) => {
+                event.stopPropagation()
+                if (!props.isFollowed) props.onOpenEdit()
+              }}
+            >
+              {props.isFollowed ? <LockIcon className="size-4" /> : <PencilIcon className="size-4" />}
+            </button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" sideOffset={6} className={props.isFollowed ? "max-w-[220px]" : undefined}>
+          {formatMessage(props.isFollowed ? "timer.unfollowOrDuplicate" : "common.edit")}
+        </TooltipContent>
+      </Tooltip>
+      <TimerFocusAction
         className={`rounded-full p-1.5 ${timerActionClassName}`}
-        aria-label={formatMessage(
-          props.notificationsEnabled ? "notifications.disableTimer" : "notifications.enableTimer",
-        )}
-        aria-pressed={props.notificationsEnabled}
-        onClick={(event) => {
+        onOpen={props.onOpenFocus}
+        stopPropagation
+      />
+      <TimerOverflowActions
+        isArchived={props.isArchived}
+        isFollowed={props.isFollowed}
+        notificationsEnabled={props.notificationsEnabled}
+        onToggleNotification={props.onToggleNotification}
+        onOpenShare={props.onOpenShare}
+        onUnfollow={props.onUnfollow}
+        onDuplicate={props.onDuplicate}
+        onToggleArchive={props.onToggleArchive}
+        onDelete={props.onDelete}
+        triggerClassName={`rounded-full p-1.5 ${timerActionClassName}`}
+        onTriggerPointerDown={(event) => {
           event.stopPropagation()
-          props.onToggleNotification()
         }}
-      >
-        {props.notificationsEnabled ? <BellIcon className="size-4" /> : <BellOffIcon className="size-4" />}
-      </button>
-      <button
-        type="button"
-        className={`rounded-full p-1.5 ${timerActionClassName}`}
-        aria-label={formatMessage("share.timerDialog.title")}
-        onClick={(event) => {
+        onTriggerClick={(event) => {
           event.stopPropagation()
-          props.onOpenShare()
         }}
-      >
-        <Share2Icon className="size-4" />
-      </button>
+      />
     </div>
   )
 }
@@ -244,95 +285,26 @@ function TimerPinAction(
   )
 }
 
-function TimerNotificationAction(
-  props: Readonly<{
-    notificationsEnabled: boolean
-    onToggleNotification: () => void
-  }>,
-) {
+function TimerLockedEditAction() {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={timerActionClassName}
-          aria-label={formatMessage(
-            props.notificationsEnabled ? "notifications.disableTimer" : "notifications.enableTimer",
-          )}
-          aria-pressed={props.notificationsEnabled}
-          onClick={props.onToggleNotification}
-        >
-          {props.notificationsEnabled ? <BellIcon className="size-4" /> : <BellOffIcon className="size-4" />}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={6}>
-        {formatMessage(props.notificationsEnabled ? "notifications.on" : "notifications.notifyMe")}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
-function TimerShareAction(props: Readonly<{ onOpenShare: () => void }>) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={timerActionClassName}
-          aria-label={formatMessage("share.timerDialog.title")}
-          onClick={props.onOpenShare}
-        >
-          <Share2Icon className="size-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={6}>
-        {formatMessage("common.share")}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
-function FollowedTimerActions(props: Readonly<{ onUnfollow: () => void }>) {
-  return (
-    <>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={timerActionClassName}
-              aria-label={formatMessage("timer.edit")}
-              disabled
-            >
-              <LockIcon className="size-4" />
-            </Button>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" sideOffset={6} className="max-w-[220px]">
-          {formatMessage("timer.unfollowOrDuplicate")}
-        </TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
+        <div>
           <Button
             variant="ghost"
             size="icon-sm"
             className={timerActionClassName}
-            aria-label={formatMessage("timer.unfollowAction")}
-            onClick={props.onUnfollow}
+            aria-label={formatMessage("timer.edit")}
+            disabled
           >
-            <Link2OffIcon className="size-4" />
+            <LockIcon className="size-4" />
           </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" sideOffset={6}>
-          {formatMessage("timer.unfollow")}
-        </TooltipContent>
-      </Tooltip>
-    </>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={6} className="max-w-[220px]">
+        {formatMessage("timer.unfollowOrDuplicate")}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -387,71 +359,68 @@ function TimerEditAction(
   )
 }
 
-function TimerDuplicateAction(props: Readonly<{ isFollowed: boolean; onDuplicate: () => void }>) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={timerActionClassName}
-          aria-label={formatMessage("timer.duplicate")}
-          onClick={props.onDuplicate}
-        >
-          <CopyIcon className="size-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={6}>
-        {formatMessage(props.isFollowed ? "timer.addCopy" : "common.duplicate")}
-      </TooltipContent>
-    </Tooltip>
-  )
+function TimerFocusDesktopAction(props: Readonly<{ onOpenFocus: () => void }>) {
+  return <TimerFocusAction className={timerActionClassName} onOpen={props.onOpenFocus} />
 }
 
-function TimerArchiveAction(
+function TimerOverflowActions(
   props: Readonly<{
     isArchived: boolean
+    isFollowed: boolean
+    notificationsEnabled: boolean
+    onToggleNotification: () => void
+    onOpenShare: () => void
+    onUnfollow: () => void
+    onDuplicate: () => void
     onToggleArchive: () => void
+    onDelete: () => void
+    triggerClassName?: string
+    onTriggerPointerDown?: (event: StopPropagationEvent) => void
+    onTriggerClick?: (event: StopPropagationEvent) => void
   }>,
 ) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={timerActionClassName}
-          aria-label={formatMessage(props.isArchived ? "timer.restore" : "timer.archive")}
-          onClick={props.onToggleArchive}
-        >
-          {props.isArchived ? <ArchiveRestoreIcon className="size-4" /> : <ArchiveIcon className="size-4" />}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={6}>
-        {formatMessage(props.isArchived ? "common.restore" : "common.archive")}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
-function TimerDeleteAction(props: Readonly<{ onDelete: () => void }>) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={timerActionClassName}
-          aria-label={formatMessage("timer.delete")}
-          onClick={props.onDelete}
-        >
-          <TrashIcon className="size-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={6}>
-        {formatMessage("common.delete")}
-      </TooltipContent>
-    </Tooltip>
+    <DropdownMenu>
+      <span className="inline-flex" onPointerDown={props.onTriggerPointerDown} onClick={props.onTriggerClick}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className={props.triggerClassName ?? timerActionClassName}
+            aria-label={formatMessage("timer.actions.openMenu")}
+          >
+            <EllipsisVerticalIcon className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+      </span>
+      <DropdownMenuContent
+        align="end"
+        sideOffset={6}
+        onPointerDown={(event) => {
+          event.stopPropagation()
+        }}
+        onClick={(event) => {
+          event.stopPropagation()
+        }}
+      >
+        <DropdownMenuItem onSelect={() => props.onToggleNotification()}>
+          {formatMessage(props.notificationsEnabled ? "notifications.disableMenu" : "notifications.enableMenu")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => props.onToggleArchive()}>
+          {formatMessage(props.isArchived ? "common.restore" : "common.archive")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => props.onOpenShare()}>{formatMessage("common.share")}</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => props.onDuplicate()}>{formatMessage("common.duplicate")}</DropdownMenuItem>
+        {props.isFollowed ? (
+          <DropdownMenuItem onSelect={() => props.onUnfollow()}>{formatMessage("timer.unfollow")}</DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={() => props.onDelete()}>
+          {formatMessage("common.delete")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -465,6 +434,7 @@ export function TimerCardDesktopActions(
     onTogglePin: () => void
     onToggleNotification: () => void
     onOpenShare: () => void
+    onOpenFocus: () => void
     onEditSubmit: (timer: TimerFormSubmitValue) => void
     onUnfollow: () => void
     onDuplicate: () => void
@@ -475,22 +445,23 @@ export function TimerCardDesktopActions(
   return (
     <div className="hidden shrink-0 items-center gap-1 md:flex">
       <TimerPinAction isArchived={props.isArchived} isPinned={props.isPinned} onTogglePin={props.onTogglePin} />
-      <TimerNotificationAction
-        notificationsEnabled={props.notificationsEnabled}
-        onToggleNotification={props.onToggleNotification}
-      />
-      <TimerShareAction onOpenShare={props.onOpenShare} />
       {props.isFollowed ? (
-        <FollowedTimerActions onUnfollow={props.onUnfollow} />
+        <TimerLockedEditAction />
       ) : (
         <TimerEditAction timer={props.timer} onEditSubmit={props.onEditSubmit} />
       )}
-
-      <div className="flex items-center gap-1">
-        <TimerDuplicateAction isFollowed={props.isFollowed} onDuplicate={props.onDuplicate} />
-        <TimerArchiveAction isArchived={props.isArchived} onToggleArchive={props.onToggleArchive} />
-        <TimerDeleteAction onDelete={props.onDelete} />
-      </div>
+      <TimerFocusDesktopAction onOpenFocus={props.onOpenFocus} />
+      <TimerOverflowActions
+        isArchived={props.isArchived}
+        isFollowed={props.isFollowed}
+        notificationsEnabled={props.notificationsEnabled}
+        onToggleNotification={props.onToggleNotification}
+        onOpenShare={props.onOpenShare}
+        onUnfollow={props.onUnfollow}
+        onDuplicate={props.onDuplicate}
+        onToggleArchive={props.onToggleArchive}
+        onDelete={props.onDelete}
+      />
     </div>
   )
 }
@@ -502,34 +473,66 @@ export function TimerShareDialog(
     shareUrl: string
     shareLoading: boolean
     hasSharedMarker: boolean
+    timerLabel: string
     onCreateAndCopy: () => void
   }>,
 ) {
+  const [tab, setTab] = useState<"link" | "embed">("link")
   let actionLabel = formatMessage("share.createLink")
   if (props.shareUrl) actionLabel = formatMessage("share.copyLinkAction")
   else if (props.hasSharedMarker) actionLabel = formatMessage("share.restoreLink")
 
+  const parsed = props.shareUrl ? parseShareUrl(props.shareUrl) : null
+  const showTabs = Boolean(parsed)
+  const activeTab = showTabs ? tab : "link"
+
+  function handleOpenChange(open: boolean) {
+    if (open) setTab("link")
+    props.onOpenChange(open)
+  }
+
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent>
+    <Dialog open={props.open} onOpenChange={handleOpenChange}>
+      <DialogContent className={cn(activeTab === "embed" && "sm:max-w-2xl")}>
         <DialogHeader>
           <DialogTitle>{formatMessage("share.timerDialog.title")}</DialogTitle>
-          <DialogDescription>{formatMessage("share.timerDialog.description")}</DialogDescription>
+          <DialogDescription>
+            {formatMessage(activeTab === "embed" ? "share.embed.description" : "share.timerDialog.description")}
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-3">
-          {props.shareUrl ? (
-            <div className="grid gap-2">
-              <Input value={props.shareUrl} readOnly />
-            </div>
-          ) : null}
-        </div>
+        {showTabs && (
+          <div role="tablist" className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+            {(["link", "embed"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === value}
+                onClick={() => setTab(value)}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  activeTab === value ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {formatMessage(value === "link" ? "share.timerDialog.linkTab" : "share.embed.tab")}
+              </button>
+            ))}
+          </div>
+        )}
 
-        <DialogFooter>
-          <Button type="button" loading={props.shareLoading} onClick={props.onCreateAndCopy}>
-            {actionLabel}
-          </Button>
-        </DialogFooter>
+        {activeTab === "embed" && parsed ? (
+          <EmbedSnippetControls origin={parsed.origin} shareId={parsed.shareId} timerLabel={props.timerLabel} />
+        ) : (
+          <>
+            <div className="grid gap-3">{props.shareUrl ? <Input value={props.shareUrl} readOnly /> : null}</div>
+            <DialogFooter>
+              <Button type="button" loading={props.shareLoading} onClick={props.onCreateAndCopy}>
+                {actionLabel}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   )

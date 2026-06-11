@@ -1,29 +1,23 @@
-export const PROJECT_CLAIM_DISMISS_MS = 14 * 24 * 60 * 60 * 1000
 export const PROJECT_CLAIM_DISMISSED_CHANGED = "tickward:project-claim-dismissed-changed"
 
 type ProjectClaimDismissalStorage = Pick<Storage, "getItem" | "setItem">
 
 function browserStorage(): ProjectClaimDismissalStorage | null {
   if (globalThis.window === undefined) return null
-  return globalThis.localStorage
+  return globalThis.sessionStorage
 }
 
 export function projectClaimDismissedKey(projectId: string) {
-  return `tickward:project-claim-dismissed-until:${projectId}`
+  return `tickward:project-claim-dismissed:${projectId}`
 }
 
-export function isProjectClaimDismissed(
-  projectId: string | null | undefined,
-  nowMs = Date.now(),
-  storage = browserStorage(),
-) {
+export function isProjectClaimDismissed(projectId: string | null | undefined, storage = browserStorage()) {
   if (!projectId) return false
-  const dismissedUntil = Number(storage?.getItem(projectClaimDismissedKey(projectId)))
-  return Number.isFinite(dismissedUntil) && dismissedUntil > nowMs
+  return storage?.getItem(projectClaimDismissedKey(projectId)) === "1"
 }
 
-export function dismissProjectClaim(projectId: string, nowMs = Date.now(), storage = browserStorage()) {
-  storage?.setItem(projectClaimDismissedKey(projectId), String(nowMs + PROJECT_CLAIM_DISMISS_MS))
+export function dismissProjectClaim(projectId: string, storage = browserStorage()) {
+  storage?.setItem(projectClaimDismissedKey(projectId), "1")
   if (globalThis.window !== undefined) {
     globalThis.window.dispatchEvent(new Event(PROJECT_CLAIM_DISMISSED_CHANGED))
   }

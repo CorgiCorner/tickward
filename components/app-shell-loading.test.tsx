@@ -42,20 +42,26 @@ describe("app shell loading skeletons", () => {
     const { container } = render(<HomePageLoading />)
 
     expectLoadingShell(container, "Loading project")
-    expect(screen.getByRole("contentinfo")).toBeInTheDocument()
-    expect(screen.queryByRole("heading", { name: "Countdown Timer to Any Date" })).not.toBeInTheDocument()
+    // The footer skeleton is scoped inside a section so the page-level site
+    // footer in app/page.tsx stays the only contentinfo landmark.
+    expect(container.querySelector("section > footer")).toBeInTheDocument()
+    expect(container.querySelector("footer")?.closest("section")).not.toBeNull()
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument()
+    expect(screen.queryByText("Countdown Timer to Any Date")).not.toBeInTheDocument()
     expect(screen.queryByText(/Create a Countdown Timer that counts down/)).not.toBeInTheDocument()
+    expect(loadingRegion(container, "home-intro")).not.toBeInTheDocument()
     expect(loadingRegion(container, "quick-add")).toBeInTheDocument()
     expect(loadingRegion(container, "organizer")).toBeInTheDocument()
     expect(container.querySelectorAll('[data-loading-region="timer-card"]')).toHaveLength(3)
-    expect(skeletonCount(container)).toBeGreaterThan(30)
+    expect(skeletonCount(container)).toBeGreaterThan(25)
   })
 
   it("renders a settings-specific loading layout", () => {
     const { container } = render(<SettingsPageLoading />)
 
     expectLoadingShell(container, "Loading settings")
-    expect(screen.getByRole("contentinfo")).toBeInTheDocument()
+    expect(container.querySelector("section > footer")).toBeInTheDocument()
+    expect(container.querySelector("footer")?.closest("section")).not.toBeNull()
     expect(loadingRegion(container, "settings-main")).toBeInTheDocument()
     expect(loadingRegion(container, "settings-profile")).toBeInTheDocument()
     expect(loadingRegion(container, "settings-defaults")).toBeInTheDocument()
@@ -71,7 +77,8 @@ describe("app shell loading skeletons", () => {
     const { container } = render(<AuthPageLoading />)
 
     expectLoadingShell(container, "Loading sign-in")
-    expect(screen.getByRole("contentinfo")).toBeInTheDocument()
+    expect(container.querySelector("section > footer")).toBeInTheDocument()
+    expect(container.querySelector("footer")?.closest("section")).not.toBeNull()
     expect(loadingRegion(container, "auth-main")).toBeInTheDocument()
     expect(loadingRegion(container, "generic-main")).not.toBeInTheDocument()
     expect(loadingRegion(container, "settings-main")).not.toBeInTheDocument()
@@ -85,7 +92,8 @@ describe("app shell loading skeletons", () => {
     const { container } = render(<SharedTimerPageLoading />)
 
     expectLoadingShell(container, "Loading shared timer")
-    expect(screen.getByRole("contentinfo")).toBeInTheDocument()
+    expect(container.querySelector("section > footer")).toBeInTheDocument()
+    expect(container.querySelector("footer")?.closest("section")).not.toBeNull()
     expect(loadingRegion(container, "shared-timer-main")).toBeInTheDocument()
     expect(loadingRegion(container, "auth-main")).not.toBeInTheDocument()
     expect(loadingRegion(container, "settings-main")).not.toBeInTheDocument()

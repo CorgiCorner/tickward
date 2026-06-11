@@ -14,6 +14,7 @@ const RATE_LIMITS = {
   write: { limit: 30, window: "60 s", prefix: "tickward:ratelimit:write" },
   "share-create": { limit: 10, window: "60 s", prefix: "tickward:ratelimit:share-create" },
   clear: { limit: 5, window: "60 s", prefix: "tickward:ratelimit:clear" },
+  "embed-state": { limit: 60, window: "60 s", prefix: "tickward:ratelimit:embed-state" },
   "auth-otp": { limit: 1, window: "60 s", prefix: "tickward:ratelimit:auth-otp" },
   "auth-otp-ip": { limit: 3, window: "60 s", prefix: "tickward:ratelimit:auth-otp-ip" },
   "public-api": { limit: 120, window: "60 s", prefix: "tickward:ratelimit:public-api" },

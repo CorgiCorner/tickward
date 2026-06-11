@@ -23,6 +23,7 @@ import {
   TimerImageAttribution,
   TimerShareDialog,
 } from "@/components/timer-card-parts"
+import { TimerFocusMode } from "@/components/timer-focus-mode"
 import { TimerForm, type TimerFormSubmitValue } from "@/components/timer-form"
 import { authClient } from "@/lib/auth/auth-client"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
@@ -68,6 +69,7 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
   const [shareUrl, setShareUrl] = useState("")
   const [shareLoading, setShareLoading] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const [focusOpen, setFocusOpen] = useState(false)
 
   function shareOwnerPayload() {
     return { projectId: activeProject?.cloudProjectId, restoreKey, timerId: timer.id }
@@ -325,10 +327,17 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
         <TimerCardMobileActions
           isArchived={isArchived}
           isPinned={isPinned}
+          isFollowed={isFollowed}
           notificationsEnabled={notificationsEnabled}
           onTogglePin={togglePin}
           onToggleNotification={() => void toggleNotification()}
           onOpenShare={openShareDialog}
+          onOpenFocus={() => setFocusOpen(true)}
+          onOpenEdit={() => setEditOpen(true)}
+          onUnfollow={handleUnfollow}
+          onDuplicate={handleDuplicate}
+          onToggleArchive={toggleArchive}
+          onDelete={handleDelete}
         />
       }
       desktopActions={
@@ -341,6 +350,7 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
           onTogglePin={togglePin}
           onToggleNotification={() => void toggleNotification()}
           onOpenShare={openShareDialog}
+          onOpenFocus={() => setFocusOpen(true)}
           onEditSubmit={handleEditSubmit}
           onUnfollow={handleUnfollow}
           onDuplicate={handleDuplicate}
@@ -348,6 +358,7 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
           onDelete={handleDelete}
         />
       }
+      onMobileCardTap={handleMobileCardTap}
     />
   )
 
@@ -356,11 +367,7 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
       {/* Mobile: swipeable wrapper. Swipe right = archive/restore, swipe left = delete */}
       <div className="flex min-w-0 overflow-hidden md:hidden">
         <SwipeableList type={Type.IOS} fullSwipe>
-          <SwipeableListItem
-            leadingActions={leadingActions()}
-            trailingActions={trailingActions()}
-            onClick={handleMobileCardTap}
-          >
+          <SwipeableListItem leadingActions={leadingActions()} trailingActions={trailingActions()}>
             {cardDiv}
           </SwipeableListItem>
         </SwipeableList>
@@ -383,7 +390,16 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
         shareUrl={shareUrl}
         shareLoading={shareLoading}
         hasSharedMarker={Boolean(timer.sharedAt)}
+        timerLabel={timer.label}
         onCreateAndCopy={() => void createAndCopyShareLink()}
+      />
+
+      <TimerFocusMode
+        open={focusOpen}
+        timerLabel={timer.label}
+        targetDateIsoUtc={effectiveTarget}
+        nowMs={nowMs}
+        onClose={() => setFocusOpen(false)}
       />
 
       <TimerImageAttribution timer={timer} />

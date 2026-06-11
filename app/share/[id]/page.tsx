@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 
 import NotFoundPage from "@/app/not-found"
-import { Footer } from "@/components/footer"
+import { FooterFull } from "@/components/footer-full"
 import { Header } from "@/components/header"
 import { SharedTimerClient } from "@/components/shared-timer-client"
 import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/cookies.server"
@@ -59,7 +59,7 @@ export default async function Page(props: Readonly<{ params: Promise<{ id: strin
         <main className="mx-auto w-full max-w-[640px] flex-1 px-4 py-6">
           <SharedTimerClient initial={resolved} shareId={id} />
         </main>
-        <Footer docsHref={getDocsHref()} releaseTag={getPublicReleaseTag()} />
+        <FooterFull docsHref={getDocsHref()} releaseTag={getPublicReleaseTag()} />
       </div>
     </TimerStoreProvider>
   )

@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { AccountPageClient, type AccountPageInitialData } from "@/components/account-auth"
-import { Footer } from "@/components/footer"
+import { FooterFull } from "@/components/footer-full"
 import { Header } from "@/components/header"
 import { getCurrentActor } from "@/lib/actor.server"
 import { DEFAULT_ACCOUNT_PREFERENCES } from "@/lib/account-preferences"
@@ -92,9 +92,9 @@ export default async function SettingsPage() {
   return (
     <TimerStoreProvider initialState={{ timers, spaces, restoreKey }}>
       <div className="flex min-h-dvh flex-col bg-background text-foreground">
-        <Header timerCount={timers.length} />
+        <Header />
         <AccountPageClient {...initialAccountData} />
-        <Footer docsHref={getDocsHref()} releaseTag={getPublicReleaseTag()} />
+        <FooterFull docsHref={getDocsHref()} releaseTag={getPublicReleaseTag()} />
       </div>
     </TimerStoreProvider>
   )

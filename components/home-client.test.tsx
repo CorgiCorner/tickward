@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { HomeClient } from "@/components/home-client"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import type { TimerStore } from "@/lib/store"
 import { makeSpace, makeTimer } from "@/test/factories"
 
@@ -29,21 +30,12 @@ vi.mock("@dnd-kit/sortable", () => ({
 
 vi.mock("@/components/app-shell-loading", () => ({
   HOME_EMPTY_TIMER_EXAMPLES: ["home.empty.example.trip", "home.empty.example.deadline", "home.empty.example.birthday"],
-  HomeMainLoadingSkeleton: (props: { includeSeoIntro?: boolean }) => (
+  HomeMainLoadingSkeleton: () => (
     <>
-      {props.includeSeoIntro === false ? null : (
-        <section aria-labelledby="home-seo-title">
-          <h1 id="home-seo-title">Countdown Timer to Any Date</h1>
-          <p>Create a Countdown Timer that counts down to your next deadline, launch, trip, or personal milestone.</p>
-        </section>
-      )}
+      <div data-loading-region="quick-add" />
       <div data-testid="home-loading" />
     </>
   ),
-}))
-
-vi.mock("@/components/footer", () => ({
-  Footer: () => <footer />,
 }))
 
 vi.mock("@/components/header", () => ({
@@ -59,7 +51,7 @@ vi.mock("@/components/organizer-bar", () => ({
 }))
 
 vi.mock("@/components/project-claim-slot", () => ({
-  ProjectClaimSlot: () => <button type="button">Claim project</button>,
+  ProjectClaimToast: () => null,
 }))
 
 vi.mock("@/components/quick-add-timer", () => ({
@@ -113,7 +105,11 @@ vi.mock("sonner", () => ({
 }))
 
 function renderHomeClient() {
-  return render(<HomeClient releaseTag="v0.0.0-test" />)
+  return render(
+    <TooltipProvider delayDuration={0}>
+      <HomeClient />
+    </TooltipProvider>,
+  )
 }
 
 describe("HomeClient", () => {
@@ -134,6 +130,9 @@ describe("HomeClient", () => {
       restoreKey: null,
       sortMode: "manual",
       spaces: [],
+      isSyncing: false,
+      lastSyncAt: null,
+      lastSyncError: null,
       timerFilters: { notifications: false, shared: false },
       timers: [],
       useCloudProjectVersion: vi.fn(),
@@ -149,9 +148,29 @@ describe("HomeClient", () => {
   it("renders the home loading scaffold before browser hydration", () => {
     storeState.hasHydrated = false
 
-    renderHomeClient()
+    const { container } = renderHomeClient()
 
     expect(screen.getByTestId("home-loading")).toBeInTheDocument()
+    // The server-rendered HomeContentSection owns the real h1 below the client
+    // shell; the hydration loader starts where the hydrated HomeClient starts.
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument()
+    expect(screen.queryByText("Countdown Timer to Any Date")).not.toBeInTheDocument()
+    expect(container.querySelector('[data-loading-region="home-intro"]')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-loading-region="quick-add"]')).toBeInTheDocument()
+  })
+
+  it("keeps the app footer sticky and scoped inside the timer list section", () => {
+    const { container } = renderHomeClient()
+
+    const section = container.querySelector('[data-slot="timer-list-section"]')
+    const footer = section?.querySelector("footer")
+    expect(footer).toHaveClass("sticky", "bottom-0", "z-30")
+    expect(screen.getByText("Stored on this device")).toBeVisible()
+    expect(screen.queryByText("Cloud data stays until you delete it.")).not.toBeInTheDocument()
+    expect(screen.queryByText(/^v\d+\.\d+\.\d+/)).not.toBeInTheDocument()
+    expect(screen.queryByText("tickward")).not.toBeInTheDocument()
+    expect(screen.queryByText(/^© \d{4}$/)).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Docs" })).not.toBeInTheDocument()
   })
 
   it("shows the onboarding banner when the user has a timer", () => {

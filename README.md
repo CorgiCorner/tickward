@@ -34,11 +34,11 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Detailed setup, configuration, API, and agent docs live in the docs site:
 
-- [Self-hosting guide](guides/self-hosting.mdx)
-- [API quickstart](guides/api-quickstart.mdx)
-- [MCP setup](guides/mcp.mdx)
-- [API reference](api-reference.mdx)
-- [Agent usage](guides/agent-usage.mdx)
+- [Self-hosting guide](docs/site/guides/self-hosting.mdx)
+- [API quickstart](docs/site/guides/api-quickstart.mdx)
+- [MCP setup](docs/site/guides/mcp.mdx)
+- [API reference](docs/site/api-reference.mdx)
+- [Agent usage](docs/site/guides/agent-usage.mdx)
 
 ## License
 

@@ -42,7 +42,7 @@ export function browserTitle(args: { projectName?: string; timers: Timer[]; nowM
       })
     }
 
-    return formatMessage("app.browserTitle.timerEnds", { label })
+    return formatMessage("app.browserTitle.timerLabel", { label })
   }
 
   if (args.projectName) return formatMessage("app.browserTitle.project", { project: args.projectName })

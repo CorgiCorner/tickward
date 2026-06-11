@@ -107,19 +107,19 @@ async function runChecks(baseUrl, env) {
   }
   log("public API capabilities responded")
 
-  const docs = await expectStatus(`${baseUrl}/docs`, 307, { redirect: "manual" })
+  const docs = await expectStatus(`${baseUrl}/docs`, 308, { redirect: "manual" })
   const docsLocation = docs.headers.get("location")
   if (docsLocation !== "https://tickward.com/docs") {
     fail(`Unexpected /docs redirect: ${docsLocation}`)
   }
 
-  const docsGuide = await expectStatus(`${baseUrl}/docs/guides/api-quickstart`, 307, { redirect: "manual" })
+  const docsGuide = await expectStatus(`${baseUrl}/docs/guides/api-quickstart`, 308, { redirect: "manual" })
   const docsGuideLocation = docsGuide.headers.get("location")
   if (docsGuideLocation !== "https://tickward.com/docs/guides/api-quickstart") {
     fail(`Unexpected docs guide redirect: ${docsGuideLocation}`)
   }
 
-  const webhooksGuide = await expectStatus(`${baseUrl}/docs/guides/webhooks`, 307, { redirect: "manual" })
+  const webhooksGuide = await expectStatus(`${baseUrl}/docs/guides/webhooks`, 308, { redirect: "manual" })
   const webhooksGuideLocation = webhooksGuide.headers.get("location")
   if (webhooksGuideLocation !== "https://tickward.com/docs/guides/webhooks") {
     fail(`Unexpected webhooks guide redirect: ${webhooksGuideLocation}`)

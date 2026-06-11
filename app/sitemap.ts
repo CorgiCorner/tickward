@@ -8,6 +8,11 @@ const APP_SITEMAP_ENTRIES = [
     changeFrequency: "weekly",
     priority: 1,
   },
+  {
+    path: "/press",
+    changeFrequency: "monthly",
+    priority: 0.5,
+  },
 ] as const
 
 function sitemapEntry(

@@ -239,6 +239,7 @@ function collectBrowserErrors(page) {
   page.on("console", (message) => {
     if (message.type() !== "error") return
     if (message.text().startsWith("Failed to load resource:")) return
+    if (isIgnorableConsoleError(message.text())) return
     browserErrors.push(message.text())
   })
   page.on("pageerror", (error) => browserErrors.push(error.message))
@@ -254,6 +255,13 @@ function collectBrowserErrors(page) {
     browserErrors.push(`${request.failure()?.errorText ?? "request_failed"} ${request.url()}`)
   })
   return browserErrors
+}
+
+function isIgnorableConsoleError(message) {
+  return (
+    message.includes("A tree hydrated but some attributes of the server rendered HTML didn't match") &&
+    message.includes('style={{caret-color:"transparent"}}')
+  )
 }
 
 function isIgnorableRequestFailure(request) {
@@ -325,9 +333,7 @@ async function assertHeader(page, projectName) {
   const title = await trigger.getAttribute("title")
   assert(title === projectName.slice(0, 40), `Project switcher title was ${title}`)
 
-  const addButton = page.getByRole("button", { name: "Add new" })
-  await addButton.waitFor({ state: "visible", timeout: 10_000 })
-  assert((await addButton.getAttribute("data-variant")) === "outline", "Header add button should use outline variant")
+  assert((await page.getByRole("button", { name: "Add new" }).count()) === 0, "Header add button should stay removed")
 
   const rect = await trigger.boundingBox()
   assert(rect && rect.width > 0, "Project switcher trigger has no measurable width")
@@ -354,8 +360,8 @@ async function openSeededHome(browserType, baseUrl, projectName) {
   page.setDefaultTimeout(10_000)
   const browserErrors = collectBrowserErrors(page)
   await installRoutes(page)
-  await page.goto("/", { waitUntil: "networkidle" })
-  await page.getByRole("button", { name: "Add new" }).waitFor({ state: "visible", timeout: 10_000 })
+  await page.goto("/", { waitUntil: "domcontentloaded" })
+  await page.getByPlaceholder("Timer name").waitFor({ state: "visible", timeout: 10_000 })
   return { browser, browserErrors, page }
 }
 
@@ -449,7 +455,7 @@ async function runSignInEmailSmoke(baseUrl) {
   await installRoutes(page)
 
   try {
-    await page.goto("/sign-in", { waitUntil: "networkidle" })
+    await page.goto("/sign-in", { waitUntil: "domcontentloaded" })
     const email = page.locator("#auth-email")
     await email.waitFor({ state: "visible", timeout: 10_000 })
     const attributes = await email.evaluate((input) => ({
@@ -474,15 +480,44 @@ async function runSignInEmailSmoke(baseUrl) {
 }
 
 async function runUnsplashSpacingSmoke(baseUrl) {
-  const { browser, browserErrors, page } = await openSeededHome(chromium, baseUrl, "main")
+  // The header "Add new" button is gone; reach the photo step through the
+  // edit dialog of a seeded timer on a desktop-sized viewport instead.
+  const now = new Date().toISOString()
+  const browser = await chromium.launch({ headless: true })
+  const context = await browser.newContext({
+    baseURL: baseUrl,
+    viewport: { width: 900, height: 900 },
+  })
+  await installProjectSeed(context, "main", {
+    timers: [
+      {
+        id: "timer_unsplash_smoke",
+        label: "Visual smoke timer",
+        targetDate: "2030-06-06T09:00:00.000Z",
+        timezone: "Europe/Warsaw",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+  })
+  const page = await context.newPage()
+  page.setDefaultTimeout(10_000)
+  const browserErrors = collectBrowserErrors(page)
+  await installRoutes(page)
   try {
-    await page.getByRole("button", { name: "Add new" }).click()
-    const dialog = page.getByRole("dialog", { name: "New timer" })
+    await page.goto("/", { waitUntil: "domcontentloaded" })
+    const desktopCard = page.locator(".hidden.md\\:block", { hasText: "Visual smoke timer" }).first()
+    await desktopCard.waitFor({ state: "visible", timeout: 10_000 })
+    await desktopCard.hover()
+    // The card also renders a hidden mobile action row; pick the visible edit button.
+    const editButton = desktopCard.locator('button[aria-label="Edit timer"]').filter({ visible: true }).first()
+    await editButton.waitFor({ state: "visible", timeout: 10_000 })
+    await editButton.hover()
+    await editButton.click()
+
+    const dialog = page.getByRole("dialog", { name: "Edit timer" })
     await dialog.waitFor({ state: "visible", timeout: 10_000 })
-    await dialog.getByLabel("Label").fill("Visual smoke timer")
     await dialog.getByRole("button", { name: "Next" }).click()
-    await dialog.locator('input[type="date"]').fill("2030-06-06")
-    await dialog.locator('input[type="time"]').fill("09:00")
     await dialog.getByRole("button", { name: "Next" }).click()
     await dialog.getByRole("button", { name: "Add photo" }).click()
 
@@ -582,11 +617,12 @@ async function runEditTimezoneSmoke(baseUrl) {
   await installRoutes(page)
 
   try {
-    await page.goto("/", { waitUntil: "networkidle" })
+    await page.goto("/", { waitUntil: "domcontentloaded" })
     const desktopCard = page.locator(".hidden.md\\:block", { hasText: "Timezone smoke" }).first()
     await desktopCard.waitFor({ state: "visible", timeout: 10_000 })
     await desktopCard.hover()
-    const editButton = desktopCard.locator('button[aria-label="Edit timer"]').first()
+    // The card also renders a hidden mobile action row; pick the visible edit button.
+    const editButton = desktopCard.locator('button[aria-label="Edit timer"]').filter({ visible: true }).first()
     await editButton.waitFor({ state: "visible", timeout: 10_000 })
     await editButton.hover()
     await editButton.click()

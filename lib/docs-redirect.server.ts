@@ -38,7 +38,8 @@ export function redirectToDocs(request: Request, pathname: string) {
 
   const requestUrl = new URL(request.url)
   const target = docsTargetUrl(origin, pathname, requestUrl)
-  return NextResponse.redirect(target, 307)
+  // 308 (permanent) so crawlers consolidate signals onto the docs destination.
+  return NextResponse.redirect(target, 308)
 }
 
 export function redirectToDocsSubpath(request: Request, pathname: string) {
@@ -46,5 +47,5 @@ export function redirectToDocsSubpath(request: Request, pathname: string) {
   const cleanPathname = pathname.startsWith("/") ? pathname : `/${pathname}`
   const target = new URL(`/docs${cleanPathname}`, requestUrl.origin)
   target.search = requestUrl.search
-  return NextResponse.redirect(target, 307)
+  return NextResponse.redirect(target, 308)
 }

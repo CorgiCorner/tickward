@@ -1,6 +1,9 @@
 import { getSiteOrigin } from "@/lib/site-config"
 
-export const ROBOTS_DISALLOWED_ROUTES = ["/api/", "/account", "/demo", "/settings", "/sign-in"] as const
+// Routes that rely on robots meta noindex (/demo, /sign-in, /share) must stay
+// crawlable here — a Disallow would hide the noindex from crawlers and allow
+// URL-only indexing of externally linked pages.
+export const ROBOTS_DISALLOWED_ROUTES = ["/api/", "/account", "/settings"] as const
 
 // Content usage preferences for AI and search crawlers (https://contentsignals.org).
 //   search    = yes  -> may be indexed for search, including AI-powered search

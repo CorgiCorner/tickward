@@ -1,0 +1,80 @@
+---
+title: "Countdown Accuracy"
+description: "How tickward computes remaining time, which browser APIs it relies on, and where to check their support."
+---
+
+Every timer stores its target as an absolute UTC timestamp. The countdown you
+see is always the difference between that target and the current time, computed
+fresh on every tick - never a stored counter that gets decremented.
+
+## How remaining time is computed
+
+When you create a timer, the date, time, and time zone you pick are converted
+to a UTC ISO 8601 timestamp once, at save time. From then on the remaining time
+is pure arithmetic, implemented by `getCountdownParts` in `lib/utils.ts`:
+
+```ts
+const targetMs = new Date(targetDateIsoUtc).getTime()
+const deltaMs = targetMs - nowMs
+const isCountUp = deltaMs < 0
+const totalMs = Math.abs(deltaMs)
+
+const totalSeconds = Math.floor(totalMs / 1000)
+const days = Math.floor(totalSeconds / 86400)
+const hours = Math.floor((totalSeconds % 86400) / 3600)
+const minutes = Math.floor((totalSeconds % 3600) / 60)
+const seconds = totalSeconds % 60
+```
+
+The delta is split into days, hours, minutes, and seconds with integer
+division. Days are total days, not calendar months or weeks. When the target
+has passed, the same numbers are shown as a count-up ("since") instead.
+
+## Where "now" comes from
+
+The current time is sampled by the `useNow` hook in `components/use-now.ts`:
+it reads `Date.now()` and re-samples it once per second with `setInterval`.
+
+Two practical consequences:
+
+- **No drift.** Because each tick recomputes `target - now` from absolute
+  timestamps, a delayed tick cannot accumulate error. If the browser throttles
+  timers in a background tab or the laptop sleeps, the display may pause, but
+  the very next tick is exactly right again.
+- **It trusts the device clock.** `Date.now()` is the device's wall clock.
+  If the device clock is two minutes off, the displayed remaining time is two
+  minutes off as well. There is no server time synchronization.
+
+## Time zones and recurrence
+
+Converting your wall-clock input ("June 30 at 09:00 in Europe/Warsaw") to UTC
+uses the `date-fns-tz` library, which delegates to the browser's built-in
+`Intl.DateTimeFormat` and its IANA time zone database. Daylight saving rules
+come from the browser, so they stay current with browser updates.
+
+Recurring timers store a wall-clock pattern in the timer's time zone and
+compute the next occurrence on demand. Occurrences are calculated, never
+mutated, so the countdown is correct even if the app was closed while several
+occurrences passed.
+
+## Browser support
+
+| API | Used for | Support |
+|-|-|-|
+| `Date.now()` | sampling the current time | every browser since ES5 |
+| `setInterval` | the 1-second tick | universal |
+| `Intl.DateTimeFormat` with IANA `timeZone` | time zone conversion | all evergreen browsers |
+
+All three APIs are available in every current evergreen browser; the only one
+with a meaningful history of partial support is `Intl.DateTimeFormat` time
+zone handling in long-obsolete browsers.
+
+To verify support yourself:
+
+- [caniuse.com](https://caniuse.com) - search the feature, for example
+  [Internationalization API](https://caniuse.com/internationalization) for
+  `Intl.DateTimeFormat` or
+  [Date.now](https://caniuse.com/mdn-javascript_builtins_date_now).
+- [MDN](https://developer.mozilla.org) - every API page ends with a browser
+  compatibility table, for example
+  [Intl.DateTimeFormat](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/DateTimeFormat#browser_compatibility).

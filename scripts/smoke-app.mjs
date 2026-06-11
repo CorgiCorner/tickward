@@ -227,9 +227,10 @@ async function runSmoke(baseUrl) {
     await settingsDialog.waitFor({ state: "hidden" })
     log("settings body scrolls from dialog wheel events")
 
-    const shareButton = page.locator('button[aria-label="Share"]').filter({ visible: true }).first()
-    await shareButton.scrollIntoViewIfNeeded()
-    await shareButton.click()
+    const timerActionsButton = page.locator('button[aria-label="Open timer actions"]').filter({ visible: true }).first()
+    await timerActionsButton.scrollIntoViewIfNeeded()
+    await timerActionsButton.click()
+    await page.getByRole("menuitem", { name: "Share" }).click()
     const shareDialog = page.getByRole("dialog", { name: "Share" })
     await expectVisible(shareDialog, "share dialog")
     await page.getByRole("button", { name: "Create link" }).click()

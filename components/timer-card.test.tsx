@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { TimerCard } from "@/components/timer-card"
+import { TIMER_FOCUS_THEME_STORAGE_KEY } from "@/components/timer-focus-mode"
 import { LOCAL_NOTIFICATION_STORAGE_KEYS } from "@/lib/notification-preferences"
 import type { TimerStore } from "@/lib/store"
 import { makeTimer } from "@/test/factories"
@@ -70,11 +71,23 @@ function setViewportMobile(matches: boolean) {
   )
 }
 
+async function openFirstTimerActions(user: ReturnType<typeof userEvent.setup>) {
+  const menuButton = screen.getAllByRole("button", { name: "Open timer actions" })[0]
+  await user.click(menuButton)
+  return menuButton
+}
+
+async function clickFirstTimerAction(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await openFirstTimerActions(user)
+  await user.click(await screen.findByRole("menuitem", { name }))
+}
+
 describe("TimerCard", () => {
   beforeEach(() => {
     authMocks.useSession.mockReset()
     authMocks.useSession.mockReturnValue({ data: { user: { id: "user_123", email: "ada@example.com" } } })
     localStorage.clear()
+    document.body.style.overflow = ""
     Reflect.deleteProperty(globalThis, "Notification")
     setViewportMobile(false)
     toastMock.mockClear()
@@ -109,9 +122,9 @@ describe("TimerCard", () => {
     const user = userEvent.setup()
     render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
 
-    const archiveButton = screen.getAllByRole("button", { name: "Archive timer" })[0]
-    expect(archiveButton).toHaveClass("text-muted-foreground/75")
-    await user.click(archiveButton)
+    const actionMenuButton = await openFirstTimerActions(user)
+    expect(actionMenuButton).toHaveClass("text-muted-foreground/75")
+    await user.click(await screen.findByRole("menuitem", { name: "Archive" }))
 
     expect(storeState.archiveTimer).toHaveBeenCalledWith("timer-a")
     expect(toastMock).toHaveBeenCalledWith(
@@ -137,7 +150,7 @@ describe("TimerCard", () => {
     )
 
     expect(screen.getAllByText("Archived").length).toBeGreaterThan(0)
-    await user.click(screen.getAllByRole("button", { name: "Restore timer" })[0])
+    await clickFirstTimerAction(user, "Restore")
     expect(storeState.unarchiveTimer).toHaveBeenCalledWith("timer-a")
     expect(toastMock).toHaveBeenCalledWith(
       "Timer restored.",
@@ -163,6 +176,136 @@ describe("TimerCard", () => {
     expect(storeState.setPinnedTimer).toHaveBeenCalledWith(null)
   })
 
+  it("opens focus mode from the card icon and closes it with the exit button", async () => {
+    const user = userEvent.setup()
+    render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+
+    const focusButton = screen.getAllByRole("button", { name: "Focus timer" })[0]
+    await user.click(focusButton)
+
+    expect(screen.getByRole("dialog", { name: "Launch" })).toBeVisible()
+    await waitFor(() => expect(document.body.style.overflow).toBe("hidden"))
+
+    const exitButton = screen.getByRole("button", { name: "Exit focus mode" })
+    await waitFor(() => expect(exitButton).toHaveFocus())
+    await user.click(exitButton)
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Launch" })).not.toBeInTheDocument()
+    })
+    expect(document.body.style.overflow).toBe("")
+    expect(focusButton).toHaveFocus()
+  })
+
+  it("traps keyboard focus inside focus mode", async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <button type="button">Behind control</button>
+        <TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />
+        <button type="button">After focus mode</button>
+      </>,
+    )
+
+    await user.click(screen.getAllByRole("button", { name: "Focus timer" })[0])
+
+    const exitButton = screen.getByRole("button", { name: "Exit focus mode" })
+    await waitFor(() => expect(exitButton).toHaveFocus())
+
+    const lastThemeButton = screen.getByRole("button", { name: "Butter background" })
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true })
+    expect(lastThemeButton).toHaveFocus()
+
+    fireEvent.keyDown(document, { key: "Tab" })
+    expect(exitButton).toHaveFocus()
+
+    const outsideButton = screen.getByRole("button", { name: "After focus mode" })
+    outsideButton.focus()
+    expect(outsideButton).toHaveFocus()
+
+    fireEvent.keyDown(document, { key: "Tab" })
+    expect(exitButton).toHaveFocus()
+  })
+
+  it("exits focus mode with Escape", async () => {
+    const user = userEvent.setup()
+    render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+
+    await user.click(screen.getAllByRole("button", { name: "Focus timer" })[0])
+    expect(screen.getByRole("dialog", { name: "Launch" })).toBeVisible()
+
+    await user.keyboard("{Escape}")
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Launch" })).not.toBeInTheDocument()
+    })
+    expect(document.body.style.overflow).toBe("")
+  })
+
+  it("persists focus mode background selection to localStorage", async () => {
+    const user = userEvent.setup()
+    render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+
+    const focusButton = screen.getAllByRole("button", { name: "Focus timer" })[0]
+    await user.click(focusButton)
+    await user.click(screen.getByRole("button", { name: "Mint background" }))
+
+    expect(localStorage.getItem(TIMER_FOCUS_THEME_STORAGE_KEY)).toBe("mint")
+    expect(screen.getByRole("button", { name: "Mint background" })).toHaveAttribute("aria-pressed", "true")
+
+    await user.click(screen.getByRole("button", { name: "Exit focus mode" }))
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Launch" })).not.toBeInTheDocument()
+    })
+
+    await user.click(focusButton)
+
+    expect(screen.getByRole("dialog", { name: "Launch" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Mint background" })).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("explains the locked mobile edit action for followed timers", () => {
+    setViewportMobile(true)
+    render(
+      <TimerCard
+        timer={makeTimer({ sourceShareId: "share_public_launch" })}
+        nowMs={Date.parse("2026-05-24T00:00:00.000Z")}
+      />,
+    )
+
+    const lockedEditButtons = screen.getAllByRole("button", {
+      name: "Can't edit followed timers. Unfollow or duplicate.",
+    })
+
+    expect(lockedEditButtons.length).toBeGreaterThan(0)
+    expect(lockedEditButtons[0]).toBeDisabled()
+    expect(screen.getAllByText("Can't edit followed timers. Unfollow or duplicate.").length).toBeGreaterThan(0)
+  })
+
+  it("keeps secondary timer actions inside the overflow menu", async () => {
+    const user = userEvent.setup()
+    render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+
+    expect(screen.queryByRole("button", { name: "Share" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Archive timer" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Duplicate timer" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Delete timer" })).not.toBeInTheDocument()
+
+    await openFirstTimerActions(user)
+
+    expect(screen.getByRole("menuitem", { name: "Enable notifications" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "Archive" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "Share" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "Duplicate" })).toBeVisible()
+    expect(screen.queryByRole("menuitem", { name: "Unfollow" })).not.toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toHaveAttribute("data-variant", "destructive")
+
+    await user.keyboard("{Escape}")
+    await waitFor(() => {
+      expect(screen.queryByRole("menuitem", { name: "Enable notifications" })).not.toBeInTheDocument()
+    })
+  })
+
   it("enables a timer local alarm without browser notification permission", async () => {
     const user = userEvent.setup()
     Object.defineProperty(globalThis, "Notification", {
@@ -180,11 +323,29 @@ describe("TimerCard", () => {
       />,
     )
 
-    await user.click(screen.getAllByRole("button", { name: "Enable timer notification" })[0])
+    await clickFirstTimerAction(user, "Enable notifications")
 
     expect(storeState.updateTimer).toHaveBeenCalledWith("timer-a", { notify: true })
     expect(toastMock.success).toHaveBeenCalledWith("Timer alarm enabled.")
     expect(toastMock.error).not.toHaveBeenCalled()
+  })
+
+  it("disables timer notifications from the state-aware overflow item", async () => {
+    const user = userEvent.setup()
+    render(
+      <TimerCard
+        timer={makeTimer({ targetDate: "2026-05-25T00:00:00.000Z", notify: true })}
+        nowMs={Date.parse("2026-05-24T00:00:00.000Z")}
+      />,
+    )
+
+    await clickFirstTimerAction(user, "Disable notifications")
+
+    expect(storeState.updateTimer).toHaveBeenCalledWith("timer-a", { notify: false })
+    expect(toastMock.success).toHaveBeenCalledWith("Notifications disabled for this timer.")
+    await waitFor(() => {
+      expect(screen.queryByRole("menuitem", { name: "Disable notifications" })).not.toBeInTheDocument()
+    })
   })
 
   it("asks anonymous users to sign in before enabling timer alerts", async () => {
@@ -198,7 +359,7 @@ describe("TimerCard", () => {
       />,
     )
 
-    await user.click(screen.getAllByRole("button", { name: "Enable timer notification" })[0])
+    await clickFirstTimerAction(user, "Enable notifications")
 
     expect(storeState.updateTimer).not.toHaveBeenCalled()
     expect(toastMock.error).toHaveBeenCalledWith("Sign in to turn on alerts in Settings.")
@@ -214,7 +375,7 @@ describe("TimerCard", () => {
       />,
     )
 
-    await user.click(screen.getAllByRole("button", { name: "Enable timer notification" })[0])
+    await clickFirstTimerAction(user, "Enable notifications")
 
     expect(storeState.updateTimer).not.toHaveBeenCalled()
     expect(toastMock.error).toHaveBeenCalledWith("Open Settings and choose how timer alarms should run.")
@@ -250,7 +411,7 @@ describe("TimerCard", () => {
 
     render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
 
-    await user.click(screen.getAllByRole("button", { name: "Share" })[0])
+    await clickFirstTimerAction(user, "Share")
 
     expect(screen.queryByRole("dialog", { name: "Edit timer" })).not.toBeInTheDocument()
   })
@@ -261,7 +422,7 @@ describe("TimerCard", () => {
 
     render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
 
-    await user.click(screen.getAllByRole("button", { name: "Share" })[0])
+    await clickFirstTimerAction(user, "Share")
     await waitFor(() => expect(screen.getByRole("button", { name: "Create link" })).toBeEnabled())
     await user.click(screen.getByRole("button", { name: "Create link" }))
 
@@ -286,7 +447,7 @@ describe("TimerCard", () => {
 
     render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
 
-    await user.click(screen.getAllByRole("button", { name: "Share" })[0])
+    await clickFirstTimerAction(user, "Share")
     await waitFor(() => expect(screen.getByRole("button", { name: "Create link" })).toBeEnabled())
     await user.click(screen.getByRole("button", { name: "Create link" }))
 
@@ -329,7 +490,7 @@ describe("TimerCard", () => {
 
     render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
 
-    await user.click(screen.getAllByRole("button", { name: "Share" })[0])
+    await clickFirstTimerAction(user, "Share")
 
     const shareUrl = `${globalThis.location.origin}/share/timer_existingShareId1234567890`
     await waitFor(() => expect(screen.getByDisplayValue(shareUrl)).toBeVisible())
@@ -365,7 +526,7 @@ describe("TimerCard", () => {
       />,
     )
 
-    await user.click(screen.getAllByRole("button", { name: "Share" })[0])
+    await clickFirstTimerAction(user, "Share")
     await waitFor(() => expect(screen.getByRole("button", { name: "Restore link" })).toBeEnabled())
     expect(screen.queryByRole("button", { name: "Create link" })).not.toBeInTheDocument()
 

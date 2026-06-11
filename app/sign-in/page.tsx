@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { Footer } from "@/components/footer"
+import { FooterFull } from "@/components/footer-full"
 import { Header } from "@/components/header"
 import { SignInPageClient } from "@/components/sign-in-auth"
 import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/cookies.server"
@@ -28,9 +28,9 @@ export default async function SignInPage(props: Readonly<{ searchParams: Promise
   return (
     <TimerStoreProvider initialState={{ timers, spaces, restoreKey }}>
       <div className="flex min-h-dvh flex-col bg-background text-foreground">
-        <Header timerCount={timers.length} />
+        <Header />
         <SignInPageClient nextPath={searchParams.next} />
-        <Footer docsHref={getDocsHref()} releaseTag={getPublicReleaseTag()} />
+        <FooterFull docsHref={getDocsHref()} releaseTag={getPublicReleaseTag()} />
       </div>
     </TimerStoreProvider>
   )

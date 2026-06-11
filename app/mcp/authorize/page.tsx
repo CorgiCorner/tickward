@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 
-import { Footer } from "@/components/footer"
+import { FooterFull } from "@/components/footer-full"
 import { Header } from "@/components/header"
 import { InvalidMcpAuthorization, McpAuthorizationCard } from "@/components/mcp-authorization-card"
 import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/cookies.server"
@@ -74,7 +74,7 @@ export default async function McpAuthorizePage(props: Readonly<{ searchParams: P
   return (
     <TimerStoreProvider initialState={{ timers, spaces, restoreKey }}>
       <div className="flex min-h-dvh flex-col bg-background text-foreground">
-        <Header timerCount={timers.length} />
+        <Header />
         <main className="mx-auto grid w-full max-w-[560px] gap-6 px-4 py-8 sm:py-10">
           {authorization ? (
             <McpAuthorizationCard
@@ -88,7 +88,7 @@ export default async function McpAuthorizePage(props: Readonly<{ searchParams: P
             <InvalidMcpAuthorization />
           )}
         </main>
-        <Footer docsHref={getDocsHref()} releaseTag={getPublicReleaseTag()} />
+        <FooterFull docsHref={getDocsHref()} releaseTag={getPublicReleaseTag()} />
       </div>
     </TimerStoreProvider>
   )

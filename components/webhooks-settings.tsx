@@ -23,7 +23,7 @@ import { z } from "zod"
 
 import { ConfirmActionButton } from "@/components/confirm-action-button"
 import { SecretRevealField } from "@/components/secret-reveal-field"
-import { formatSettingsDate } from "@/components/settings-metadata"
+import { SettingsDateMetadata } from "@/components/settings-metadata"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import {
@@ -285,7 +285,7 @@ function WebhookMetadataItem(props: Readonly<{ label: string; value: ReactNode }
 }
 
 function WebhookDateMetadata(props: Readonly<{ label: string; value: string | null }>) {
-  return <WebhookMetadataItem label={props.label} value={formatSettingsDate(props.value)} />
+  return <SettingsDateMetadata label={props.label} value={props.value} />
 }
 
 function WebhookDeliveryRow(props: Readonly<{ delivery: WebhookDeliveryPublicRecord }>) {

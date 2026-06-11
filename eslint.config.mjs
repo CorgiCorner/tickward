@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "coverage/**",
     "storybook-static/**",
     "next-env.d.ts",
+    "worktrees/**",
+    "**/worktrees/**",
     ".worktrees/**",
     "**/.worktrees/**",
   ]),

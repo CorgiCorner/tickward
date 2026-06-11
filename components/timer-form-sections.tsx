@@ -29,8 +29,10 @@ function stepLabelClassName(args: { active: boolean; done: boolean }) {
   return "text-muted-foreground/50"
 }
 
-function repeatPreviewLabel(dates: string[], timezone: string) {
-  return `${dates.map((date) => formatInTimeZone(date, timezone, "MMM d, HH:mm")).join(" -> ")} ...`
+export function repeatPreviewLabel(dates: string[], timezone: string) {
+  const years = new Set(dates.map((date) => formatInTimeZone(date, timezone, "yyyy")))
+  const pattern = years.size > 1 ? "MMM d, yyyy, HH:mm" : "MMM d, HH:mm"
+  return `${dates.map((date) => formatInTimeZone(date, timezone, pattern)).join(" -> ")} ...`
 }
 
 export function TimerFormStepper(props: Readonly<{ step: number }>) {

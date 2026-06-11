@@ -27,7 +27,7 @@ export default async function SignInOtpPage(
   return (
     <TimerStoreProvider initialState={{ timers, spaces, restoreKey }}>
       <div className="flex min-h-dvh flex-col bg-background text-foreground">
-        <Header timerCount={timers.length} />
+        <Header />
         <OtpSignInPageClient email={searchParams.email ?? ""} nextPath={searchParams.next} />
       </div>
     </TimerStoreProvider>

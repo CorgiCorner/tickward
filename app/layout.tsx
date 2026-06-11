@@ -8,7 +8,6 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { webMcpInlineScript } from "@/components/webmcp-inline-script"
-import { socialImageAlt, socialImageContentType, socialImageSize } from "@/app/social-image"
 import { formatMessage } from "@/lib/i18n/messages"
 import { getSiteOrigin, getSiteUrl } from "@/lib/site-config"
 
@@ -36,34 +35,19 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "tickward",
   },
+  // og:image/twitter:image (and their alt text) come from the file conventions
+  // app/opengraph-image.tsx and app/twitter-image.tsx — do not duplicate here.
   openGraph: {
     title: formatMessage("app.title.default"),
     description: formatMessage("app.description"),
     url: getSiteOrigin(),
     siteName: "tickward",
     type: "website",
-    images: [
-      {
-        url: "/opengraph-image",
-        width: socialImageSize.width,
-        height: socialImageSize.height,
-        alt: socialImageAlt(),
-        type: socialImageContentType,
-      },
-    ],
   },
   twitter: {
     card: "summary_large_image",
     title: formatMessage("app.title.default"),
     description: formatMessage("app.description"),
-    images: [
-      {
-        url: "/twitter-image",
-        alt: socialImageAlt(),
-        width: socialImageSize.width,
-        height: socialImageSize.height,
-      },
-    ],
   },
 }
 
@@ -83,8 +67,6 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="apple-touch-icon" href="/icon-192.png" />
-        <meta property="og:image:alt" content={socialImageAlt()} />
-        <meta name="twitter:image:alt" content={socialImageAlt()} />
         <Script
           id="tickward-webmcp-tools"
           strategy="beforeInteractive"

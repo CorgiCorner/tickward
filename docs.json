@@ -20,10 +20,15 @@
               "index",
               "guides/self-hosting",
               "guides/api-quickstart",
+              "guides/embedding-timers",
               "guides/webhooks",
               "guides/mcp",
               "guides/agent-usage"
             ]
+          },
+          {
+            "group": "Concepts",
+            "pages": ["concepts/countdown-accuracy"]
           },
           {
             "group": "Recipes",

@@ -66,7 +66,9 @@ export function OtpInput({
           autoCorrect="off"
           autoCapitalize="none"
           className={cn(
-            "border-input bg-background text-foreground h-11 min-w-0 rounded-md border text-center text-base font-medium shadow-xs outline-none transition-[color,box-shadow]",
+            "border-input bg-background text-foreground h-12 min-w-0 rounded-lg border text-center text-lg font-semibold tabular-nums shadow-xs outline-none transition-[color,box-shadow,border-color]",
+            "selection:bg-primary selection:text-primary-foreground",
+            normalizedValue[index] && "border-foreground/30",
             "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
             "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
           )}
@@ -79,6 +81,7 @@ export function OtpInput({
           spellCheck={false}
           value={normalizedValue[index] ?? ""}
           onChange={(event) => updateSlot(index, event.target.value, event.currentTarget)}
+          onFocus={(event) => event.currentTarget.select()}
           onKeyDown={(event) => {
             if (event.key === "Backspace" && !normalizedValue[index] && index > 0) {
               event.preventDefault()

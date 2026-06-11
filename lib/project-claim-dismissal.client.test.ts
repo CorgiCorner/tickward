@@ -1,13 +1,9 @@
 import { describe, expect, it } from "vitest"
 
-import {
-  dismissProjectClaim,
-  isProjectClaimDismissed,
-  PROJECT_CLAIM_DISMISS_MS,
-} from "@/lib/project-claim-dismissal.client"
+import { dismissProjectClaim, isProjectClaimDismissed } from "@/lib/project-claim-dismissal.client"
 
 describe("project claim dismissal", () => {
-  it("keeps the claim prompt hidden for two weeks", () => {
+  it("keeps the claim prompt hidden in the current storage session", () => {
     const storage = new Map<string, string>()
     const storageLike = {
       getItem: (key: string) => storage.get(key) ?? null,
@@ -15,12 +11,16 @@ describe("project claim dismissal", () => {
         storage.set(key, value)
       },
     }
-    const nowMs = Date.UTC(2026, 5, 6, 12)
 
-    dismissProjectClaim("project-a", nowMs, storageLike)
+    dismissProjectClaim("project-a", storageLike)
 
-    expect(isProjectClaimDismissed("project-a", nowMs + PROJECT_CLAIM_DISMISS_MS - 1, storageLike)).toBe(true)
-    expect(isProjectClaimDismissed("project-a", nowMs + PROJECT_CLAIM_DISMISS_MS, storageLike)).toBe(false)
-    expect(isProjectClaimDismissed("project-b", nowMs + 1, storageLike)).toBe(false)
+    expect(isProjectClaimDismissed("project-a", storageLike)).toBe(true)
+    expect(
+      isProjectClaimDismissed("project-a", {
+        getItem: () => null,
+        setItem: () => {},
+      }),
+    ).toBe(false)
+    expect(isProjectClaimDismissed("project-b", storageLike)).toBe(false)
   })
 })

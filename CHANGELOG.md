@@ -4,6 +4,34 @@
 
 No unreleased public changes.
 
+## 0.3.0 - 2026-06-11
+
+### Added
+
+- Added embeddable timer pages, public embed metadata, and copyable embed
+  snippets for shared timers.
+- Added timer focus mode with pastel themes and an action overflow menu.
+- Added a press kit page with downloadable Tickward logos, product screenshots,
+  boilerplate, fact sheet, and a full press kit archive.
+- Added a persistent homepage content section and full site footer.
+- Added public docs for countdown accuracy and embedding timers.
+
+### Changed
+
+- Moved docs content under the public docs site structure and updated docs
+  redirect handling.
+- Refreshed the demo seed around life-moments examples for screenshots and
+  previews.
+- Improved project-claim messaging, timer-card actions, header/footer layout,
+  and signed-in homepage presentation.
+
+### Fixed
+
+- Polished embedded timer sizing and snippet preview behavior.
+- Fixed marketing route indexing and metadata coverage.
+- Fixed repeat previews so timers spanning multiple years show the year.
+- Improved OTP input, space color swatches, and focus-button tooltip behavior.
+
 ## 0.2.2 - 2026-06-11
 
 ### Added

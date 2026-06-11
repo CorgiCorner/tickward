@@ -3,12 +3,15 @@ import path from "node:path"
 import { describe, expect, it } from "vitest"
 
 const rootDir = path.resolve(import.meta.dirname, "..")
+const docsSiteDir = path.join(rootDir, "docs/site")
 
 const syncedDocsFiles = [
   "api-reference.mdx",
+  "concepts/countdown-accuracy.mdx",
   "docs.json",
-  "guides/api-quickstart.mdx",
   "guides/agent-usage.mdx",
+  "guides/api-quickstart.mdx",
+  "guides/embedding-timers.mdx",
   "guides/mcp.mdx",
   "guides/recipes/create-project-with-timers.mdx",
   "guides/recipes/preview-and-delete-project.mdx",
@@ -22,12 +25,13 @@ const syncedDocsFiles = [
 
 const syncedBinaryDocsFiles = ["favicon.png"] as const
 
-function readProjectFile(filePath: string) {
-  return readFileSync(path.join(rootDir, filePath), "utf8")
-}
+// These root artifacts are served by app routes (app/openapi.json and the
+// agent-skills discovery index), so they stay at the root but must remain
+// byte-identical to the canonical docs/site copies.
+const appServedDocsArtifacts = ["openapi.json", "skill.md"] as const
 
-function readProjectBytes(filePath: string) {
-  return readFileSync(path.join(rootDir, filePath))
+function readDocsSiteFile(filePath: string) {
+  return readFileSync(path.join(docsSiteDir, filePath), "utf8")
 }
 
 function collectStringValues(config: unknown, key: string) {
@@ -60,10 +64,12 @@ function schema(openapi: unknown, name: string) {
   return schemas?.[name] as { required?: string[]; properties?: Record<string, unknown> } | undefined
 }
 
-describe("root docs sync", () => {
+describe("docs site structure", () => {
   it("keeps root Mintlify files aligned with docs/site", () => {
     const offenders = syncedDocsFiles.filter(
-      (filePath) => readProjectFile(filePath) !== readProjectFile(path.join("docs/site", filePath)),
+      (filePath) =>
+        Buffer.compare(readFileSync(path.join(rootDir, filePath)), readFileSync(path.join(docsSiteDir, filePath))) !==
+        0,
     )
 
     expect(offenders).toEqual([])
@@ -72,21 +78,33 @@ describe("root docs sync", () => {
   it("keeps root Mintlify binary files aligned with docs/site", () => {
     const offenders = syncedBinaryDocsFiles.filter(
       (filePath) =>
-        Buffer.compare(readProjectBytes(filePath), readProjectBytes(path.join("docs/site", filePath))) !== 0,
+        Buffer.compare(readFileSync(path.join(rootDir, filePath)), readFileSync(path.join(docsSiteDir, filePath))) !==
+        0,
     )
 
     expect(offenders).toEqual([])
   })
 
-  it("keeps the root Mintlify favicon available", () => {
-    const docsJson = JSON.parse(readProjectFile("docs.json")) as { favicon?: unknown }
+  it("keeps app-served root artifacts aligned with docs/site", () => {
+    const offenders = appServedDocsArtifacts.filter(
+      (filePath) =>
+        Buffer.compare(readFileSync(path.join(rootDir, filePath)), readFileSync(path.join(docsSiteDir, filePath))) !==
+        0,
+    )
+
+    expect(offenders).toEqual([])
+  })
+
+  it("keeps the Mintlify favicon available inside docs/site", () => {
+    const docsJson = JSON.parse(readDocsSiteFile("docs.json")) as { favicon?: unknown }
 
     expect(docsJson.favicon).toBe("/favicon.png")
     expect(existsSync(path.join(rootDir, "favicon.png"))).toBe(true)
+    expect(existsSync(path.join(docsSiteDir, "favicon.png"))).toBe(true)
   })
 
   it("keeps docs navigation and OpenAPI references resolvable from root and docs/site", () => {
-    const docsJson = JSON.parse(readProjectFile("docs.json"))
+    const docsJson = JSON.parse(readDocsSiteFile("docs.json"))
     const pageRefs = collectStringValues(docsJson, "pages")
     const openapiRefs = collectStringValues(docsJson, "openapi")
     const offenders: string[] = []
@@ -94,19 +112,19 @@ describe("root docs sync", () => {
     for (const page of pageRefs) {
       const file = `${page}.mdx`
       if (!existsSync(path.join(rootDir, file))) offenders.push(file)
-      if (!existsSync(path.join(rootDir, "docs/site", file))) offenders.push(`docs/site/${file}`)
+      if (!existsSync(path.join(docsSiteDir, file))) offenders.push(`docs/site/${file}`)
     }
 
     for (const file of openapiRefs) {
       if (!existsSync(path.join(rootDir, file))) offenders.push(file)
-      if (!existsSync(path.join(rootDir, "docs/site", file))) offenders.push(`docs/site/${file}`)
+      if (!existsSync(path.join(docsSiteDir, file))) offenders.push(`docs/site/${file}`)
     }
 
     expect(offenders).toEqual([])
   })
 
   it("keeps the documented public API response contract agent-friendly", () => {
-    const openapi = JSON.parse(readProjectFile("openapi.json"))
+    const openapi = JSON.parse(readDocsSiteFile("openapi.json"))
 
     expect(schema(openapi, "ErrorResponse")?.properties?.error).toMatchObject({
       properties: {

@@ -164,9 +164,9 @@ script cannot infer them from `DATABASE_URL`.
 
 ## Docs
 
-The docs entrypoint is `docs.json` at the repository root. When connecting the
-repo in Mintlify, use the repository root on the `main` branch. Do not enable a
-docs subdirectory unless `docs.json` is moved into that subdirectory.
+The Mintlify entrypoint is the root `docs.json` file on the public repo's
+`main` branch. The `docs/site` directory mirrors the same content for app-local
+checks and packaged docs assets.
 
 If you host docs outside the app, set `TICKWARD_DOCS_ORIGIN` to the external
 docs origin and the app will redirect `/docs` there.

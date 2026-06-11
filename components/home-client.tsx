@@ -2,16 +2,16 @@
 
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core"
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable"
-import { AlertTriangleIcon, KeyIcon, ShieldCheckIcon, TimerIcon, XIcon } from "lucide-react"
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
+import { AlertTriangleIcon, KeyIcon, TimerIcon, XIcon } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
-import { Footer } from "@/components/footer"
+import { FooterStatusBar } from "@/components/footer"
 import { IosPwaPrompt } from "@/components/ios-pwa-prompt"
 import { Header } from "@/components/header"
 import { HOME_EMPTY_TIMER_EXAMPLES, HomeMainLoadingSkeleton } from "@/components/app-shell-loading"
 import { OrganizerBar } from "@/components/organizer-bar"
-import { ProjectClaimSlot } from "@/components/project-claim-slot"
+import { ProjectClaimToast } from "@/components/project-claim-slot"
 import { QuickAddTimer } from "@/components/quick-add-timer"
 import { TimerAlarmOverlay } from "@/components/timer-alarm-overlay"
 import { TimerCard } from "@/components/timer-card"
@@ -20,26 +20,12 @@ import { useNow } from "@/components/use-now"
 import { useLocalTimerAlarms } from "@/components/use-local-timer-alarms"
 import { authClient } from "@/lib/auth/auth-client"
 import { browserTitle } from "@/lib/browser-title"
-import { getEntitlements } from "@/lib/entitlements"
 import { formatMessage } from "@/lib/i18n/messages"
-import {
-  dismissProjectClaim,
-  isProjectClaimDismissed,
-  subscribeProjectClaimDismissed,
-} from "@/lib/project-claim-dismissal.client"
 import { useTimerStore } from "@/lib/store"
 import { timerMatchesFilters } from "@/lib/timer-filters"
 import type { Timer, TimerSortMode } from "@/lib/types"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
 import { effectiveTargetDate } from "@/lib/utils"
-
-function useProjectClaimDismissed(projectId: string | null | undefined) {
-  return useSyncExternalStore(
-    (callback) => subscribeProjectClaimDismissed(projectId, callback),
-    () => isProjectClaimDismissed(projectId),
-    () => false,
-  )
-}
 
 function DismissButton(props: Readonly<{ onClick: () => void }>) {
   return (
@@ -137,49 +123,6 @@ function ProjectConflictBanner() {
             <Button size="sm" onClick={() => void overwriteCloudProjectVersion()}>
               {formatMessage("home.conflict.overwriteCloud")}
             </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ProjectClaimBanner() {
-  const session = authClient.useSession()
-  const restoreKey = useTimerStore((s) => s.restoreKey)
-  const projects = useTimerStore((s) => s.projects)
-  const activeProjectId = useTimerStore((s) => s.activeProjectId)
-  const activeProject = projects.find((project) => project.id === activeProjectId)
-  const dismissed = useProjectClaimDismissed(activeProject?.id)
-
-  if (!session.data?.user || !restoreKey || !activeProject || activeProject.cloudProjectId || dismissed) return null
-
-  return (
-    <div className="mb-4 rounded-2xl border bg-card p-4">
-      <div className="flex gap-3">
-        <ShieldCheckIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
-            <div className="text-sm font-medium">{formatMessage("home.claimProject.title")}</div>
-            <button
-              type="button"
-              aria-label={formatMessage("common.dismiss")}
-              className="mt-0.5 shrink-0 self-start text-muted-foreground hover:text-foreground"
-              onClick={() => dismissProjectClaim(activeProject.id)}
-            >
-              <XIcon className="size-4" />
-            </button>
-          </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {formatMessage("home.claimProject.description", { project: activeProject.name })}
-          </div>
-          <div className="mt-3">
-            <ProjectClaimSlot
-              restoreKey={restoreKey}
-              projectName={activeProject.name}
-              cloudProjectId={activeProject.cloudProjectId}
-              variant="button"
-            />
           </div>
         </div>
       </div>
@@ -320,17 +263,13 @@ function TimerCollection(
   )
 }
 
-type HomeClientProps = {
-  docsHref?: string | null
-  releaseTag: string
-}
-
-export function HomeClient({ docsHref, releaseTag }: Readonly<HomeClientProps>) {
+export function HomeClient() {
   const hasHydrated = useTimerStore((s) => s.hasHydrated)
   const refreshAccountProjectsFromCloud = useTimerStore((s) => s.refreshAccountProjectsFromCloud)
   const removeAccountProjectsFromDevice = useTimerStore((s) => s.removeAccountProjectsFromDevice)
   const projects = useTimerStore((s) => s.projects)
   const activeProjectId = useTimerStore((s) => s.activeProjectId)
+  const restoreKey = useTimerStore((s) => s.restoreKey)
   const timers = useTimerStore((s) => s.timers)
   const spaces = useTimerStore((s) => s.spaces)
   const activeSpaceId = useTimerStore((s) => s.activeSpaceId)
@@ -431,34 +370,44 @@ export function HomeClient({ docsHref, releaseTag }: Readonly<HomeClientProps>) 
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-black">
-      <Header timerCount={timers.length} timerMax={getEntitlements().maxTimers} />
+    <div className="flex min-h-svh flex-col bg-zinc-50 dark:bg-black">
+      <Header />
 
-      <main className="mx-auto w-full max-w-[640px] flex-1 px-4 py-6">
-        {hasHydrated ? (
-          <>
-            <ProjectConflictBanner />
-            <ProjectClaimBanner />
-            <OnboardingBanner timerCount={timers.length} spaceCount={spaces.length} />
-            <QuickAddTimer label={quickAddLabel} onLabelChange={setQuickAddLabel} />
-            <TimerCollection
-              hasActiveProject={Boolean(activeProject)}
-              timers={timers}
-              activeTimers={activeTimers}
-              archivedTimers={archivedTimers}
-              pinnedTimer={pinnedTimer}
-              sortableTimers={sortableActiveTimers}
-              nowMs={nowMs}
-              sensors={sensors}
-              onDragEnd={handleTimerDragEnd}
-              onSelectExample={setQuickAddLabel}
-            />
-          </>
-        ) : (
-          <HomeMainLoadingSkeleton announce={false} includeSeoIntro={false} />
-        )}
-      </main>
-      <Footer docsHref={docsHref} releaseTag={releaseTag} />
+      {/* The section constrains the sticky status footer to the timer list area
+          so it settles before the content below app/page.tsx scrolls into view. */}
+      <section data-slot="timer-list-section" className="relative flex flex-1 flex-col">
+        <main className="mx-auto w-full max-w-[640px] flex-1 px-4 py-6">
+          {hasHydrated ? (
+            <>
+              <ProjectConflictBanner />
+              <ProjectClaimToast
+                projectId={activeProject?.id}
+                projectName={activeProject?.name ?? ""}
+                restoreKey={restoreKey}
+                cloudProjectId={activeProject?.cloudProjectId}
+                timerCount={timers.length}
+              />
+              <OnboardingBanner timerCount={timers.length} spaceCount={spaces.length} />
+              <QuickAddTimer label={quickAddLabel} onLabelChange={setQuickAddLabel} />
+              <TimerCollection
+                hasActiveProject={Boolean(activeProject)}
+                timers={timers}
+                activeTimers={activeTimers}
+                archivedTimers={archivedTimers}
+                pinnedTimer={pinnedTimer}
+                sortableTimers={sortableActiveTimers}
+                nowMs={nowMs}
+                sensors={sensors}
+                onDragEnd={handleTimerDragEnd}
+                onSelectExample={setQuickAddLabel}
+              />
+            </>
+          ) : (
+            <HomeMainLoadingSkeleton announce={false} />
+          )}
+        </main>
+        <FooterStatusBar />
+      </section>
       <IosPwaPrompt />
       <TimerAlarmOverlay alarm={localAlarm.alarm} onDismiss={localAlarm.dismissAlarm} />
     </div>

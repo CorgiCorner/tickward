@@ -1,14 +1,16 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { ProjectClaimSlot } from "@/components/project-claim-slot"
+import { PROJECT_CLAIM_TOAST_DELAY_MS, ProjectClaimSlot, ProjectClaimToast } from "@/components/project-claim-slot"
 import type { TimerStore } from "@/lib/store"
 
 let storeState: Partial<TimerStore>
 
 const mocks = vi.hoisted(() => ({
   useSession: vi.fn(),
+  toastCustom: vi.fn(),
+  toastDismiss: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
 }))
@@ -25,6 +27,8 @@ vi.mock("@/lib/store", () => ({
 
 vi.mock("sonner", () => ({
   toast: {
+    custom: mocks.toastCustom,
+    dismiss: mocks.toastDismiss,
     success: mocks.toastSuccess,
     error: mocks.toastError,
   },
@@ -41,8 +45,16 @@ describe("ProjectClaimSlot", () => {
     }
     mocks.useSession.mockReset()
     mocks.useSession.mockReturnValue({ data: null })
+    mocks.toastCustom.mockReset()
+    mocks.toastDismiss.mockReset()
     mocks.toastSuccess.mockReset()
     mocks.toastError.mockReset()
+    sessionStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    sessionStorage.clear()
   })
 
   it("renders nothing without project access", () => {
@@ -104,5 +116,73 @@ describe("ProjectClaimSlot", () => {
 
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("Project claim failed."))
     expect(mocks.toastError).not.toHaveBeenCalledWith("internal database failure")
+  })
+
+  it("waits until the project has a timer before showing the claim toast", () => {
+    vi.useFakeTimers()
+    mocks.useSession.mockReturnValue({ data: { user: { email: "ada@example.com" } } })
+
+    const { rerender } = render(
+      <ProjectClaimToast projectId="project-a" projectName="Alpha" restoreKey="restoreKey_123" timerCount={0} />,
+    )
+
+    act(() => vi.advanceTimersByTime(PROJECT_CLAIM_TOAST_DELAY_MS))
+    expect(mocks.toastCustom).not.toHaveBeenCalled()
+
+    rerender(<ProjectClaimToast projectId="project-a" projectName="Alpha" restoreKey="restoreKey_123" timerCount={1} />)
+
+    act(() => vi.advanceTimersByTime(PROJECT_CLAIM_TOAST_DELAY_MS - 1))
+    expect(mocks.toastCustom).not.toHaveBeenCalled()
+
+    act(() => vi.advanceTimersByTime(1))
+    expect(mocks.toastCustom).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({
+        duration: Infinity,
+        id: "project-claim:project-a",
+        position: "bottom-right",
+      }),
+    )
+  })
+
+  it("keeps the claim action functional inside the toast", async () => {
+    vi.useFakeTimers()
+    mocks.useSession.mockReturnValue({ data: { user: { email: "ada@example.com" } } })
+
+    render(<ProjectClaimToast projectId="project-a" projectName="Alpha" restoreKey="restoreKey_123" timerCount={1} />)
+    act(() => vi.advanceTimersByTime(PROJECT_CLAIM_TOAST_DELAY_MS))
+    vi.useRealTimers()
+
+    const renderToast = mocks.toastCustom.mock.calls[0][0]
+    render(renderToast("toast-id"))
+
+    fireEvent.click(screen.getByRole("button", { name: "Save to account" }))
+
+    await waitFor(() => expect(storeState.claimActiveProject).toHaveBeenCalled())
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Project saved to your account.")
+    expect(mocks.toastDismiss).toHaveBeenCalledWith("toast-id")
+  })
+
+  it("persists claim toast dismissal for the current browser session", () => {
+    vi.useFakeTimers()
+    mocks.useSession.mockReturnValue({ data: { user: { email: "ada@example.com" } } })
+
+    const { unmount } = render(
+      <ProjectClaimToast projectId="project-a" projectName="Alpha" restoreKey="restoreKey_123" timerCount={1} />,
+    )
+    act(() => vi.advanceTimersByTime(PROJECT_CLAIM_TOAST_DELAY_MS))
+
+    const renderToast = mocks.toastCustom.mock.calls[0][0]
+    render(renderToast("toast-id"))
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }))
+    expect(mocks.toastDismiss).toHaveBeenCalledWith("toast-id")
+
+    unmount()
+    mocks.toastCustom.mockClear()
+
+    render(<ProjectClaimToast projectId="project-a" projectName="Alpha" restoreKey="restoreKey_123" timerCount={1} />)
+    act(() => vi.advanceTimersByTime(PROJECT_CLAIM_TOAST_DELAY_MS))
+
+    expect(mocks.toastCustom).not.toHaveBeenCalled()
   })
 })

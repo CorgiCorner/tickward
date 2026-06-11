@@ -47,7 +47,10 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
-:root {
+/* .light lets a subtree force light tokens (e.g. /embed theme=light)
+   even when html carries .dark - it shares the declarations below. */
+:root,
+.light {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.141 0.005 285.823);

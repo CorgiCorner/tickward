@@ -116,7 +116,7 @@ describe("seedBootstrap", () => {
       projectId: BOOTSTRAP_DEMO_PROJECT_ID,
       restoreKey: BOOTSTRAP_DEMO_RESTORE_KEY,
       shareId: DEMO_SHARE_ID,
-      timerCount: 5,
+      timerCount: 6,
       spaceCount: 2,
     })
     expect(queries[0][0]).toBe("BEGIN")
@@ -134,7 +134,7 @@ describe("seedBootstrap", () => {
       "2026-06-06T10:00:00.000Z",
     ])
     expect(queries.filter(([sql]) => String(sql).includes('INSERT INTO "space"'))).toHaveLength(2)
-    expect(queries.filter(([sql]) => String(sql).includes('INSERT INTO "timer"'))).toHaveLength(5)
+    expect(queries.filter(([sql]) => String(sql).includes('INSERT INTO "timer"'))).toHaveLength(6)
     expect(queries.some(([sql]) => String(sql).includes('INSERT INTO "share"'))).toBe(true)
     expect(queries.some(([sql]) => String(sql).includes('WHERE "space"."projectId" = EXCLUDED."projectId"'))).toBe(true)
     expect(queries.some(([sql]) => String(sql).includes('WHERE "timer"."projectId" = EXCLUDED."projectId"'))).toBe(true)

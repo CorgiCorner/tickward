@@ -48,6 +48,7 @@ export type RateLimitBucket =
   | "write"
   | "share-create"
   | "clear"
+  | "embed-state"
   | "auth-otp"
   | "auth-otp-ip"
   | "public-api"

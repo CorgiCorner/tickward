@@ -1,11 +1,11 @@
 "use client"
 
-import Link from "next/link"
+import { useEffect, useState } from "react"
 
-import { GitHubRepoButton } from "@/components/github-repo-button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { formatMessage } from "@/lib/i18n/messages"
 import { useTimerStore } from "@/lib/store"
+import { cn } from "@/lib/utils"
 
 function formatTimeAgo(isoDate: string) {
   const diffMs = Date.now() - new Date(isoDate).getTime()
@@ -17,14 +17,21 @@ function formatTimeAgo(isoDate: string) {
   return formatMessage("footer.hoursAgo", { count: hours })
 }
 
-function syncStatusLabel(args: { isSyncing: boolean; lastSyncError: string | null; lastSyncAt: string | null }) {
+function syncStatusLabel(args: {
+  hasCloudAccess: boolean
+  isSyncing: boolean
+  lastSyncError: string | null
+  lastSyncAt: string | null
+}) {
+  if (!args.hasCloudAccess) return formatMessage("footer.localOnly")
   if (args.isSyncing) return formatMessage("footer.syncing")
   if (args.lastSyncError) return formatMessage("footer.syncError")
   if (args.lastSyncAt) return formatMessage("footer.syncedAt", { timeAgo: formatTimeAgo(args.lastSyncAt) })
   return formatMessage("footer.synced")
 }
 
-function syncStatusDotClass(args: { isSyncing: boolean; lastSyncError: string | null }) {
+function syncStatusDotClass(args: { hasCloudAccess: boolean; isSyncing: boolean; lastSyncError: string | null }) {
+  if (!args.hasCloudAccess) return "bg-muted-foreground"
   if (args.isSyncing) return "animate-pulse bg-blue-400"
   if (args.lastSyncError) return "bg-amber-500"
   return "bg-emerald-500"
@@ -32,84 +39,67 @@ function syncStatusDotClass(args: { isSyncing: boolean; lastSyncError: string | 
 
 function SyncStatus() {
   const restoreKey = useTimerStore((s) => s.restoreKey)
+  const projects = useTimerStore((s) => s.projects)
+  const activeProjectId = useTimerStore((s) => s.activeProjectId)
   const isSyncing = useTimerStore((s) => s.isSyncing)
   const lastSyncError = useTimerStore((s) => s.lastSyncError)
   const lastSyncAt = useTimerStore((s) => s.lastSyncAt)
+  const [, setTick] = useState(0)
 
-  if (!restoreKey) return null
+  // The "Synced {timeAgo}" label is derived from Date.now(), so force a
+  // re-render every 30s to keep it from going stale while the tab idles.
+  useEffect(() => {
+    if (!lastSyncAt) return
+    const id = setInterval(() => setTick((t) => t + 1), 30_000)
+    return () => clearInterval(id)
+  }, [lastSyncAt])
 
-  const label = syncStatusLabel({ isSyncing, lastSyncError, lastSyncAt })
-  const dotClass = syncStatusDotClass({ isSyncing, lastSyncError })
+  const activeProject = projects.find((project) => project.id === activeProjectId)
+  const hasCloudAccess = Boolean(restoreKey || activeProject?.cloudProjectId)
+
+  const label = syncStatusLabel({ hasCloudAccess, isSyncing, lastSyncError, lastSyncAt })
+  const dotClass = syncStatusDotClass({ hasCloudAccess, isSyncing, lastSyncError })
 
   const status = (
-    <div className="flex items-center gap-1.5">
+    <div className="flex min-w-0 items-center gap-1.5">
       <span className={["inline-block size-1.5 shrink-0 rounded-full", dotClass].join(" ")} />
-      <span>{label}</span>
+      <span className="truncate">{label}</span>
     </div>
   )
 
   if (!lastSyncError) return status
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button type="button" className="outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px]">
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="min-w-0 max-w-full text-left outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+        >
           {status}
         </button>
-      </TooltipTrigger>
-      <TooltipContent side="top" sideOffset={8} className="max-w-[260px] text-center">
+      </PopoverTrigger>
+      <PopoverContent side="top" sideOffset={8} className="w-auto max-w-[260px] px-3 py-1.5 text-center text-xs">
         {lastSyncError}
-      </TooltipContent>
-    </Tooltip>
+      </PopoverContent>
+    </Popover>
   )
 }
 
-type FooterProps = {
-  docsHref?: string | null
-  releaseTag: string
+type FooterStatusBarProps = {
+  className?: string
 }
 
-export function Footer({ docsHref, releaseTag }: Readonly<FooterProps>) {
-  const year = new Date().getFullYear()
-
+export function FooterStatusBar(props: Readonly<FooterStatusBarProps>) {
   return (
-    <footer className="border-t bg-background">
-      <div className="mx-auto flex w-full max-w-[640px] flex-col items-center gap-3 px-4 py-5 text-center text-xs text-muted-foreground">
-        <div className="flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-2">
-          <GitHubRepoButton variant="compact" className="sm:hidden" />
-          <SyncStatus />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button type="button" className="underline decoration-dotted underline-offset-4 hover:text-foreground">
-                {formatMessage("footer.inactivityPolicy")}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={8} className="max-w-[260px] text-center">
-              {formatMessage("footer.inactivityPolicyTooltip")}
-            </TooltipContent>
-          </Tooltip>
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            {docsHref ? (
-              <Link className="hover:text-foreground" href={docsHref}>
-                {formatMessage("footer.docs")}
-              </Link>
-            ) : null}
-            <a className="hover:text-foreground" href="/sitemap.xml">
-              {formatMessage("footer.sitemap")}
-            </a>
-            <a className="hover:text-foreground" href="/robots.txt">
-              {formatMessage("footer.robots")}
-            </a>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 leading-relaxed">
-          <span>
-            <span className="mr-1 font-medium text-foreground">tickward</span>© {year}
-          </span>
-          <span className="rounded-full border px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground">
-            {releaseTag}
-          </span>
-        </div>
+    <footer
+      className={cn(
+        "sticky bottom-0 z-30 border-t border-border bg-background/85 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] text-xs text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/80",
+        props.className,
+      )}
+    >
+      <div className="mx-auto flex w-full max-w-[640px] min-w-0 items-center px-4 text-left">
+        <SyncStatus />
       </div>
     </footer>
   )

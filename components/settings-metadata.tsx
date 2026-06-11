@@ -13,9 +13,9 @@ export function formatSettingsDate(value: string | null) {
 
 export function SettingsDateMetadata(props: Readonly<{ label: string; value: string | null }>) {
   return (
-    <span className="inline-flex flex-wrap items-baseline gap-x-1">
-      <span>{props.label}</span>
-      <span className="text-foreground/80">{formatSettingsDate(props.value)}</span>
+    <span className="inline-flex min-w-0 max-w-full items-baseline gap-1 whitespace-nowrap">
+      <span className="shrink-0">{props.label}:</span>
+      <span className="min-w-0 truncate text-foreground/80">{formatSettingsDate(props.value)}</span>
     </span>
   )
 }

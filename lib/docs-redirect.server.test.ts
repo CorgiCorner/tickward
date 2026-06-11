@@ -18,7 +18,7 @@ describe("redirectToDocs", () => {
 
     const res = redirectToDocs(new Request("https://app.example.test/docs/api?ref=agent"), "/api")
 
-    expect(res.status).toBe(307)
+    expect(res.status).toBe(308)
     expect(res.headers.get("location")).toBe("https://docs.example.test/api?ref=agent")
   })
 
@@ -30,7 +30,7 @@ describe("redirectToDocs", () => {
       "/guides/api-quickstart",
     )
 
-    expect(res.status).toBe(307)
+    expect(res.status).toBe(308)
     expect(res.headers.get("location")).toBe("https://tickward.com/docs/guides/api-quickstart?ref=agent")
   })
 
@@ -48,7 +48,7 @@ describe("redirectToDocs", () => {
   it("redirects root LLM files to the docs subpath", () => {
     const res = redirectToDocsSubpath(new Request("https://app.example.test/llms.txt?ref=agent"), "/llms.txt")
 
-    expect(res.status).toBe(307)
+    expect(res.status).toBe(308)
     expect(res.headers.get("location")).toBe("https://app.example.test/docs/llms.txt?ref=agent")
   })
 })

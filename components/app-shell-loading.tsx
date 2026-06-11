@@ -49,7 +49,6 @@ export function AppHeaderLoadingSkeleton() {
           <HeaderActionSkeleton className="w-[76px]" />
           <HeaderActionSkeleton className="hidden size-9 md:block" />
           <HeaderActionSkeleton className="size-9" />
-          <HeaderActionSkeleton className="size-9 bg-primary/20" />
         </div>
       </div>
     </header>
@@ -151,29 +150,8 @@ export function TimerCardLoadingSkeleton(
   )
 }
 
-export function HomeSeoIntro() {
-  return (
-    <section aria-labelledby="home-seo-title" className="mb-4 rounded-3xl border bg-background p-8 text-center">
-      <h1 id="home-seo-title" className="text-2xl font-semibold tracking-normal">
-        {formatMessage("app.title.default")}
-      </h1>
-      <p className="mx-auto mt-3 max-w-[520px] text-sm leading-6 text-muted-foreground">
-        {formatMessage("app.description")}
-      </p>
-      <div className="mt-4 flex flex-wrap justify-center gap-2 text-xs text-muted-foreground">
-        {HOME_EMPTY_TIMER_EXAMPLES.map((messageKey) => (
-          <span key={messageKey} className="rounded-full border px-2.5 py-1">
-            {formatMessage(messageKey)}
-          </span>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-export function HomeMainLoadingSkeleton(props: Readonly<{ announce?: boolean; includeSeoIntro?: boolean }>) {
+export function HomeMainLoadingSkeleton(props: Readonly<{ announce?: boolean }>) {
   const announce = props.announce ?? true
-  const includeSeoIntro = props.includeSeoIntro ?? true
   const label = formatMessage("home.loading.title")
 
   return (
@@ -183,7 +161,6 @@ export function HomeMainLoadingSkeleton(props: Readonly<{ announce?: boolean; in
       aria-busy={announce ? true : undefined}
     >
       {announce ? <ScreenReaderLoadingLabel label={label} /> : null}
-      {includeSeoIntro ? <HomeSeoIntro /> : null}
       <QuickAddTimerLoadingSkeleton />
       <OrganizerBarLoadingSkeleton />
       <div className="grid gap-4">
@@ -409,43 +386,73 @@ export function SettingsMainLoadingSkeleton(props: Readonly<{ announce?: boolean
   )
 }
 
-function FooterLoadingSkeleton() {
+function FooterFullLoadingSkeleton() {
   return (
     <footer className="border-t bg-background/60">
-      <div className="mx-auto flex w-full max-w-[640px] flex-col items-center gap-3 px-4 py-6 sm:flex-row sm:items-center sm:justify-between">
-        <Skeleton className="h-4 w-24 rounded-md" />
-        <Skeleton className="h-6 w-20 rounded-md sm:hidden" />
-        <Skeleton className="h-4 w-28 rounded-md" />
-        <Skeleton className="h-4 w-24 rounded-md" />
-        <div className="flex items-center gap-3">
+      <div className="mx-auto flex w-full max-w-[640px] flex-col items-center gap-3 px-4 py-6">
+        <Skeleton className="h-3.5 w-44 rounded-md" />
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Skeleton className="h-4 w-10 rounded-md" />
           <Skeleton className="h-4 w-14 rounded-md" />
-          <Skeleton className="h-4 w-12 rounded-md" />
+          <Skeleton className="h-4 w-16 rounded-md" />
+        </div>
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-3 w-24 rounded-md" />
+          <Skeleton className="h-5 w-12 rounded-full" />
         </div>
       </div>
     </footer>
   )
 }
 
+function FooterStatusLoadingSkeleton() {
+  return (
+    <footer className="sticky bottom-0 z-30 border-t border-border bg-background/85 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <div className="mx-auto flex w-full max-w-[640px] min-w-0 items-center px-4">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Skeleton className="size-1.5 shrink-0 rounded-full" />
+          <Skeleton className="h-3.5 w-28 max-w-full rounded-md" />
+        </div>
+      </div>
+    </footer>
+  )
+}
+
+type LoadingFooter = "full" | "status"
+
 function LoadingShell(
   props: Readonly<{
     children: ReactNode
     className?: string
-    footer?: boolean
+    footer?: LoadingFooter
     label: string
     mainClassName?: string
   }>,
 ) {
+  const main = (
+    <main className={cn("mx-auto w-full max-w-[640px] flex-1 px-4 py-6", props.mainClassName)}>{props.children}</main>
+  )
+  const footer = props.footer === "status" ? <FooterStatusLoadingSkeleton /> : <FooterFullLoadingSkeleton />
+
   return (
     <div
       aria-live="polite"
       aria-label={props.label}
       aria-busy="true"
-      className={cn("flex min-h-screen flex-col bg-background text-foreground", props.className)}
+      className={cn("flex min-h-svh flex-col bg-background text-foreground", props.className)}
     >
       <ScreenReaderLoadingLabel label={props.label} />
       <AppHeaderLoadingSkeleton />
-      <main className={cn("mx-auto w-full max-w-[640px] flex-1 px-4 py-6", props.mainClassName)}>{props.children}</main>
-      {props.footer ? <FooterLoadingSkeleton /> : null}
+      {props.footer === "status" ? (
+        <section data-slot="timer-list-section" className="relative flex flex-1 flex-col">
+          {main}
+          {footer}
+        </section>
+      ) : null}
+      {props.footer !== "status" ? main : null}
+      {/* The section wrapper scopes full skeleton footers so they never compete
+          with page-level contentinfo landmarks rendered by route pages. */}
+      {props.footer === "full" ? <section>{footer}</section> : null}
     </div>
   )
 }
@@ -460,15 +467,15 @@ export function AppShellLoading() {
 
 export function HomePageLoading() {
   return (
-    <LoadingShell label={formatMessage("home.loading.title")} className="bg-zinc-50 dark:bg-black" footer>
-      <HomeMainLoadingSkeleton announce={false} includeSeoIntro={false} />
+    <LoadingShell label={formatMessage("home.loading.title")} className="bg-zinc-50 dark:bg-black" footer="status">
+      <HomeMainLoadingSkeleton announce={false} />
     </LoadingShell>
   )
 }
 
 export function SettingsPageLoading() {
   return (
-    <LoadingShell label={formatMessage("settings.loading.title")} footer mainClassName="py-8">
+    <LoadingShell label={formatMessage("settings.loading.title")} footer="full" mainClassName="py-8">
       <SettingsMainLoadingSkeleton announce={false} />
     </LoadingShell>
   )
@@ -476,7 +483,7 @@ export function SettingsPageLoading() {
 
 export function AuthPageLoading() {
   return (
-    <LoadingShell label={formatMessage("auth.loading.title")} footer mainClassName="max-w-[440px] py-8">
+    <LoadingShell label={formatMessage("auth.loading.title")} footer="full" mainClassName="max-w-[440px] py-8">
       <AuthMainLoadingSkeleton announce={false} />
     </LoadingShell>
   )
@@ -484,7 +491,7 @@ export function AuthPageLoading() {
 
 export function SharedTimerPageLoading() {
   return (
-    <LoadingShell label={formatMessage("share.loading.title")} className="bg-zinc-50 dark:bg-black" footer>
+    <LoadingShell label={formatMessage("share.loading.title")} className="bg-zinc-50 dark:bg-black" footer="full">
       <SharedTimerMainLoadingSkeleton announce={false} />
     </LoadingShell>
   )
