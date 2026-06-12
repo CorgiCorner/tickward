@@ -7,10 +7,13 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import {
   DEFAULT_EMBED_PARAMS,
+  EMBED_DONE_TEXT_MAX_LENGTH,
+  EMBED_END_MODES,
   EMBED_LAYOUTS,
   EMBED_RECOMMENDED_SIZE,
   EMBED_THEMES,
   embedQueryString,
+  type EmbedEndMode,
   type EmbedLayout,
   type EmbedTheme,
 } from "@/lib/embed-params"
@@ -40,15 +43,25 @@ function escapeAttribute(value: string): string {
 export function EmbedSnippetControls(props: Readonly<{ origin: string; shareId: string; timerLabel: string }>) {
   // Keys used via template literal: share.embed.layout.compact share.embed.layout.horizontal
   // share.embed.layout.minimal share.embed.layout.square share.embed.layout.text
+  // share.embed.end.auto share.embed.end.countup share.embed.end.message
   // share.embed.theme.auto share.embed.theme.dark share.embed.theme.light
   const [layout, setLayout] = useState<EmbedLayout>(DEFAULT_EMBED_PARAMS.layout)
   const [theme, setTheme] = useState<EmbedTheme>(DEFAULT_EMBED_PARAMS.theme)
+  const [endMode, setEndMode] = useState<EmbedEndMode>(DEFAULT_EMBED_PARAMS.endMode)
+  const [doneText, setDoneText] = useState("")
   const [loadedPreviewSrc, setLoadedPreviewSrc] = useState<string | null>(null)
   const layoutSelectId = useId()
   const themeSelectId = useId()
+  const endSelectId = useId()
+  const doneTextId = useId()
 
   const size = EMBED_RECOMMENDED_SIZE[layout]
-  const src = `${props.origin}/embed/${props.shareId}${embedQueryString({ layout, theme })}`
+  const src = `${props.origin}/embed/${props.shareId}${embedQueryString({
+    doneText: endMode === "countup" ? null : doneText.trim() || null,
+    endMode,
+    layout,
+    theme,
+  })}`
   const timerName = props.timerLabel || formatMessage("app.title.sharedTimer")
   const iframeTitle = formatMessage("share.embed.iframeTitle", { timer: timerName })
   const previewTitle = formatMessage("share.embed.previewTitle", { timer: timerName })
@@ -97,6 +110,35 @@ export function EmbedSnippetControls(props: Readonly<{ origin: string; shareId: 
               </option>
             ))}
           </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-1.5">
+          <Label htmlFor={endSelectId}>{formatMessage("share.embed.end")}</Label>
+          <select
+            id={endSelectId}
+            value={endMode}
+            onChange={(event) => setEndMode(event.target.value as EmbedEndMode)}
+            className={`${fieldClassName} h-9 px-3 py-1 text-base md:text-sm`}
+          >
+            {EMBED_END_MODES.map((value) => (
+              <option key={value} value={value}>
+                {formatMessage(`share.embed.end.${value}`)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor={doneTextId}>{formatMessage("share.embed.doneText")}</Label>
+          <input
+            id={doneTextId}
+            value={doneText}
+            onChange={(event) => setDoneText(event.target.value)}
+            disabled={endMode === "countup"}
+            maxLength={EMBED_DONE_TEXT_MAX_LENGTH}
+            className={`${fieldClassName} h-9 px-3 py-1 text-base disabled:opacity-50 md:text-sm`}
+          />
         </div>
       </div>
 

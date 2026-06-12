@@ -266,6 +266,14 @@ function isIgnorableConsoleError(message) {
 
 function isIgnorableRequestFailure(request) {
   const errorText = request.failure()?.errorText
+  if (errorText?.includes("WebKitBlobResource error 1")) {
+    try {
+      return new URL(request.url()).protocol === "blob:"
+    } catch {
+      return false
+    }
+  }
+
   if (errorText !== "net::ERR_ABORTED") return false
 
   try {

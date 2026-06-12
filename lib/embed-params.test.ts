@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 
 import {
   DEFAULT_EMBED_PARAMS,
+  EMBED_DONE_TEXT_MAX_LENGTH,
+  EMBED_END_MODES,
   EMBED_FONTS,
   EMBED_LAYOUTS,
   EMBED_SCALE_MAX,
@@ -94,9 +96,26 @@ describe("parseEmbedParams", () => {
     expect(parseEmbedParams({ target: "on" }).showTarget).toBe(true)
   })
 
+  it("accepts every valid end mode and falls back for invalid values", () => {
+    for (const endMode of EMBED_END_MODES) {
+      expect(parseEmbedParams({ end: endMode }).endMode).toBe(endMode)
+    }
+    expect(parseEmbedParams({ end: "restart" }).endMode).toBe(DEFAULT_EMBED_PARAMS.endMode)
+  })
+
+  it("normalizes optional done text", () => {
+    expect(parseEmbedParams({ done: "  Sale ended\nnow  " }).doneText).toBe("Sale ended now")
+    expect(parseEmbedParams({ done: "" }).doneText).toBeNull()
+    expect(parseEmbedParams({ done: " ".repeat(8) }).doneText).toBeNull()
+    expect(parseEmbedParams({ done: "x".repeat(EMBED_DONE_TEXT_MAX_LENGTH + 5) }).doneText).toHaveLength(
+      EMBED_DONE_TEXT_MAX_LENGTH,
+    )
+  })
+
   it("uses the first value when a param repeats", () => {
     expect(parseEmbedParams({ layout: ["square", "text"] }).layout).toBe("square")
     expect(parseEmbedParams({ accent: ["#e85d2a", "112233"] }).accent).toBe("#e85d2a")
+    expect(parseEmbedParams({ done: ["Finished", "Ignored"] }).doneText).toBe("Finished")
   })
 })
 
@@ -147,6 +166,13 @@ describe("embedQueryString", () => {
     expect(embedQueryString({ labels: true, showTarget: true })).toBe("")
   })
 
+  it("encodes end behavior and optional done text", () => {
+    expect(embedQueryString({ endMode: "countup" })).toBe("?end=countup")
+    expect(embedQueryString({ endMode: "auto" })).toBe("")
+    expect(embedQueryString({ doneText: "Sale ended" })).toBe("?done=Sale+ended")
+    expect(embedQueryString({ endMode: "message", doneText: "Sale ended" })).toBe("?end=message&done=Sale+ended")
+  })
+
   it("round-trips through parseEmbedParams", () => {
     const params = parseEmbedParams({
       layout: "horizontal",
@@ -156,6 +182,8 @@ describe("embedQueryString", () => {
       scale: "1.25",
       labels: "off",
       target: "off",
+      end: "message",
+      done: "Sale ended",
     })
     const query = embedQueryString(params)
     const reparsed = parseEmbedParams(Object.fromEntries(new URLSearchParams(query.slice(1))))

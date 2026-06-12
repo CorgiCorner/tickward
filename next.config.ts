@@ -3,6 +3,11 @@ import type { NextConfig } from "next"
 import { getWwwToApexRedirect } from "./lib/site-config"
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Required for app/global-not-found.tsx: routing-level 404s render a
+    // standalone branded document with a real 404 status.
+    globalNotFound: true,
+  },
   outputFileTracingIncludes: {
     "/*": ["./prisma/rds-ca.pem", "./skill.md"],
   },

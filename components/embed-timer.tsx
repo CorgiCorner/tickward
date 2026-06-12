@@ -1,10 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { type CSSProperties, useEffect, useState } from "react"
 
 import { useNow } from "@/components/use-now"
 import type { EmbedAttribution } from "@/lib/embed-attribution"
-import type { EmbedLayout } from "@/lib/embed-params"
+import type { EmbedEndMode, EmbedLayout } from "@/lib/embed-params"
 import { formatMessage } from "@/lib/i18n/messages"
 import { cn, formatTargetInTimeZone, getCountdownParts, pad2 } from "@/lib/utils"
 
@@ -15,9 +15,14 @@ export type EmbedTimerProps = Readonly<{
   layout: EmbedLayout
   attribution: EmbedAttribution
   accent?: string | null
+  background?: string | null
   labels?: boolean
   showTarget?: boolean
-  /** bg=transparent: drop card background and border. */
+  endMode?: EmbedEndMode
+  doneText?: string | null
+  restartOnFinish?: boolean
+  onRestartRequest?: () => void
+  /** bg=transparent: make only the card fill transparent. */
   transparent?: boolean
   /** Freeze the clock (stories/tests). Live 1s tick when omitted. */
   nowMs?: number
@@ -35,7 +40,13 @@ export type EmbedTimerProps = Readonly<{
 // horizontal 360px, compact 200px, square 180px; text/minimal intrinsic.
 
 function cardClass(transparent: boolean | undefined) {
-  return transparent ? "border border-transparent bg-transparent" : "border bg-card text-card-foreground"
+  return transparent
+    ? "border bg-transparent bg-clip-padding text-card-foreground"
+    : "border bg-card bg-clip-padding text-card-foreground"
+}
+
+function cardStyle(background: string | null | undefined): CSSProperties | undefined {
+  return background ? { backgroundColor: background } : undefined
 }
 
 function Attribution(props: Readonly<{ attribution: EmbedAttribution; className?: string }>) {
@@ -136,13 +147,13 @@ function SinceCaption(props: Readonly<{ parts: Parts }>) {
   )
 }
 
-function FinishedLine(props: Readonly<{ size: UnitSize; accent?: string | null }>) {
+function FinishedLine(props: Readonly<{ size: UnitSize; accent?: string | null; text?: string | null }>) {
   return (
     <div
       className={cn(UNIT_SIZE_CLASSES[props.size], "font-semibold leading-none tracking-tight")}
       style={props.accent ? { color: props.accent } : undefined}
     >
-      {formatMessage("embed.finished")}
+      {props.text || formatMessage("embed.finished")}
     </div>
   )
 }
@@ -153,8 +164,8 @@ function inlineTime(parts: Parts) {
 
 // Coarse accessible description - days and hours only, so assistive tech is
 // not flooded with per-second updates.
-function coarseAriaLabel(label: string, parts: Parts, finished: boolean) {
-  if (finished) return `${label}: ${formatMessage("embed.finished")}`
+function coarseAriaLabel(label: string, parts: Parts, finished: boolean, finishedText: string) {
+  if (finished) return `${label}: ${finishedText}`
   const days = `${parts.days} ${formatMessage("timer.countdown.days")}`
   const hours = `${parts.hours} ${formatMessage("timer.countdown.hours")}`
   const since = parts.isCountUp ? ` ${formatMessage("timer.countdown.since").toLowerCase()}` : ""
@@ -162,7 +173,7 @@ function coarseAriaLabel(label: string, parts: Parts, finished: boolean) {
 }
 
 export function EmbedTimer(props: EmbedTimerProps) {
-  const liveNowMs = useNow(1000)
+  const liveNowMs = useNow()
   const nowMs = props.nowMs ?? liveNowMs
   // Captured once on mount; stable across re-renders by design.
   const [initialNowMs] = useState(() => props.initialNowMs ?? nowMs)
@@ -170,13 +181,31 @@ export function EmbedTimer(props: EmbedTimerProps) {
   const startedCounting = !getCountdownParts(props.targetDateIsoUtc, initialNowMs).isCountUp
   // Transient terminal state: only when the countdown crossed zero while
   // mounted. A page loaded after the target renders count-up ("since").
-  const finished = startedCounting && parts.isCountUp
+  const crossedZeroWhileMounted = startedCounting && parts.isCountUp
 
   const labels = props.labels ?? true
   const showTarget = props.showTarget ?? true
+  const endMode = props.endMode ?? "auto"
+  const finishedText = props.doneText || formatMessage("embed.finished")
+  const finished = endMode === "message" ? parts.isCountUp : endMode === "auto" && crossedZeroWhileMounted
+  const restartOnFinish = props.restartOnFinish
+  const onRestartRequest = props.onRestartRequest
   const targetLine = formatTargetInTimeZone(props.targetDateIsoUtc, props.timezone)
   const card = cardClass(props.transparent)
+  const cardInlineStyle = cardStyle(props.background)
   const inlineStyle = props.accent && !parts.isCountUp ? { color: props.accent } : undefined
+
+  useEffect(() => {
+    if (!restartOnFinish || !parts.isCountUp) return
+    const timeout = window.setTimeout(() => {
+      if (onRestartRequest) {
+        onRestartRequest()
+        return
+      }
+      window.location.reload()
+    }, 1200)
+    return () => window.clearTimeout(timeout)
+  }, [onRestartRequest, parts.isCountUp, restartOnFinish])
 
   const inline = (size: "text" | "minimal") => (
     <div
@@ -184,11 +213,12 @@ export function EmbedTimer(props: EmbedTimerProps) {
         "flex max-w-full flex-wrap items-baseline gap-x-2 gap-y-1 text-sm",
         size === "minimal" && cn("rounded-xl px-4 py-2.5", card),
       )}
+      style={size === "minimal" ? cardInlineStyle : undefined}
     >
       <span className="min-w-0 truncate font-medium">{props.label}</span>
       {finished ? (
         <span className="font-semibold" style={inlineStyle}>
-          {formatMessage("embed.finished")}
+          {finishedText}
         </span>
       ) : (
         <span
@@ -211,10 +241,13 @@ export function EmbedTimer(props: EmbedTimerProps) {
         return inline("minimal")
       case "compact":
         return (
-          <div className={cn("flex w-full min-w-[200px] max-w-sm flex-col items-center gap-2 rounded-xl p-4", card)}>
+          <div
+            className={cn("flex w-full min-w-[200px] max-w-sm flex-col items-center gap-1.5 rounded-xl p-4", card)}
+            style={cardInlineStyle}
+          >
             <div className="max-w-full truncate text-center text-sm font-medium">{props.label}</div>
             {finished ? (
-              <FinishedLine size="sm" accent={props.accent} />
+              <FinishedLine size="sm" accent={props.accent} text={finishedText} />
             ) : (
               <>
                 <SinceCaption parts={parts} />
@@ -227,20 +260,29 @@ export function EmbedTimer(props: EmbedTimerProps) {
                 />
               </>
             )}
-            <Attribution attribution={props.attribution} />
+            <div className="flex max-w-full flex-col items-center gap-1">
+              {showTarget && (
+                <div className="max-w-full truncate text-center text-[10px] leading-none text-muted-foreground">
+                  {targetLine}
+                </div>
+              )}
+              <Attribution attribution={props.attribution} />
+            </div>
           </div>
         )
       case "square":
         return (
           <div
             className={cn(
-              "flex aspect-square w-[min(calc(100vw-1.5rem),calc(100dvh-1.5rem))] min-w-[180px] flex-col items-center justify-between rounded-xl p-[clamp(0.75rem,5vmin,1.5rem)]",
+              "flex aspect-square w-[min(calc(100vw-1.5rem),calc(100dvh-1.5rem))] min-w-[180px] flex-col items-center rounded-xl p-[clamp(0.75rem,5vmin,1.5rem)]",
+              "justify-center gap-[clamp(0.5rem,4vmin,0.875rem)]",
               card,
             )}
+            style={cardInlineStyle}
           >
             <div className="max-w-full truncate text-center text-sm font-medium">{props.label}</div>
             {finished ? (
-              <FinishedLine size="lg" accent={props.accent} />
+              <FinishedLine size="lg" accent={props.accent} text={finishedText} />
             ) : (
               <div className="flex flex-col items-center gap-1">
                 <SinceCaption parts={parts} />
@@ -264,6 +306,7 @@ export function EmbedTimer(props: EmbedTimerProps) {
         return (
           <div
             className={cn("flex w-full min-w-[360px] items-center justify-between gap-6 rounded-xl px-6 py-4", card)}
+            style={cardInlineStyle}
           >
             <div className="min-w-0">
               <div className="truncate text-sm font-medium">{props.label}</div>
@@ -274,7 +317,7 @@ export function EmbedTimer(props: EmbedTimerProps) {
             </div>
             <div className="flex shrink-0 flex-col items-center gap-1">
               {finished ? (
-                <FinishedLine size="md" accent={props.accent} />
+                <FinishedLine size="md" accent={props.accent} text={finishedText} />
               ) : (
                 <>
                   <SinceCaption parts={parts} />
@@ -294,7 +337,11 @@ export function EmbedTimer(props: EmbedTimerProps) {
   })()
 
   return (
-    <div role="timer" aria-label={coarseAriaLabel(props.label, parts, finished)} className="flex w-full justify-center">
+    <div
+      role="timer"
+      aria-label={coarseAriaLabel(props.label, parts, finished, finishedText)}
+      className="flex w-full justify-center"
+    >
       {content}
     </div>
   )
@@ -302,14 +349,28 @@ export function EmbedTimer(props: EmbedTimerProps) {
 
 // Neutral card for invalid or revoked tokens. Served with HTTP 200 so it
 // never surfaces an app error page inside someone's site.
-export function EmbedUnavailableCard(props: Readonly<{ attribution: EmbedAttribution; layout?: EmbedLayout }>) {
+export function EmbedUnavailableCard(
+  props: Readonly<{
+    attribution: EmbedAttribution
+    background?: string | null
+    layout?: EmbedLayout
+    transparent?: boolean
+  }>,
+) {
+  const unavailableStyle = cardStyle(props.background)
+
   if (props.layout === "text" || props.layout === "minimal") {
     return (
       <div
         className={cn(
           "flex max-w-full flex-wrap items-baseline justify-center gap-x-2 gap-y-1 text-sm text-muted-foreground",
-          props.layout === "minimal" && "rounded-xl border border-dashed bg-muted/40 px-4 py-2.5",
+          props.layout === "minimal" &&
+            cn(
+              "rounded-xl border border-dashed bg-clip-padding px-4 py-2.5",
+              props.transparent ? "bg-transparent" : "bg-muted/40",
+            ),
         )}
+        style={props.layout === "minimal" ? unavailableStyle : undefined}
       >
         <div className="min-w-0 truncate">{formatMessage("embed.unavailable")}</div>
         <Attribution attribution={props.attribution} />
@@ -318,7 +379,13 @@ export function EmbedUnavailableCard(props: Readonly<{ attribution: EmbedAttribu
   }
 
   return (
-    <div className="inline-flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed bg-muted/40 px-8 py-6">
+    <div
+      className={cn(
+        "inline-flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed bg-clip-padding px-8 py-6",
+        props.transparent ? "bg-transparent" : "bg-muted/40",
+      )}
+      style={unavailableStyle}
+    >
       <div className="text-sm text-muted-foreground">{formatMessage("embed.unavailable")}</div>
       <Attribution attribution={props.attribution} />
     </div>

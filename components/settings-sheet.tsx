@@ -33,7 +33,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ProjectClaimSlot } from "@/components/project-claim-slot"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
-import { formatMessage } from "@/lib/i18n/messages"
+import { formatMessage, formatPluralMessage } from "@/lib/i18n/messages"
 import { useTimerStore } from "@/lib/store"
 
 type SettingsSheetProps = {
@@ -311,9 +311,7 @@ function ProjectCleanupSection(
               <AlertDialogDescription>
                 {formatMessage("timer.removeAllDescription", {
                   count: props.timerCount,
-                  timerLabel: formatMessage(props.timerCount === 1 ? "timer.count.one" : "timer.count.many", {
-                    count: props.timerCount,
-                  }),
+                  timerLabel: formatPluralMessage("timer.count", props.timerCount),
                 })}
               </AlertDialogDescription>
             </AlertDialogHeader>

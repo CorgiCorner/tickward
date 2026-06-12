@@ -11,8 +11,12 @@ export type EmbedTheme = (typeof EMBED_THEMES)[number]
 export const EMBED_FONTS = ["system", "mono"] as const
 export type EmbedFont = (typeof EMBED_FONTS)[number]
 
+export const EMBED_END_MODES = ["auto", "message", "countup"] as const
+export type EmbedEndMode = (typeof EMBED_END_MODES)[number]
+
 export const EMBED_SCALE_MIN = 0.5
 export const EMBED_SCALE_MAX = 2
+export const EMBED_DONE_TEXT_MAX_LENGTH = 80
 
 export type EmbedParams = {
   layout: EmbedLayout
@@ -28,6 +32,10 @@ export type EmbedParams = {
   labels: boolean
   /** Show the absolute target date line. */
   showTarget: boolean
+  /** What to render when a non-recurring countdown reaches zero. */
+  endMode: EmbedEndMode
+  /** Optional replacement for the finished message. */
+  doneText: string | null
 }
 
 export const DEFAULT_EMBED_PARAMS: EmbedParams = {
@@ -39,6 +47,8 @@ export const DEFAULT_EMBED_PARAMS: EmbedParams = {
   scale: 1,
   labels: true,
   showTarget: true,
+  endMode: "auto",
+  doneText: null,
 }
 
 const HEX_COLOR_PATTERN = /^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
@@ -79,6 +89,15 @@ function parseBg(value: string | undefined): string | null {
   return parseHexColor(value)
 }
 
+function parseDoneText(value: string | undefined): string | null {
+  const normalized = value
+    ?.replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  if (!normalized) return null
+  return normalized.slice(0, EMBED_DONE_TEXT_MAX_LENGTH)
+}
+
 export function parseEmbedParams(searchParams: SearchParams): EmbedParams {
   return {
     layout: oneOf(first(searchParams.layout), EMBED_LAYOUTS, DEFAULT_EMBED_PARAMS.layout),
@@ -89,6 +108,8 @@ export function parseEmbedParams(searchParams: SearchParams): EmbedParams {
     scale: parseScale(first(searchParams.scale)),
     labels: toggle(first(searchParams.labels), DEFAULT_EMBED_PARAMS.labels),
     showTarget: toggle(first(searchParams.target), DEFAULT_EMBED_PARAMS.showTarget),
+    endMode: oneOf(first(searchParams.end), EMBED_END_MODES, DEFAULT_EMBED_PARAMS.endMode),
+    doneText: parseDoneText(first(searchParams.done)),
   }
 }
 
@@ -104,6 +125,8 @@ export function embedQueryString(params: Partial<EmbedParams>): string {
     query.set("scale", String(params.scale))
   if (params.labels === false) query.set("labels", "off")
   if (params.showTarget === false) query.set("target", "off")
+  if (params.endMode && params.endMode !== DEFAULT_EMBED_PARAMS.endMode) query.set("end", params.endMode)
+  if (params.doneText) query.set("done", params.doneText)
   const value = query.toString()
   return value ? `?${value}` : ""
 }

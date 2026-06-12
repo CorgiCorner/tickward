@@ -1,0 +1,102 @@
+---
+title: "Sharing Model"
+description: "What a share link is, how share ids are derived, which timer fields become public, and how revocation works."
+---
+
+A share is a routable pointer to one timer, served at `/share/<shareId>`. It is
+not a copy of the timer: the server stores a small share record and rebuilds a
+public projection from the timer's current data every time the link is
+resolved.
+
+## Static share IDs
+
+Share ids are deterministic, not random. `lib/static-share-id.server.ts`
+derives the id from the owner scope and the timer identity:
+
+```ts
+function actorShareScope(actor: Actor) {
+  if (actor.kind === "anonymous") return `restore:${hashRestoreKeyToken(actor.restoreKey)}`
+  if (actor.restoreKey) return `restore:${hashRestoreKeyToken(actor.restoreKey)}`
+  return `user:${actor.user.id}`
+}
+
+export function stableShareId(input: StaticShareIdInput) {
+  const digest = createHash("sha256")
+    .update(`tickward:${input.kind}-share:${actorShareScope(input.actor)}:${input.entityId}`, "utf8")
+    .digest("base64url")
+  return `timer_${digest}`
+}
+```
+
+Because the id is a pure function of owner and timer, links are stable: sharing
+the same timer again returns the same URL, and share creation is an idempotent
+upsert (`createTimerShare` / `getExistingTimerShare` in
+`lib/share-service.server.ts`).
+
+The id is still unguessable. The digest is a 43-character base64url SHA-256
+value (about 256 bits), and its inputs include either the owner's restore key -
+a secret - or identifiers that are never exposed publicly. Incoming ids are
+validated against `/^[A-Za-z0-9_-]{8,64}$/` and a `timer_` or `share_` prefix
+(`isRoutableShareId` in `lib/identifiers.ts`) before any lookup.
+
+Anyone with the link can open the share page; there is no authentication check.
+The page sends `noindex` robots metadata, so links are unlisted rather than
+searchable.
+
+## What a share exposes
+
+The public projection is built by `sharedTimerFromTimer` in
+`lib/share-model.ts` and contains only what is needed to render the countdown:
+
+| Public field | Meaning |
+|-|-|
+| `label` | the timer name |
+| `targetDate` | the effective target as a UTC timestamp; for recurring timers, the next occurrence computed at resolve time |
+| `timezone` | the time zone used to format the target for display |
+| `color` | the timer color |
+| `description` | the timer description, if set |
+| `refreshOnFinish` | present only when recurrence is enabled; tells viewers to refetch when the countdown finishes |
+| `sharedAt` | when the share was created |
+
+Everything else stays private: the timer's internal id, the project id and
+name, the owner's identity and restore key, notification and alarm settings,
+the recurrence rule itself (viewers see only the computed next occurrence and
+the `refreshOnFinish` boolean), pinned state, space assignment, background
+image, created/updated timestamps, and every other timer in the project.
+
+## Live, not a snapshot
+
+The stored share record is only `{ timerId, sharedAt }`. Resolution reads the
+timer's current row on every request and rebuilds the projection, which is why
+the resolved type in `lib/share-model.ts` is marked `resolvedFrom: "live"`.
+Edits to the label, target date, color, or description show up on the share
+page; `sharedAt` is the only value frozen at share time.
+
+The resolve API (`GET /api/share/resolve`) is served with
+`Cache-Control: public, s-maxage=30, stale-while-revalidate=60`, so followers
+and embeds can lag up to about a minute behind an edit. The share page itself
+resolves server-side on each request.
+
+Viewers can also save a shared timer into their own list. The saved copy stores
+the share id as its source and refreshes from the share, so it tracks later
+edits instead of forking into an independent timer.
+
+## Revocation and lifecycle
+
+A share works while its share row exists. Three actions delete the row:
+`DELETE /api/v1/projects/{projectId}/shares/{shareId}` in the public API (which
+also clears the timer's `sharedAt` marker and emits a `share.deleted` webhook),
+deleting the shared timer, and deleting the project. Once the row is gone, the
+share page returns 404 and embeds switch to a neutral "Timer unavailable" card.
+
+One caveat follows from deterministic ids: sharing the same timer again
+re-issues the same id, so previously distributed copies of the link start
+working again. Revocation turns the link off; it does not rotate the URL.
+
+## Relation to embeds
+
+`/embed/<shareToken>` uses the same share id and the same resolution path. An
+embed is a rendering surface over the same shared data: it exposes the same
+fields, reflects the same edits, and stays live exactly as long as the share
+does. For iframe parameters and the JSON state endpoint, see
+[Embedding timers](/guides/embedding-timers).

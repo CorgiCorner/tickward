@@ -1,0 +1,116 @@
+---
+title: "API Reliability"
+description: "How tickward handles retry-safe mutations, rate limits, webhook delivery semantics, and API version boundaries."
+---
+
+The versioned API under `/api/v1` is built so clients can retry safely,
+especially agents that may lose a response or repeat a request. The three
+mechanisms involved are idempotent mutations, explicit rate-limit responses,
+and at-least-once webhook delivery.
+
+## Idempotency
+
+`POST`, `PATCH`, and `DELETE` requests under `/api/v1` accept an optional
+`Idempotency-Key` header, handled in `lib/public-api-v1.server.ts`. Without the
+header the request runs normally and no idempotency record is created. The key
+must be 8-128 characters matching `^[A-Za-z0-9._:-]+$`; anything else is a
+`400 validation_error`.
+
+On first use the server stores a row keyed by a SHA-256 hash of the API key id
+and the idempotency key, together with a request hash built from the method,
+the path with sorted query parameters, and the JSON body re-serialized with
+sorted keys - so formatting differences in the body do not change the hash.
+What happens on a repeat depends on how it compares to that row:
+
+- Same key, identical request, finished: the stored response body and status
+  are replayed with `Idempotency-Replayed: true`.
+- Same key, different request: `409 idempotency_conflict`.
+- Same key while the first attempt is still running:
+  `409 idempotency_key_in_progress` with `Retry-After: 1`.
+
+Keys expire after 24 hours; responses include `Idempotency-Key-Expires-At` so
+clients know the replay window. Responses with status 500 or above are not
+stored - the key is released so a retry re-executes the operation. Concurrent
+first attempts are resolved by a unique constraint on `(apiKeyId, keyHash)`;
+the loser of the race falls through to the same replay or conflict handling.
+`GET` requests, `POST /api/v1/projects/preview`, and `DELETE` with
+`dry_run=true` skip idempotency entirely because they do not mutate state.
+
+For the client-side pattern, see
+[Retry-safe mutation](/guides/recipes/retry-safe-mutation).
+
+## Rate limiting
+
+Rate limits are defined in `lib/rate-limit.server.ts` as sliding-window
+limiters from `@upstash/ratelimit`, backed by Redis over the REST client in
+`lib/redis.ts` (`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`). That
+can point at a hosted Redis service or the local `redis-http` container from
+the self-hosting compose setup. Every bucket is a fixed limit per 60-second
+sliding window; representative buckets:
+
+| Bucket | Limit | Keyed by |
+|-|-|-|
+| `public-api` | 120/min | API key |
+| `public-api-ip` | 300/min | client IP |
+| `write` | 30/min | actor and project |
+| `share-create` | 10/min | owner project id |
+| `embed-state` | 60/min | viewer IP and embed token |
+| `webhook-test` | 3/min | user and endpoint |
+| `auth-otp` | 1/min | email address |
+
+`/api/v1` checks two buckets: `public-api-ip` before authentication, then
+`public-api` per API key after authentication.
+
+A limited client gets HTTP `429` with error type `rate_limited`, a
+`retryAfter` detail, and both header conventions: `retry-after`,
+`ratelimit-limit`, `ratelimit-remaining`, `ratelimit-reset` (seconds until
+reset) plus `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and
+`X-RateLimit-Reset` (epoch milliseconds). If Redis is unreachable the API
+fails closed with `503 rate_limit_unavailable` rather than skipping the check.
+
+## Webhook delivery
+
+Webhooks use an outbox pattern in `lib/webhooks.server.ts`. `emitWebhookEvent`
+writes an event row inside the same database transaction as the mutation, so
+an event is recorded if and only if the change committed. `timer.ended` events
+carry a dedupe key per occurrence and an `availableAt` set to the target time,
+so rescheduling a timer upserts the pending event instead of duplicating it.
+
+A scheduler tick (the cron described in
+[Webhooks and scheduler](/guides/webhooks)) picks due events with
+`SELECT ... FOR UPDATE SKIP LOCKED`, creates one delivery row per matching
+active endpoint, then attempts due deliveries. Each attempt posts the JSON
+envelope with a 10-second timeout and the headers `tickward-signature`,
+`tickward-event-id`, `tickward-delivery-id`, and `tickward-event-type`. The
+signature is `t=<unix timestamp>,v1=<hex digest>`, computed with the
+endpoint's `whsec_` secret:
+
+```ts
+function webhookSignature(secret: string, payload: string, timestamp: number) {
+  return createHmac("sha256", secret).update(`${timestamp}.${payload}`, "utf8").digest("hex")
+}
+```
+
+Any `2xx` response marks the delivery delivered. Anything else - including a
+timeout - schedules a retry with backoff of 60 seconds, 5 minutes, 15 minutes,
+1 hour, and 3 hours, for at most 5 attempts total before the delivery is
+marked failed. Delivery is therefore at-least-once: a success response can be
+lost after your endpoint processed the event, and the next attempt re-sends
+the same event id, so receivers should treat the envelope `id` as a dedupe
+key. An endpoint is auto-disabled after 25 consecutive failed attempts
+(configurable via `TICKWARD_WEBHOOK_AUTO_DISABLE_FAILURES`); re-enabling it
+resets the failure streak.
+
+## API versioning
+
+The API version lives in the path. Every route is under `/api/v1`, served by
+one catch-all route in `app/api/v1/[[...path]]/route.ts`, and the OpenAPI
+server URL in `docs/site/openapi.json` is `https://tickward.com/api/v1`. There
+is no version header to send; `GET /api/v1/capabilities` returns
+`api_version: "v1"` along with feature flags and limits so clients can
+discover what a deployment supports.
+
+Webhook payloads are versioned separately: the envelope carries a date-based
+`event_version` (currently `"2026-06-10"`) that tracks the payload contract
+independently of the path version. Every API response also carries
+`Request-Id` and `Correlation-Id` headers for tracing a specific call.

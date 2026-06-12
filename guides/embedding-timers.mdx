@@ -49,10 +49,12 @@ ignored.
 | `layout` | `text`, `minimal`, `compact`, `square`, `horizontal` | `compact` | See the layout table below for recommended sizes. |
 | `theme` | `light`, `dark`, `auto` | `light` | `auto` follows the visitor's `prefers-color-scheme`. |
 | `accent` | 3- or 6-digit hex, no `#` (for example `e85d2a`) | timer color, else theme color | Applied to the digits. When the shared timer has a color, that color is the default accent; an explicit `accent` always wins. |
-| `bg` | `transparent` or 3-/6-digit hex | card background | `transparent` removes the card background and border so the host page shows through. A hex value sets the page background behind the card. |
+| `bg` | `transparent` or 3-/6-digit hex | card background | Applies only inside the embed surface. `transparent` clears the card fill but keeps framed layouts bordered; `text` stays unframed. A hex value sets the card fill, not the outer iframe background. |
 | `font` | `mono` | UI font | Renders the digits in a monospace font. |
 | `labels` | `off` | on | Hides the unit captions (days, hours, min, sec). |
-| `target` | `off` | on | Hides the absolute target-date line on layouts that show it. |
+| `target` | `off` | on | Hides the absolute target-date line on `compact`, `square`, and `horizontal`. |
+| `end` | `auto`, `message`, `countup` | `auto` | Controls the end state: current transient behavior, a persistent message, or elapsed count-up. |
+| `done` | text, max 80 characters | `Time's up` | Replaces the finished message when `end=auto` or `end=message` displays one. |
 | `scale` | number from `0.5` to `2` | `1` | Size multiplier on the fluid base size. Values outside the range are clamped. |
 
 For example, a dark, monospace, digits-only embed:
@@ -79,6 +81,15 @@ digits to fit, so you can deviate from the recommended sizes. Keep the iframe
 at or above the minimum width to avoid clipping. Note that `scale` multiplies
 the rendered size, so `compact` at `scale=2` effectively needs twice the
 minimum width.
+
+`compact`, `square`, and `horizontal` show the target date by default; add
+`target=off` when the embed needs to be shorter. While a timer is resolving,
+the iframe uses a matching layout-aware loading skeleton instead of the full
+app page loader.
+
+Recurring timers are embedded as ordinary one-shot countdowns. The iframe does
+not show repeat metadata; it receives the next effective occurrence and
+refreshes after that occurrence so the countdown can start again.
 
 ## States
 

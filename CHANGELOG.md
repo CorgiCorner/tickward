@@ -4,6 +4,57 @@
 
 No unreleased public changes.
 
+## 0.4.0 - 2026-06-12
+
+### Added
+
+- Added locale-aware public routes and Polish UI copy for the app shell,
+  settings, sharing, embeds, and account surfaces.
+- Added more public docs concepts and guides for API usage, MCP setup,
+  webhook scheduling, recurrence, notifications, sharing, and timer storage.
+- Added embed end-state options for automatic count-up, custom done messages,
+  and finished-state messaging.
+
+### Changed
+
+- Kept curated timer and use-case content out of the public snapshot while
+  preserving a clean public footer, sitemap, and extension-point boundary.
+- Updated public docs routing and navigation so the same docs content works in
+  the app and the docs site.
+
+### Fixed
+
+- Improved embed background scoping, compact spacing, target-date display,
+  loading state, and recurring-timer target resolution.
+- Fixed background-tab timer ticking by sharing one worker-backed clock across
+  timer surfaces.
+
+## 0.3.2 - 2026-06-12
+
+### Added
+
+- Added embed end-state controls: `end=auto`, `end=message`, `end=countup`,
+  plus `done=` for replacing the finished message.
+
+### Fixed
+
+- Made recurring shared timers resolve to the next effective one-shot target in
+  embeds without showing repeat metadata in the iframe.
+
+## 0.3.1 - 2026-06-12
+
+### Fixed
+
+- Kept embed backgrounds scoped to the bordered timer surface instead of
+  painting the outer iframe area, while preserving the border on transparent
+  framed embeds.
+- Tightened square embed vertical spacing between the title, countdown grid,
+  and target date.
+- Added the target date to compact embeds by default, with `target=off` still
+  available for very tight placements.
+- Replaced the inherited page loader inside embed iframes with a layout-aware
+  embed loader that matches the selected variant.
+
 ## 0.3.0 - 2026-06-11
 
 ### Added

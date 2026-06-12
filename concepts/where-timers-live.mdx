@@ -1,0 +1,139 @@
+---
+title: "Where Timers Live"
+description: "How anonymous projects live in browser storage, how signing in claims them into an account, and which limits apply where."
+---
+
+A tickward project has two storage homes: the browser and the server database.
+The browser is the working copy - anonymous projects are created, edited, and
+read from `localStorage` first. The server copy exists so a project can be
+restored on another device by its key, and later claimed into a signed-in
+account.
+
+## Anonymous projects in the browser
+
+Projects created without an account live in `localStorage`, managed by
+`lib/project-storage.client.ts`, under three kinds of keys:
+
+| key | contents |
+|-|-|
+| `td_projects_v1` | the project registry, an array of `ProjectMeta` entries |
+| `td_active_project_v1` | the active project id |
+| `td_project_payload:<projectId>` | one payload entry per project |
+
+The payload holds the actual timer state, typed in `lib/project-model.ts`:
+
+```ts
+export type LocalProjectPayload = {
+  timers: Timer[]
+  spaces: Space[]
+  activeSpaceId: string | null
+  sortMode?: TimerSortMode
+  timerFilters?: TimerFilters
+  updatedAt: string
+}
+```
+
+Every read goes through normalizers that drop malformed entries and clamp
+counts - `localStorage` is user-editable input, not trusted storage. Every
+project also gets a restore key at creation, a 12-character id generated in
+the browser; the registry deduplicates projects by that key.
+
+## What the server sees before sign-in
+
+When a project has a restore key, edits schedule a debounced sync (1200 ms,
+`SYNC_DEBOUNCE_MS` in `lib/stores/timer-store-sync.ts`) that posts the full
+snapshot - name, color, timers, spaces, `updatedAt` - to `/api/projects/save`.
+The Prisma adapter (`lib/adapters/prisma-project-repository.server.ts`) stores
+it in PostgreSQL, addressed by a `ProjectAccessToken` row whose `tokenHash` is
+derived from the restore key. The raw key is never stored server-side, and the
+project row has no owner until it is claimed. This server copy is what makes
+restore-by-key work on another device; the browser copy stays the working copy.
+
+Saves use compare-and-set, not merge. `saveProject` in
+`lib/project-service.server.ts` compares the stored snapshot's `updatedAt` with
+the timestamp the client last saw:
+
+```ts
+if (
+  !input.force &&
+  current?.project.updatedAt &&
+  current.project.updatedAt !== input.project.updatedAt &&
+  (!input.baseUpdatedAt || current.project.updatedAt !== input.baseUpdatedAt)
+) {
+  return { status: "conflict", project: current.project, source: current.source }
+}
+```
+
+A diverged save returns HTTP 409 with the remote snapshot. The client records
+the conflict and pauses scheduled sync until you either overwrite the server
+copy with a forced save or adopt the remote version.
+
+## Claiming a project into an account
+
+Signing in shows a claim prompt for the active anonymous project. Claiming
+first force-syncs the local copy, then posts the restore key to
+`/api/projects/claim` (`claimProject` in `lib/project-client.ts` and
+`lib/project-service.server.ts`). Server-side, `claimAnonymousProject` runs as
+a single transaction: it consumes the access token (sets `claimedAt` and
+`revokedAt` on the token row), sets `ownerId` and `claimedAt` on the project,
+and re-owns its timers and spaces. The token update is guarded - if the token
+was already consumed the transaction aborts and the claim returns `not_found` -
+so a restore key can be claimed exactly once.
+
+After a claim the restore key stops working. The client switches to addressing
+the project by `projectId` with the session: saves go through the
+project-id path, and `listUserProjects` enumerates the account's projects.
+
+Dismissing the claim prompt changes nothing in storage.
+`lib/project-claim-dismissal.client.ts` writes `"1"` to `sessionStorage` under
+`tickward:project-claim-dismissed:<projectId>` and dispatches an event so other
+components and tabs update. Because it is `sessionStorage`, the dismissal lasts
+for the browser session only; the prompt can return in a new session.
+
+## Access rules
+
+There are exactly two ways to address a project, defined in
+`lib/project-access.server.ts`:
+
+| addressing mode | who can use it | scope |
+|-|-|-|
+| restore key | any actor holding the key, session or not | one project, until its token is consumed by a claim |
+| project id | signed-in users only | projects whose `ownerId` matches the user (admins are exempt) |
+
+Claiming specifically requires a session - `claimProjectAccess` returns no
+access for non-user actors. User-project saves use the same `updatedAt`
+compare-and-set as anonymous saves.
+
+## Limits
+
+One plan exists today (`anonymous` in `lib/entitlements.ts`); every actor gets
+the same entitlements, signed in or not.
+
+| limit | default | env override |
+|-|-|-|
+| `maxTimers` | 20 | `NEXT_PUBLIC_TICKWARD_MAX_TIMERS` |
+| `maxTimersPerSpace` | 20 | `NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE` |
+| `maxSpaces` | 2 | `NEXT_PUBLIC_TICKWARD_MAX_SPACES` |
+| `maxProjects` | 12 | none |
+| `maxSnapshotTimers` | 50 | none |
+
+Overrides are validated as integers from 1 to 1000; invalid values fall back to
+the defaults (see [Self-Hosting](/guides/self-hosting) for deployment
+configuration). Enforcement happens in three places:
+
+- **At creation, in the client.** `canCreateTimerInSpace` in
+  `lib/entitlements.ts` checks the project total and the per-space count. The
+  per-space count comes from `activeTimerCountForTargetSpace` in
+  `lib/timer-space-limits.ts`, which skips archived timers and treats the
+  unassigned bucket as its own target space.
+- **At save, on the server.** `validateProjectSnapshot` in
+  `lib/project-model.ts` rejects snapshots over `maxSnapshotTimers` or
+  `maxSpaces` before they reach storage.
+- **At read, in the browser.** `readProjectPayload` clamps timers to 50 and
+  spaces to `maxSpaces`, and `readProjectRegistry` caps the registry at
+  `maxProjects`, so hand-edited `localStorage` cannot bypass the limits.
+
+`maxSnapshotTimers` (50) is looser than `maxTimers` (20) on purpose: a
+snapshot holding more timers than the creation cap - for example one written
+through the public API, which allows up to `maxSnapshotTimers` - still saves
+and restores; the lower cap only blocks creating new timers in the client.

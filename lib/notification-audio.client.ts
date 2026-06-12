@@ -65,6 +65,12 @@ export async function unlockNotificationAudio(sound: NotificationSound = "polite
   return playFallbackTone(sound)
 }
 
+export async function primeNotificationAudio() {
+  const context = reusableAudioContext()
+  if (!context) return false
+  return await resumeAudioContext(context)
+}
+
 export async function playNotificationSound(sound: NotificationSound) {
   if (sound === "none" || globalThis.window === undefined) return false
 

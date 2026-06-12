@@ -93,6 +93,23 @@ export const Finished: Story = {
   },
 }
 
+export const CustomFinishedMessage: Story = {
+  args: {
+    doneText: "Sale ended",
+    endMode: "message",
+    targetDateIsoUtc: "2026-05-20T09:30:00.000Z",
+  },
+}
+
+export const CountUpEnd: Story = {
+  args: {
+    endMode: "countup",
+    targetDateIsoUtc: new Date(storybookNowMs).toISOString(),
+    initialNowMs: storybookNowMs - 1_000,
+    nowMs: storybookNowMs + 1_000,
+  },
+}
+
 export const Transparent: Story = {
   args: {
     layout: "square",

@@ -275,7 +275,7 @@ export function HomeClient() {
   const activeSpaceId = useTimerStore((s) => s.activeSpaceId)
   const sortMode = useTimerStore((s) => s.sortMode)
   const timerFilters = useTimerStore((s) => s.timerFilters)
-  const nowMs = useNow(1000)
+  const nowMs = useNow()
   const refreshFollowedTimers = useTimerStore((s) => s.refreshFollowedTimers)
   const refreshActiveProjectFromCloud = useTimerStore((s) => s.refreshActiveProjectFromCloud)
   const reorderVisibleTimers = useTimerStore((s) => s.reorderVisibleTimers)

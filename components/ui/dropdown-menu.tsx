@@ -9,7 +9,9 @@ function DropdownMenu({ ...props }: Readonly<React.ComponentProps<typeof Dropdow
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
 
-function DropdownMenuTrigger({ ...props }: Readonly<React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>>) {
+function DropdownMenuTrigger({
+  ...props
+}: Readonly<React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>>) {
   return <DropdownMenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
 }
 
@@ -63,10 +65,7 @@ function DropdownMenuItem({
   )
 }
 
-function DropdownMenuLabel({
-  className,
-  ...props
-}: Readonly<React.ComponentProps<typeof DropdownMenuPrimitive.Label>>) {
+function DropdownMenuLabel({ className, ...props }: Readonly<React.ComponentProps<typeof DropdownMenuPrimitive.Label>>) {
   return (
     <DropdownMenuPrimitive.Label
       data-slot="dropdown-menu-label"

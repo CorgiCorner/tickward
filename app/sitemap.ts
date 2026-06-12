@@ -1,5 +1,7 @@
 import type { MetadataRoute } from "next"
+import { appExtensions } from "@/lib/app-extensions"
 import { getDocsSitemapPaths } from "@/lib/docs-config"
+import { DEFAULT_LOCALE, localeHref, SUPPORTED_LOCALES } from "@/lib/i18n/config"
 import { getSiteOrigin } from "@/lib/site-config"
 
 const APP_SITEMAP_ENTRIES = [
@@ -7,27 +9,51 @@ const APP_SITEMAP_ENTRIES = [
     path: "/",
     changeFrequency: "weekly",
     priority: 1,
+    // The home page is a true translation pair; locale-native pages and the
+    // EN-only chrome routes are listed once, in their own language.
+    localized: true,
   },
   {
     path: "/press",
     changeFrequency: "monthly",
     priority: 0.5,
+    localized: true,
   },
 ] as const
 
-function sitemapEntry(
-  siteOrigin: string,
-  entry: Readonly<{
-    changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"]
-    path: string
-    priority: number
-  }>,
-) {
+type SitemapSource = Readonly<{
+  changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"]
+  path: string
+  priority: number
+  localized?: boolean
+}>
+
+function localeAlternates(siteOrigin: string, path: string) {
   return {
-    url: `${siteOrigin}${entry.path}`,
+    languages: {
+      ...Object.fromEntries(SUPPORTED_LOCALES.map((locale) => [locale, `${siteOrigin}${localeHref(locale, path)}`])),
+      "x-default": `${siteOrigin}${localeHref(DEFAULT_LOCALE, path)}`,
+    },
+  }
+}
+
+function sitemapEntries(siteOrigin: string, entry: SitemapSource): MetadataRoute.Sitemap {
+  if (!entry.localized) {
+    return [
+      {
+        url: `${siteOrigin}${entry.path}`,
+        changeFrequency: entry.changeFrequency,
+        priority: entry.priority,
+      },
+    ]
+  }
+
+  return SUPPORTED_LOCALES.map((locale) => ({
+    url: `${siteOrigin}${localeHref(locale, entry.path)}`,
     changeFrequency: entry.changeFrequency,
     priority: entry.priority,
-  }
+    alternates: localeAlternates(siteOrigin, entry.path),
+  }))
 }
 
 export default function sitemap(): MetadataRoute.Sitemap {
@@ -37,6 +63,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     changeFrequency: "monthly" as const,
     priority: path === "/docs" ? 0.7 : 0.6,
   }))
+  const marketingEntries = appExtensions.marketingSitemapEntries?.() ?? []
 
-  return [...APP_SITEMAP_ENTRIES, ...docsEntries].map((entry) => sitemapEntry(siteOrigin, entry))
+  return [...APP_SITEMAP_ENTRIES, ...docsEntries, ...marketingEntries].flatMap((entry) =>
+    sitemapEntries(siteOrigin, entry),
+  )
 }

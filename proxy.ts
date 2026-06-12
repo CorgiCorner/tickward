@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { DEFAULT_LOCALE, isSupportedLocale, type Locale } from "@/lib/i18n/config"
 import { isRoutableShareId } from "@/lib/share-model"
 
 const STATIC_SECURITY_HEADERS = [
@@ -56,10 +57,11 @@ function contentSecurityPolicy() {
     "img-src 'self' https://images.unsplash.com",
     "style-src 'self' 'unsafe-inline'",
     `script-src ${scriptSrc.join(" ")}`,
+    "worker-src 'self' blob:",
   ].join("; ")
 }
 
-function handleHomepage(request: NextRequest): NextResponse {
+function handleHomepage(request: NextRequest, internalPathname: string): NextResponse {
   // Markdown for Agents: serve the markdown representation when negotiated.
   if ((request.headers.get("accept") ?? "").includes("text/markdown")) {
     const markdown = NextResponse.rewrite(new URL("/home.md", request.url))
@@ -67,7 +69,10 @@ function handleHomepage(request: NextRequest): NextResponse {
     return applySecurityHeaders(markdown)
   }
 
-  const response = NextResponse.next()
+  const response =
+    internalPathname === request.nextUrl.pathname
+      ? NextResponse.next()
+      : NextResponse.rewrite(new URL(internalPathname, request.url))
   response.headers.set("Link", DISCOVERY_LINK_HEADER)
   response.headers.set("Vary", "Accept")
   return applySecurityHeaders(response)
@@ -110,12 +115,43 @@ function shareIdFromPathname(pathname: string) {
   }
 }
 
+// Splits an explicit /<locale> prefix off the public pathname. The default
+// locale stays canonical at bare URLs, but /en must remain routable because
+// bare default-locale URLs are internally rewritten into the /en app tree.
+function splitLocalePrefix(pathname: string): { locale: Locale; rest: string } | null {
+  const segment = pathname.split("/")[1] ?? ""
+  if (!isSupportedLocale(segment)) return null
+  return { locale: segment, rest: pathname.slice(segment.length + 1) || "/" }
+}
+
 export async function proxy(request: NextRequest) {
-  if (request.nextUrl.pathname === "/") {
-    return handleHomepage(request)
+  const pathname = request.nextUrl.pathname
+
+  // API routes are locale-neutral: origin-check mutations, add headers.
+  if (pathname === "/api" || pathname.startsWith("/api/")) {
+    const method = request.method
+    if (method === "POST" || method === "DELETE") {
+      const origin = request.headers.get("Origin")
+      if (origin && !isAllowedRequestOrigin(request, origin)) {
+        const response = NextResponse.json({ error: "Forbidden" }, { status: 403 })
+        return applySecurityHeaders(response)
+      }
+    }
+    return applySecurityHeaders(NextResponse.next())
   }
 
-  const shareId = shareIdFromPathname(request.nextUrl.pathname)
+  const prefixed = splitLocalePrefix(pathname)
+
+  // The public path the visitor sees, independent of the locale prefix, and
+  // the internal path inside the app/[locale] tree.
+  const publicPath = prefixed ? prefixed.rest : pathname
+  const internalPathname = prefixed ? pathname : `/${DEFAULT_LOCALE}${pathname === "/" ? "" : pathname}`
+
+  if (publicPath === "/") {
+    return handleHomepage(request, internalPathname)
+  }
+
+  const shareId = shareIdFromPathname(publicPath)
   if (shareId !== null && !isRoutableShareId(shareId)) {
     const response = new NextResponse("Not found", {
       status: 404,
@@ -124,21 +160,26 @@ export async function proxy(request: NextRequest) {
     return applySecurityHeaders(response)
   }
 
-  const method = request.method
-  const isMutating = method === "POST" || method === "DELETE"
-
-  if (isMutating) {
-    const origin = request.headers.get("Origin")
-    if (origin && !isAllowedRequestOrigin(request, origin)) {
-      const response = NextResponse.json({ error: "Forbidden" }, { status: 403 })
-      return applySecurityHeaders(response)
+  if (shareId !== null) {
+    const method = request.method
+    if (method === "POST" || method === "DELETE") {
+      const origin = request.headers.get("Origin")
+      if (origin && !isAllowedRequestOrigin(request, origin)) {
+        const response = NextResponse.json({ error: "Forbidden" }, { status: 403 })
+        return applySecurityHeaders(response)
+      }
     }
+    const response = prefixed ? NextResponse.next() : NextResponse.rewrite(new URL(internalPathname, request.url))
+    return applySecurityHeaders(response)
   }
 
-  const response = NextResponse.next()
-  return applySecurityHeaders(response)
+  // Every other page route only needs the locale rewrite; response headers
+  // for these routes come from next.config headers(), as before.
+  return prefixed ? NextResponse.next() : NextResponse.rewrite(new URL(internalPathname, request.url))
 }
 
 export const config = {
-  matcher: ["/", "/api/:path*", "/share/:path*"],
+  // Match every page path (no dots, not _next) so the default locale can be
+  // rewritten into the app/[locale] tree, plus the API for origin checks.
+  matcher: ["/((?!api|_next|.*\\..*).*)", "/", "/api/:path*"],
 }

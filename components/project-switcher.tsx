@@ -10,7 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Separator } from "@/components/ui/separator"
 import { SettingsSheet } from "@/components/settings-sheet"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
-import { formatMessage } from "@/lib/i18n/messages"
+import { formatMessage, formatPluralMessage } from "@/lib/i18n/messages"
 import { useTimerStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
@@ -26,7 +26,7 @@ function projectStatus(args: { isCheckingCloud: boolean; isSyncing: boolean; res
 }
 
 function timerCountLabel(count: number) {
-  return formatMessage(count === 1 ? "timer.count.one" : "timer.count.many", { count })
+  return formatPluralMessage("timer.count", count)
 }
 
 export function ProjectSwitcher() {

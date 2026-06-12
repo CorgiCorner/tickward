@@ -7,7 +7,12 @@ const docsSiteDir = path.join(rootDir, "docs/site")
 
 const syncedDocsFiles = [
   "api-reference.mdx",
+  "concepts/api-reliability.mdx",
   "concepts/countdown-accuracy.mdx",
+  "concepts/notifications-and-alarms.mdx",
+  "concepts/recurrence.mdx",
+  "concepts/sharing-model.mdx",
+  "concepts/where-timers-live.mdx",
   "docs.json",
   "guides/agent-usage.mdx",
   "guides/api-quickstart.mdx",

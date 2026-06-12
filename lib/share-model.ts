@@ -1,4 +1,5 @@
 import type { Timer } from "@/lib/types"
+import { effectiveTargetDate } from "@/lib/utils"
 
 export type SharedTimerSnapshot = {
   label: string
@@ -6,6 +7,7 @@ export type SharedTimerSnapshot = {
   timezone: string
   color?: string
   description?: string
+  refreshOnFinish?: boolean
   sharedAt: string
 }
 
@@ -21,13 +23,14 @@ export type ResolvedShare = {
 
 export { isRoutableShareId, isValidRestoreKey, isValidShareId } from "@/lib/identifiers"
 
-export function sharedTimerFromTimer(timer: Timer, sharedAt?: string): ResolvedShare["timer"] {
+export function sharedTimerFromTimer(timer: Timer, sharedAt?: string, nowMs = Date.now()): ResolvedShare["timer"] {
   return {
     label: timer.label,
-    targetDate: timer.targetDate,
+    targetDate: effectiveTargetDate(timer, nowMs),
     timezone: timer.timezone,
     color: timer.color,
     description: timer.description,
+    ...(timer.recurrence?.enabled ? { refreshOnFinish: true } : {}),
     sharedAt,
   }
 }

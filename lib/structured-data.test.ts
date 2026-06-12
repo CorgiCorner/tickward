@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { buildOrganizationJsonLd, buildSoftwareApplicationJsonLd } from "@/lib/structured-data"
+import {
+  buildBreadcrumbListJsonLd,
+  buildFaqPageJsonLd,
+  buildOrganizationJsonLd,
+  buildSoftwareApplicationJsonLd,
+  jsonLdScriptContent,
+} from "@/lib/structured-data"
 
 describe("structured data", () => {
   afterEach(() => {
@@ -40,6 +46,44 @@ describe("structured data", () => {
     expect(serialized).not.toContain("</script>")
   })
 
+  it("builds FAQPage markup from plain question/answer pairs", () => {
+    const jsonLd = buildFaqPageJsonLd([{ question: "Is it free?", answer: "Yes, it is free." }])
+
+    expect(jsonLd).toEqual({
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: [
+        {
+          "@type": "Question",
+          name: "Is it free?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Yes, it is free.",
+          },
+        },
+      ],
+    })
+  })
+
+  it("builds BreadcrumbList markup with absolute item urls", () => {
+    vi.stubEnv("SITE_URL", "https://example.test")
+    vi.stubEnv("NODE_ENV", "production")
+
+    const jsonLd = buildBreadcrumbListJsonLd([
+      { name: "Home", path: "/" },
+      { name: "Example", path: "/example" },
+    ])
+
+    expect(jsonLd).toEqual({
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Home", item: "https://example.test/" },
+        { "@type": "ListItem", position: 2, name: "Example", item: "https://example.test/example" },
+      ],
+    })
+  })
+
   it("describes the project as a schema.org Organization with a press contact", () => {
     const jsonLd = buildOrganizationJsonLd()
 
@@ -75,5 +119,35 @@ describe("structured data", () => {
 
     expect(() => JSON.parse(serialized)).not.toThrow()
     expect(serialized).not.toContain("</script>")
+  })
+
+  it("describes frequently asked questions as schema.org FAQPage", () => {
+    const jsonLd = buildFaqPageJsonLd([
+      { question: "Is it free?", answer: "Yes. It is free." },
+      { question: "Can I share it?", answer: "Yes. Share a read-only link." },
+    ])
+
+    expect(jsonLd).toMatchObject({
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+    })
+    expect(jsonLd.mainEntity[0]).toMatchObject({
+      "@type": "Question",
+      name: "Is it free?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Yes. It is free.",
+      },
+    })
+  })
+
+  it("escapes JSON-LD script content before embedding it in HTML", () => {
+    const serialized = jsonLdScriptContent(
+      buildFaqPageJsonLd([{ question: "Can markup break it?", answer: "No </script> tag can break the page." }]),
+    )
+
+    expect(() => JSON.parse(serialized)).not.toThrow()
+    expect(serialized).not.toContain("</script>")
+    expect(serialized).toContain("\\u003c/script>")
   })
 })

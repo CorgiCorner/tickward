@@ -207,7 +207,7 @@ function TimerFormContent(
   const activeSpaceId = useTimerStore((s) => s.activeSpaceId ?? null)
   const defaultTz = useDefaultTimeZone()
   const browserTz = useBrowserTimeZone()
-  const nowMs = useNow(1000)
+  const nowMs = useNow()
   const [step, setStep] = useState<TimerFormStep>(1)
   const session = authClient.useSession()
 

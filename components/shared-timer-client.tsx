@@ -17,7 +17,7 @@ import { useTimerStore } from "@/lib/store"
 type ResolvedShareClient = ResolvedShare
 
 export function SharedTimerClient(props: Readonly<{ initial: ResolvedShareClient; shareId: string }>) {
-  const nowMs = useNow(1000)
+  const nowMs = useNow()
   const [embedOpen, setEmbedOpen] = useState(false)
 
   const followTimer = useTimerStore((s) => s.followTimer)

@@ -22,7 +22,7 @@ vi.mock("@/components/project-switcher", () => ({
 }))
 
 vi.mock("@/components/account-auth", () => ({
-  AccountButton: () => <a href="/settings">Sign in</a>,
+  AccountButton: () => <span>Sign in</span>,
 }))
 
 vi.mock("@/components/github-repo-button", () => ({

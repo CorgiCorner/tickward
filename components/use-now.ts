@@ -1,14 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useSyncExternalStore } from "react"
 
-export function useNow(intervalMs = 1000) {
-  const [nowMs, setNowMs] = useState(() => Date.now())
+import { nowSnapshot, subscribeToNow } from "@/lib/now-ticker.client"
 
-  useEffect(() => {
-    const id = globalThis.setInterval(() => setNowMs(Date.now()), intervalMs)
-    return () => globalThis.clearInterval(id)
-  }, [intervalMs])
-
-  return nowMs
+export function useNow() {
+  return useSyncExternalStore(subscribeToNow, nowSnapshot, nowSnapshot)
 }

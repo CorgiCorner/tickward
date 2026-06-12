@@ -28,7 +28,14 @@
           },
           {
             "group": "Concepts",
-            "pages": ["concepts/countdown-accuracy"]
+            "pages": [
+              "concepts/countdown-accuracy",
+              "concepts/recurrence",
+              "concepts/notifications-and-alarms",
+              "concepts/where-timers-live",
+              "concepts/sharing-model",
+              "concepts/api-reliability"
+            ]
           },
           {
             "group": "Recipes",

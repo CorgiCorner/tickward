@@ -75,6 +75,17 @@ describe("notification audio", () => {
     expect(oscillatorStart).toHaveBeenCalledTimes(1)
   })
 
+  it("primes the audio context from a user gesture without playing a tone", async () => {
+    const { contexts, oscillatorStart } = installAudioContextMock()
+    const { primeNotificationAudio } = await import("@/lib/notification-audio.client")
+
+    await expect(primeNotificationAudio()).resolves.toBe(true)
+
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0]?.resume).toHaveBeenCalledTimes(1)
+    expect(oscillatorStart).not.toHaveBeenCalled()
+  })
+
   it("falls back to the unlocked audio context when HTML audio is blocked", async () => {
     const { contexts, oscillatorStart } = installAudioContextMock()
     const { playNotificationSound, unlockNotificationAudio } = await import("@/lib/notification-audio.client")

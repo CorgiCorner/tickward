@@ -7,7 +7,7 @@ import {
   type LocalNotificationPreferences,
 } from "@/lib/local-notification-preferences.client"
 import { formatMessage } from "@/lib/i18n/messages"
-import { playNotificationSound } from "@/lib/notification-audio.client"
+import { playNotificationSound, primeNotificationAudio } from "@/lib/notification-audio.client"
 import type { NotificationSound } from "@/lib/notification-preferences"
 import type { Timer } from "@/lib/types"
 import { recurrenceHistory } from "@/lib/utils"
@@ -59,6 +59,7 @@ function timerAlarmBoundary(timer: Timer, nowMs: number) {
 
 function timerAlarmCandidate(
   timer: Timer,
+  prevNowMs: number,
   nowMs: number,
   preferences: LocalNotificationPreferences,
   firedKeys: Set<string>,
@@ -71,7 +72,10 @@ function timerAlarmCandidate(
 
   const boundaryMs = new Date(boundary).getTime()
   const firedKey = `${timer.id}::${boundary}`
-  const readyToFire = boundaryMs > nowMs - 1500 && boundaryMs <= nowMs && !firedKeys.has(firedKey)
+  // Fire whenever the boundary was crossed since the previous tick, so a tick
+  // delayed by background-tab throttling still triggers the alarm instead of
+  // silently skipping it.
+  const readyToFire = boundaryMs > prevNowMs && boundaryMs <= nowMs && !firedKeys.has(firedKey)
   if (!readyToFire) return null
 
   const fullPageAlarm = preferences.fullPageAlarm
@@ -105,6 +109,7 @@ function triggerFullPageAlarm(candidate: TimerAlarmCandidate, setAlarm: (alarm: 
 
 export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
   const firedRef = useRef<Set<string>>(new Set())
+  const prevNowMsRef = useRef(nowMs)
   const [alarm, setAlarm] = useState<LocalTimerAlarm | null>(null)
 
   useEffect(() => {
@@ -116,11 +121,27 @@ export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
   }, [])
 
   useEffect(() => {
+    // Resume the shared AudioContext on the first user gesture so the sound
+    // fallback is allowed to play later, including in a hidden tab.
+    const prime = () => {
+      void primeNotificationAudio()
+    }
+    window.addEventListener("pointerdown", prime, { once: true })
+    window.addEventListener("keydown", prime, { once: true })
+    return () => {
+      window.removeEventListener("pointerdown", prime)
+      window.removeEventListener("keydown", prime)
+    }
+  }, [])
+
+  useEffect(() => {
     if (globalThis.window === undefined) return
     const preferences = readLocalNotificationPreferences()
+    const prevNowMs = prevNowMsRef.current
+    prevNowMsRef.current = nowMs
 
     for (const timer of timers) {
-      const candidate = timerAlarmCandidate(timer, nowMs, preferences, firedRef.current)
+      const candidate = timerAlarmCandidate(timer, prevNowMs, nowMs, preferences, firedRef.current)
       if (!candidate) continue
 
       firedRef.current.add(candidate.firedKey)

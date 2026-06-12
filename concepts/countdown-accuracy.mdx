@@ -32,15 +32,27 @@ has passed, the same numbers are shown as a count-up ("since") instead.
 
 ## Where "now" comes from
 
-The current time is sampled by the `useNow` hook in `components/use-now.ts`:
-it reads `Date.now()` and re-samples it once per second with `setInterval`.
+The current time is sampled by a single shared ticker in
+`lib/now-ticker.client.ts`. It runs a dedicated Web Worker that posts a message
+once per second; on every message the main thread reads `Date.now()` and
+notifies every subscribed component. Components subscribe through the `useNow`
+hook in `components/use-now.ts` (a thin `useSyncExternalStore` wrapper), so the
+whole app shares one tick source. When Web Workers are unavailable, the ticker
+falls back to a plain `setInterval`.
+
+The worker matters for background tabs: browsers heavily throttle main-thread
+timers in hidden tabs, but timers inside dedicated workers keep firing, so
+countdowns - and the alarms driven by them - stay live while you are on another
+tab. The ticker also re-samples immediately when the tab becomes visible again
+(`visibilitychange`), so a tab that was frozen entirely shows the correct time
+the moment you return.
 
 Two practical consequences:
 
 - **No drift.** Because each tick recomputes `target - now` from absolute
-  timestamps, a delayed tick cannot accumulate error. If the browser throttles
-  timers in a background tab or the laptop sleeps, the display may pause, but
-  the very next tick is exactly right again.
+  timestamps, a delayed tick cannot accumulate error. If the tab was frozen or
+  the laptop slept, the display may pause, but the very next tick is exactly
+  right again.
 - **It trusts the device clock.** `Date.now()` is the device's wall clock.
   If the device clock is two minutes off, the displayed remaining time is two
   minutes off as well. There is no server time synchronization.
@@ -62,12 +74,15 @@ occurrences passed.
 | API | Used for | Support |
 |-|-|-|
 | `Date.now()` | sampling the current time | every browser since ES5 |
-| `setInterval` | the 1-second tick | universal |
+| `Worker` (dedicated Web Worker) | the 1-second tick that survives background-tab throttling | all evergreen browsers |
+| `setInterval` | tick fallback when workers are unavailable | universal |
+| Page Visibility API (`visibilitychange`) | instant re-sample when the tab becomes visible | all evergreen browsers |
 | `Intl.DateTimeFormat` with IANA `timeZone` | time zone conversion | all evergreen browsers |
 
-All three APIs are available in every current evergreen browser; the only one
-with a meaningful history of partial support is `Intl.DateTimeFormat` time
-zone handling in long-obsolete browsers.
+All of these APIs are available in every current evergreen browser, and the
+ticker degrades to `setInterval` where workers are missing; the only API with a
+meaningful history of partial support is `Intl.DateTimeFormat` time zone
+handling in long-obsolete browsers.
 
 To verify support yourself:
 

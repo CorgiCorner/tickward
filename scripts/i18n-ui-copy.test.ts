@@ -7,6 +7,7 @@ const scanRoots = ["app", "components", "lib"].map((root) => path.join(process.c
 const skippedDirs = [".next", "components/storybook", "lib/generated", "lib/i18n", "node_modules", "storybook-static"]
 
 const skippedFilePatterns = [/\.stories\.[cm]?[tj]sx?$/, /\.test\.[cm]?[tj]sx?$/, /\.d\.ts$/]
+const contentDirs = ["lib/use-cases/content"]
 
 const checkedExtensions = new Set([".ts", ".tsx"])
 
@@ -66,6 +67,7 @@ function shouldSkip(filePath: string) {
   const relative = path.relative(process.cwd(), filePath).split(path.sep).join("/")
   return (
     skippedDirs.some((dir) => relative === dir || relative.startsWith(`${dir}/`)) ||
+    contentDirs.some((dir) => relative === dir || relative.startsWith(`${dir}/`)) ||
     skippedFilePatterns.some((pattern) => pattern.test(relative))
   )
 }

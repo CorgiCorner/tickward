@@ -93,13 +93,15 @@ describe("GET /api/embed/[token]", () => {
         targetDate: "2026-05-20T09:30:00.000Z",
         color: "#e85d2a",
         description: "Countdown to the big day",
+        refreshOnFinish: true,
       },
     })
 
     const res = await GET(request(routableToken), context(routableToken))
 
     expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toEqual({
+    const body = await res.json()
+    expect(body).toEqual({
       state: "since",
       now: nowIso,
       timer: {
@@ -110,6 +112,7 @@ describe("GET /api/embed/[token]", () => {
         description: "Countdown to the big day",
       },
     })
+    expect(body.timer).not.toHaveProperty("refreshOnFinish")
   })
 
   it("returns 200 unavailable when the token does not resolve", async () => {
