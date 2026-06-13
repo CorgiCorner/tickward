@@ -1,11 +1,9 @@
 import type { Metadata } from "next"
 import Image from "next/image"
 
-import { FooterFull } from "@/components/footer-full"
-import { MarketingHeader } from "@/components/marketing-header"
+import { MarketingPageShell } from "@/components/marketing-page-shell"
 import { getDocsHref, getDocsPageHref } from "@/lib/docs-config"
 import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
-import { getPublicReleaseTag } from "@/lib/release.server"
 import { getSiteOrigin } from "@/lib/site-config"
 import { TimerStoreProvider } from "@/lib/store"
 import { buildOrganizationJsonLd } from "@/lib/structured-data"
@@ -34,7 +32,7 @@ export async function generateMetadata(props: Readonly<{ params: Promise<{ local
       canonical: path,
       languages: {
         ...Object.fromEntries(SUPPORTED_LOCALES.map((other) => [other, localeHref(other, "/press")])),
-        "x-default": "/press",
+        "x-default": localeHref("en", "/press"),
       },
     },
     openGraph: {
@@ -131,142 +129,134 @@ export default function PressPage() {
         // Static, trusted payload: built from i18n constants and SITE_URL only.
         dangerouslySetInnerHTML={{ __html: JSON.stringify(buildOrganizationJsonLd()) }}
       />
-      <div className="flex min-h-dvh flex-col bg-background text-foreground">
-        <MarketingHeader />
-        <main className="mx-auto grid w-full max-w-[720px] flex-1 gap-10 px-4 py-10">
-          <header className="grid gap-3">
-            <h1 className="text-3xl font-semibold tracking-normal">{formatMessage("press.title")}</h1>
-            <section aria-label={formatMessage("press.oneLiner.title")}>
-              <p className="text-lg font-medium leading-relaxed">{formatMessage("press.oneLiner")}</p>
-            </section>
-          </header>
-
-          <ContactStrip />
-
-          <section className="grid gap-3">
-            <SectionHeading>{formatMessage("press.boilerplate.title")}</SectionHeading>
-            <p className="text-sm leading-relaxed">{formatMessage("press.boilerplate.body")}</p>
+      <MarketingPageShell>
+        <header className="grid gap-3">
+          <h1 className="text-3xl font-semibold tracking-normal">{formatMessage("press.title")}</h1>
+          <section aria-label={formatMessage("press.oneLiner.title")}>
+            <p className="text-lg font-medium leading-relaxed">{formatMessage("press.oneLiner")}</p>
           </section>
+        </header>
 
-          <section className="grid gap-4">
-            <SectionHeading>{formatMessage("press.facts.title")}</SectionHeading>
-            <dl className="grid overflow-hidden rounded-xl border bg-card">
-              {factRows.map((fact) => {
-                const value = formatMessage(fact.valueKey)
-                return (
-                  <div
-                    key={fact.labelKey}
-                    className="grid gap-1 border-b p-4 last:border-b-0 sm:grid-cols-[160px_1fr] sm:gap-4"
-                  >
-                    <dt className="text-sm font-medium text-muted-foreground">{formatMessage(fact.labelKey)}</dt>
-                    <dd className="text-sm leading-relaxed">
-                      {fact.href ? (
-                        <a className="underline underline-offset-4 hover:text-foreground" href={fact.href}>
-                          {value}
-                        </a>
-                      ) : (
-                        value
-                      )}
-                    </dd>
-                  </div>
-                )
-              })}
-            </dl>
-          </section>
+        <ContactStrip />
 
-          <section className="grid gap-4">
-            <SectionHeading>{formatMessage("press.descriptions.title")}</SectionHeading>
-            {descriptions.map((description) => (
-              <Description key={description.label} bodies={description.bodies} label={description.label} />
-            ))}
-          </section>
+        <section className="grid gap-3">
+          <SectionHeading>{formatMessage("press.boilerplate.title")}</SectionHeading>
+          <p className="text-sm leading-relaxed">{formatMessage("press.boilerplate.body")}</p>
+        </section>
 
-          <section className="grid gap-4">
-            <SectionHeading>{formatMessage("press.brand.title")}</SectionHeading>
-            <div className="flex flex-wrap items-end gap-6">
-              <a className="grid justify-items-center gap-2" href="/press/tickward-logo-512.png" download>
-                <Image
-                  src="/press/tickward-logo-512.png"
-                  alt={formatMessage("press.assets.alt512")}
-                  width={128}
-                  height={128}
-                  className="rounded-xl border"
-                />
-                <span className="text-sm underline underline-offset-4">
-                  {formatMessage("press.assets.download512")}
-                </span>
-              </a>
-              <a className="grid justify-items-center gap-2" href="/press/tickward-logo-256.png" download>
-                <Image
-                  src="/press/tickward-logo-256.png"
-                  alt={formatMessage("press.assets.alt256")}
-                  width={96}
-                  height={96}
-                  className="rounded-xl border"
-                />
-                <span className="text-sm underline underline-offset-4">
-                  {formatMessage("press.assets.download256")}
-                </span>
-              </a>
-            </div>
-          </section>
+        <section className="grid gap-4">
+          <SectionHeading>{formatMessage("press.facts.title")}</SectionHeading>
+          <dl className="grid overflow-hidden rounded-xl border bg-card">
+            {factRows.map((fact) => {
+              const value = formatMessage(fact.valueKey)
+              return (
+                <div
+                  key={fact.labelKey}
+                  className="grid gap-1 border-b p-4 last:border-b-0 sm:grid-cols-[160px_1fr] sm:gap-4"
+                >
+                  <dt className="text-sm font-medium text-muted-foreground">{formatMessage(fact.labelKey)}</dt>
+                  <dd className="text-sm leading-relaxed">
+                    {fact.href ? (
+                      <a className="underline underline-offset-4 hover:text-foreground" href={fact.href}>
+                        {value}
+                      </a>
+                    ) : (
+                      value
+                    )}
+                  </dd>
+                </div>
+              )
+            })}
+          </dl>
+        </section>
 
-          <section className="grid gap-4">
-            <SectionHeading>{formatMessage("press.screenshots.title")}</SectionHeading>
-            {screenshots.map((screenshot) => (
-              <figure key={screenshot.src} className="grid gap-2">
-                <a href={screenshot.src} download>
-                  <Image
-                    src={screenshot.src}
-                    alt={screenshot.alt}
-                    width={1280}
-                    height={736}
-                    unoptimized
-                    className="rounded-xl border"
-                  />
-                </a>
-                <figcaption className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
-                  <span>{screenshot.caption}</span>
-                  <a className="underline underline-offset-4 hover:text-foreground" href={screenshot.src} download>
-                    {formatMessage("press.screenshots.download")}
-                  </a>
-                </figcaption>
-              </figure>
-            ))}
-          </section>
+        <section className="grid gap-4">
+          <SectionHeading>{formatMessage("press.descriptions.title")}</SectionHeading>
+          {descriptions.map((description) => (
+            <Description key={description.label} bodies={description.bodies} label={description.label} />
+          ))}
+        </section>
 
-          <section className="grid gap-3">
-            <SectionHeading>{formatMessage("press.kit.title")}</SectionHeading>
-            <p className="text-sm leading-relaxed">{formatMessage("press.kit.body")}</p>
-            <a
-              className="text-sm font-medium underline underline-offset-4 hover:text-foreground"
-              href="/press/tickward-press-kit.zip"
-              download
-            >
-              {formatMessage("press.kit.download")}
+        <section className="grid gap-4">
+          <SectionHeading>{formatMessage("press.brand.title")}</SectionHeading>
+          <div className="flex flex-wrap items-end gap-6">
+            <a className="grid justify-items-center gap-2" href="/press/tickward-logo-512.png" download>
+              <Image
+                src="/press/tickward-logo-512.png"
+                alt={formatMessage("press.assets.alt512")}
+                width={128}
+                height={128}
+                className="rounded-xl border"
+              />
+              <span className="text-sm underline underline-offset-4">{formatMessage("press.assets.download512")}</span>
             </a>
-          </section>
+            <a className="grid justify-items-center gap-2" href="/press/tickward-logo-256.png" download>
+              <Image
+                src="/press/tickward-logo-256.png"
+                alt={formatMessage("press.assets.alt256")}
+                width={96}
+                height={96}
+                className="rounded-xl border"
+              />
+              <span className="text-sm underline underline-offset-4">{formatMessage("press.assets.download256")}</span>
+            </a>
+          </div>
+        </section>
 
-          <section className="grid gap-3">
-            <SectionHeading>{formatMessage("press.founder.title")}</SectionHeading>
-            <p className="text-sm leading-relaxed">{formatMessage("press.founder.bio")}</p>
-          </section>
+        <section className="grid gap-4">
+          <SectionHeading>{formatMessage("press.screenshots.title")}</SectionHeading>
+          {screenshots.map((screenshot) => (
+            <figure key={screenshot.src} className="grid gap-2">
+              <a href={screenshot.src} download>
+                <Image
+                  src={screenshot.src}
+                  alt={screenshot.alt}
+                  width={1280}
+                  height={736}
+                  unoptimized
+                  className="rounded-xl border"
+                />
+              </a>
+              <figcaption className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+                <span>{screenshot.caption}</span>
+                <a className="underline underline-offset-4 hover:text-foreground" href={screenshot.src} download>
+                  {formatMessage("press.screenshots.download")}
+                </a>
+              </figcaption>
+            </figure>
+          ))}
+        </section>
 
-          <section className="grid gap-4">
-            <SectionHeading>{formatMessage("press.links.title")}</SectionHeading>
-            <ul className="grid gap-2">
-              {links.map((link) => (
-                <li key={link.href}>
-                  <a className="text-sm underline underline-offset-4 hover:text-foreground" href={link.href}>
-                    {link.label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </section>
-        </main>
-        <FooterFull docsHref={docsHref} releaseTag={getPublicReleaseTag()} />
-      </div>
+        <section className="grid gap-3">
+          <SectionHeading>{formatMessage("press.kit.title")}</SectionHeading>
+          <p className="text-sm leading-relaxed">{formatMessage("press.kit.body")}</p>
+          <a
+            className="text-sm font-medium underline underline-offset-4 hover:text-foreground"
+            href="/press/tickward-press-kit.zip"
+            download
+          >
+            {formatMessage("press.kit.download")}
+          </a>
+        </section>
+
+        <section className="grid gap-3">
+          <SectionHeading>{formatMessage("press.founder.title")}</SectionHeading>
+          <p className="text-sm leading-relaxed">{formatMessage("press.founder.bio")}</p>
+        </section>
+
+        <section className="grid gap-4">
+          <SectionHeading>{formatMessage("press.links.title")}</SectionHeading>
+          <ul className="grid gap-2">
+            {links.map((link) => (
+              <li key={link.href}>
+                <a className="text-sm underline underline-offset-4 hover:text-foreground" href={link.href}>
+                  {link.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </MarketingPageShell>
     </TimerStoreProvider>
   )
 }

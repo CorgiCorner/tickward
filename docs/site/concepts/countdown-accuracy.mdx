@@ -41,11 +41,13 @@ whole app shares one tick source. When Web Workers are unavailable, the ticker
 falls back to a plain `setInterval`.
 
 The worker matters for background tabs: browsers heavily throttle main-thread
-timers in hidden tabs, but timers inside dedicated workers keep firing, so
-countdowns - and the alarms driven by them - stay live while you are on another
-tab. The ticker also re-samples immediately when the tab becomes visible again
-(`visibilitychange`), so a tab that was frozen entirely shows the correct time
-the moment you return.
+timers in hidden tabs, but timers inside dedicated workers keep firing, so the
+countdown display stays live while you are on another tab. (Alarms do not depend
+on this tick reaching the boundary on time - they are scheduled at the absolute
+target instead; see
+[Notifications & Alarms](/concepts/notifications-and-alarms).) The ticker also
+re-samples immediately when the tab becomes visible again (`visibilitychange`),
+so a tab that was frozen entirely shows the correct time the moment you return.
 
 Two practical consequences:
 

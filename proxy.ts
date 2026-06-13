@@ -8,6 +8,12 @@ const STATIC_SECURITY_HEADERS = [
   ["Referrer-Policy", "strict-origin-when-cross-origin"],
 ] as const
 
+// Marks the homepage's internal rewrite of "/" into the "/en" app tree. Some
+// dev servers (Turbopack) re-run the proxy on an internal rewrite; without this
+// guard, the rewritten "/en" request would hit the "/en" -> "/" redirect and
+// loop. Production runs the proxy once, so this is a belt-and-braces guard.
+const HOME_REWRITE_HEADER = "x-tickward-home-rewrite"
+
 // Agent-useful discovery links advertised on the home page (RFC 8288). Relative
 // URIs resolve against the requested resource.
 const DISCOVERY_LINK_HEADER = [
@@ -54,7 +60,10 @@ function contentSecurityPolicy() {
   return [
     "default-src 'self'",
     `connect-src ${connectSrc.join(" ")}`,
-    "img-src 'self' https://images.unsplash.com",
+    // The CDN origin mirrors CDN_BASE_URL in lib/cdn.ts. It is inlined rather than
+    // imported because proxy.ts ships in the public mirror and lib/cdn.ts is not
+    // allowlisted — keep the two in sync. data: allows next/image blur placeholders.
+    "img-src 'self' https://images.unsplash.com https://tickward-cdn.s3.us-east-1.amazonaws.com data:",
     "style-src 'self' 'unsafe-inline'",
     `script-src ${scriptSrc.join(" ")}`,
     "worker-src 'self' blob:",
@@ -69,10 +78,14 @@ function handleHomepage(request: NextRequest, internalPathname: string): NextRes
     return applySecurityHeaders(markdown)
   }
 
+  const rewriteUrl = request.nextUrl.clone()
+  rewriteUrl.pathname = internalPathname
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set(HOME_REWRITE_HEADER, "1")
   const response =
     internalPathname === request.nextUrl.pathname
       ? NextResponse.next()
-      : NextResponse.rewrite(new URL(internalPathname, request.url))
+      : NextResponse.rewrite(rewriteUrl, { request: { headers: requestHeaders } })
   response.headers.set("Link", DISCOVERY_LINK_HEADER)
   response.headers.set("Vary", "Accept")
   return applySecurityHeaders(response)
@@ -115,13 +128,17 @@ function shareIdFromPathname(pathname: string) {
   }
 }
 
-// Splits an explicit /<locale> prefix off the public pathname. The default
-// locale stays canonical at bare URLs, but /en must remain routable because
-// bare default-locale URLs are internally rewritten into the /en app tree.
+// Splits an explicit /<locale> prefix off the public pathname.
 function splitLocalePrefix(pathname: string): { locale: Locale; rest: string } | null {
   const segment = pathname.split("/")[1] ?? ""
   if (!isSupportedLocale(segment)) return null
   return { locale: segment, rest: pathname.slice(segment.length + 1) || "/" }
+}
+
+function redirectToPath(request: NextRequest, pathname: string): NextResponse {
+  const redirectUrl = request.nextUrl.clone()
+  redirectUrl.pathname = pathname
+  return applySecurityHeaders(NextResponse.redirect(redirectUrl, 301))
 }
 
 export async function proxy(request: NextRequest) {
@@ -140,7 +157,26 @@ export async function proxy(request: NextRequest) {
     return applySecurityHeaders(NextResponse.next())
   }
 
+  if (
+    (pathname === `/${DEFAULT_LOCALE}` || pathname === `/${DEFAULT_LOCALE}/`) &&
+    request.headers.get(HOME_REWRITE_HEADER) !== "1"
+  ) {
+    return redirectToPath(request, "/")
+  }
+
   const prefixed = splitLocalePrefix(pathname)
+
+  // Some paths stay locale-neutral at their bare URL and must not be redirected
+  // onto /<locale>: embeds (iframed into external sites from a copy/paste
+  // snippet, where a 301 would add a hop or break under strict iframe/CSP
+  // rules) and docs (served bare via the external docs origin or the catch-all
+  // docs route, never under the /<locale> app tree).
+  const isLocaleNeutralPath =
+    pathname === "/embed" || pathname.startsWith("/embed/") || pathname === "/docs" || pathname.startsWith("/docs/")
+
+  if (!prefixed && pathname !== "/" && !isLocaleNeutralPath) {
+    return redirectToPath(request, `/${DEFAULT_LOCALE}${pathname}`)
+  }
 
   // The public path the visitor sees, independent of the locale prefix, and
   // the internal path inside the app/[locale] tree.
@@ -169,13 +205,17 @@ export async function proxy(request: NextRequest) {
         return applySecurityHeaders(response)
       }
     }
-    const response = prefixed ? NextResponse.next() : NextResponse.rewrite(new URL(internalPathname, request.url))
+    const shareRewriteUrl = request.nextUrl.clone()
+    shareRewriteUrl.pathname = internalPathname
+    const response = prefixed ? NextResponse.next() : NextResponse.rewrite(shareRewriteUrl)
     return applySecurityHeaders(response)
   }
 
   // Every other page route only needs the locale rewrite; response headers
   // for these routes come from next.config headers(), as before.
-  return prefixed ? NextResponse.next() : NextResponse.rewrite(new URL(internalPathname, request.url))
+  const pageRewriteUrl = request.nextUrl.clone()
+  pageRewriteUrl.pathname = internalPathname
+  return prefixed ? NextResponse.next() : NextResponse.rewrite(pageRewriteUrl)
 }
 
 export const config = {

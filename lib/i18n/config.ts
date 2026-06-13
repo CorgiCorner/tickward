@@ -10,10 +10,10 @@ export function isSupportedLocale(value: string): value is Locale {
   return (SUPPORTED_LOCALES as readonly string[]).includes(value)
 }
 
-// The default locale lives at the bare path; every other locale is served
-// under a /<locale> prefix (e.g. localeHref("pl", "/timers/x") -> "/pl/timers/x").
+// The default locale uses the bare path only for the homepage. Every other
+// public page route carries an explicit /<locale> prefix.
 export function localeHref(locale: Locale, path: string): string {
-  if (locale === DEFAULT_LOCALE) return path
+  if (locale === DEFAULT_LOCALE && path === "/") return "/"
   return path === "/" ? `/${locale}` : `/${locale}${path}`
 }
 

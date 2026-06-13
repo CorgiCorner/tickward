@@ -32,7 +32,7 @@ export const plMessages = {
   "auth.claim.title": "Zachowaj ten projekt na swoim koncie",
   "auth.code": "Kod",
   "auth.description.accountSignInRequired": "Zaloguj się, aby zarządzać ustawieniami konta.",
-  "auth.description.signIn": "Zaloguj się kodem z emaila, aby zapisać ten projekt na swoim koncie.",
+  "auth.description.signIn": "Wyślemy Ci jednorazowy kod logowania na e-mail — bez hasła.",
   "auth.description.signedIn":
     "Zarządzaj profilem, domyślnymi ustawieniami liczników, alertami, kluczami API, webhookami i MCP.",
   "auth.email": "Email",
@@ -274,8 +274,10 @@ export const plMessages = {
   "email.webhookDisabled.body":
     "Twój endpoint webhooka {name} ({url}) został wyłączony po {count} kolejnych nieudanych dostarczeniach.",
   "email.webhookDisabled.subject": "Webhook wyłączony: {name}",
+  "entry.byCountryHeading": "Kalendarze według kraju",
   "entry.datesHeading": "Terminy w {year} roku",
   "entry.faqHeading": "Najczęstsze pytania",
+  "entry.groupGlobal": "Globalne",
   "entry.importAll": "Importuj cały kalendarz",
   "entry.importOne": "Dodaj ten licznik",
   "entry.importedAllToast": "Projekt „{project}” jest już na Twojej liście.",
@@ -286,6 +288,7 @@ export const plMessages = {
   "entry.nextUp": "Najbliższa data",
   "entry.limitReachedToast": "Masz już maksymalną liczbę aktywnych liczników. Usuń któryś, żeby dodać kolejne.",
   "entry.openApp": "Otwórz swoje liczniki",
+  "entry.viewToast": "Zobacz",
   "errors.actorUnavailable": "Aktor niedostępny.",
   "errors.claimFailed": "Nie udało się przypisać projektu.",
   "errors.claimSignInRequired": "Zaloguj się, aby zapisać ten projekt.",

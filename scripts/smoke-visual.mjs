@@ -14,6 +14,7 @@ const host = "127.0.0.1"
 const externalBaseUrl = process.env.SMOKE_BASE_URL?.replace(/\/$/, "")
 const timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS ?? 60_000)
 const screenshotDir = process.env.SMOKE_VISUAL_DIR ?? "/tmp/tickward-visual-smoke"
+// Docs stay locale-neutral at the bare /docs path (see lib/docs-config).
 const expectedDocsHref = process.env.SMOKE_EXPECT_DOCS_HREF ?? "/docs"
 const mobileViewport = { width: 390, height: 844 }
 const transparentPixelPng = Buffer.from(

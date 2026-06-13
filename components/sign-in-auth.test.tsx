@@ -70,7 +70,7 @@ describe("SignInPageClient", () => {
         type: "sign-in",
       }),
     )
-    expect(mocks.push).toHaveBeenCalledWith("/sign-in/otp?email=ada%40example.com")
+    expect(mocks.push).toHaveBeenCalledWith("/en/sign-in/otp?email=ada%40example.com")
   })
 
   it("preserves a safe next path when routing to OTP", async () => {
@@ -81,7 +81,7 @@ describe("SignInPageClient", () => {
     await user.click(screen.getByRole("button", { name: "Send code" }))
 
     await waitFor(() => expect(mocks.push).toHaveBeenCalled())
-    expect(mocks.push).toHaveBeenCalledWith("/sign-in/otp?email=ada%40example.com&next=%2Fsettings%23alerts")
+    expect(mocks.push).toHaveBeenCalledWith("/en/sign-in/otp?email=ada%40example.com&next=%2Fen%2Fsettings%23alerts")
   })
 
   it("marks the email field as a code delivery address instead of a password login", () => {
@@ -109,7 +109,7 @@ describe("SignInPageClient", () => {
     const settingsLink = screen.getByRole("link", { name: "Settings" })
     const heading = screen.getByRole("heading", { name: "Account" })
 
-    expect(settingsLink).toHaveAttribute("href", "/settings")
+    expect(settingsLink).toHaveAttribute("href", "/en/settings")
     expect(settingsLink).toHaveClass("mx-auto", "w-fit")
     expect(settingsLink.closest("main")).toHaveClass("content-center", "text-center")
     expect(heading.parentElement).toHaveClass("justify-items-center")
@@ -168,7 +168,7 @@ describe("OtpSignInPageClient", () => {
     await user.type(screen.getByLabelText("Code 1"), "123456")
     await user.click(screen.getByRole("button", { name: "Verify code" }))
 
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/settings#alerts"))
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/en/settings#alerts"))
   })
 
   it("marks the OTP input for one-time-code autofill", () => {

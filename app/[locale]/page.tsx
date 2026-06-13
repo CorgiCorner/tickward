@@ -5,6 +5,7 @@ import { notFound } from "next/navigation"
 import { AccountPreferencesProvider } from "@/components/account-preferences-provider"
 import { HomePageLoading } from "@/components/app-shell-loading"
 import { HomeClient } from "@/components/home-client"
+import { CountryCalendarsSection } from "@/components/country-calendars-section"
 import { HomeContentSection } from "@/components/home-content-section"
 import { SiteFooter } from "@/components/site-footer"
 import { WebMcpTools } from "@/components/webmcp-tools"
@@ -109,6 +110,7 @@ export default async function Home(props: Readonly<{ params: HomeRouteParams }>)
       {/* Server-rendered below the Suspense boundary: hydration of the client
           app can never remove the SEO hero, content, or contentinfo footer. */}
       <HomeContentSection />
+      <CountryCalendarsSection locale={locale} />
       <SiteFooter locale={locale} />
     </>
   )

@@ -17,10 +17,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { WebhooksSettingsPanel } from "@/components/webhooks-settings"
+import { useLocale } from "@/components/locale-provider"
 import type { AccountPreferencesRecord } from "@/lib/account-preferences"
 import { authClient } from "@/lib/auth/auth-client"
 import { authErrorMessage } from "@/lib/auth/auth-client-errors"
-import { formatMessage } from "@/lib/i18n/messages"
+import { formatMessage, localeHref } from "@/lib/i18n/messages"
 import type { McpConnectionPublicRecord } from "@/lib/mcp-oauth"
 import { useTimerStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
@@ -68,11 +69,13 @@ function AccountLoadingPanel() {
 }
 
 function AccountSignInRequiredPanel() {
+  const locale = useLocale()
+
   return (
     <div className="grid gap-3 rounded-lg border p-4 text-sm">
       <p className="text-muted-foreground">{formatMessage("auth.signInRequiredDescription")}</p>
       <Button asChild className="w-fit">
-        <Link href="/sign-in">
+        <Link href={localeHref(locale, "/sign-in")}>
           <UserIcon className="size-4" />
           {formatMessage("auth.signIn")}
         </Link>
@@ -96,6 +99,7 @@ export function AccountAvatar(props: Readonly<{ className?: string; user: Accoun
 }
 
 export function AccountButton() {
+  const locale = useLocale()
   const session = authClient.useSession()
   const removeAccountProjectsFromDevice = useTimerStore((s) => s.removeAccountProjectsFromDevice)
   const user = session.data?.user
@@ -120,7 +124,7 @@ export function AccountButton() {
   if (!user) {
     return (
       <Button variant="outline" size="sm" asChild>
-        <Link href="/sign-in" aria-label={formatMessage("auth.signIn")}>
+        <Link href={localeHref(locale, "/sign-in")} aria-label={formatMessage("auth.signIn")}>
           <UserIcon className="size-4" />
           {formatMessage("auth.signIn")}
         </Link>
@@ -152,7 +156,7 @@ export function AccountButton() {
         </div>
         <Separator className="my-2" />
         <Button variant="ghost" size="sm" className="w-full justify-start" asChild>
-          <Link href="/settings">
+          <Link href={localeHref(locale, "/settings")}>
             <SettingsIcon className="size-4" />
             {formatMessage("auth.accountSettings")}
           </Link>

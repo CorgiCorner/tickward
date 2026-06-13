@@ -61,7 +61,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const docsEntries = getDocsSitemapPaths().map((path) => ({
     path,
     changeFrequency: "monthly" as const,
-    priority: path === "/docs" ? 0.7 : 0.6,
+    priority: path === localeHref(DEFAULT_LOCALE, "/docs") ? 0.7 : 0.6,
   }))
   const marketingEntries = appExtensions.marketingSitemapEntries?.() ?? []
 

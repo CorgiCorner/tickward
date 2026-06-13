@@ -46,13 +46,16 @@ function FooterMarketingSections(props: Readonly<{ sections: readonly MarketingF
   )
 }
 
-// Curated calendars are locale-native local content: the column renders only
-// on pages of the same language, with the per-locale index as the umbrella
-// link.
+// The footer now surfaces only the GLOBAL (no-country) calendars as examples,
+// regardless of locale, plus the umbrella link to the full index. Per-country
+// calendars live in the homepage CountryCalendarsSection instead. Renders
+// nothing when there are no global links (e.g. the public mirror has none).
 function FooterEntriesColumn(props: Readonly<{ locale: Locale; marketingLinks?: MarketingFooterLink[] }>) {
-  const localeLinks =
-    props.marketingLinks?.filter((link) => link.hrefLang === props.locale).slice(0, FOOTER_ENTRIES_LIMIT) ?? []
-  if (localeLinks.length === 0) return null
+  const globalLinks = (props.marketingLinks ?? [])
+    .filter((link) => !link.country)
+    .sort((a, b) => a.label.localeCompare(b.label, props.locale))
+    .slice(0, FOOTER_ENTRIES_LIMIT)
+  if (globalLinks.length === 0) return null
 
   return (
     <nav
@@ -61,9 +64,9 @@ function FooterEntriesColumn(props: Readonly<{ locale: Locale; marketingLinks?: 
     >
       <FooterColumnHeading>{formatMessage("entry.indexTitle", {}, props.locale)}</FooterColumnHeading>
       <ul className="grid gap-1.5">
-        {localeLinks.map((link) => (
+        {globalLinks.map((link) => (
           <li key={link.href}>
-            <Link className={FOOTER_LINK_CLASS} href={link.href}>
+            <Link className={FOOTER_LINK_CLASS} href={link.href} hrefLang={link.hrefLang}>
               {link.label}
             </Link>
           </li>
@@ -139,7 +142,7 @@ export function FooterFull({
   docsHref,
   locale = DEFAULT_LOCALE,
   localeAlternates,
-  marketingLinks,
+  marketingLinks = appExtensions.marketingFooterLinks?.() ?? [],
   marketingSections = appExtensions.marketingFooterSections?.(locale) ?? [],
   releaseTag,
 }: Readonly<FooterFullProps>) {

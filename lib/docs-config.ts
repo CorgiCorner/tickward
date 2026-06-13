@@ -26,6 +26,10 @@ export function isDocsRedirectConfigured() {
   return Boolean(docsOrigin())
 }
 
+// Docs are locale-neutral: served at the bare /docs path (external docs origin
+// or the catch-all docs route), like /api and /embed. They are NOT under the
+// /<locale> app tree, so they keep the bare path and are exempt from the
+// locale redirect in proxy.ts.
 export function getDocsHref() {
   return docsOrigin() ?? "/docs"
 }
@@ -37,5 +41,5 @@ export function getDocsPageHref(path: string) {
 }
 
 export function getDocsSitemapPaths() {
-  return isDocsRedirectConfigured() ? DOCS_ROUTE_PATHS : []
+  return isDocsRedirectConfigured() ? [...DOCS_ROUTE_PATHS] : []
 }

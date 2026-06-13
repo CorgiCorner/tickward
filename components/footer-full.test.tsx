@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { FooterFull } from "@/components/footer-full"
@@ -9,14 +9,24 @@ vi.mock("@/lib/app-extensions", () => ({
       {
         ariaLabel: "Use cases: By moment",
         heading: "By moment",
-        links: [{ href: "/use-cases/event-countdown-timer", label: "Event countdown", hrefLang: "en" }],
+        links: [
+          {
+            href: "/en/use-cases/event-countdown-timer",
+            label: "Event countdown",
+            hrefLang: "en",
+          },
+        ],
       },
       {
         ariaLabel: "Use cases: By audience",
         heading: "By audience",
         links: [
-          { href: "/use-cases/countdown-timer-for-teachers", label: "Teachers", hrefLang: "en" },
-          { href: "/use-cases", label: "All use cases", hrefLang: "en" },
+          {
+            href: "/en/use-cases/countdown-timer-for-teachers",
+            label: "Teachers",
+            hrefLang: "en",
+          },
+          { href: "/en/use-cases", label: "All use cases", hrefLang: "en" },
         ],
       },
     ],
@@ -28,7 +38,11 @@ describe("FooterFull", () => {
     render(<FooterFull docsHref="/docs" releaseTag="v-test" />)
 
     expect(screen.getByText("Cloud data stays until you delete it.")).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Cloud data stays until you delete it." })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", {
+        name: "Cloud data stays until you delete it.",
+      }),
+    ).not.toBeInTheDocument()
   })
 
   it("renders durable links without sitemap or robots entries", () => {
@@ -38,41 +52,65 @@ describe("FooterFull", () => {
     expect(screen.getByRole("navigation", { name: "Use cases: By audience" })).toBeInTheDocument()
     expect(screen.getByText("By moment")).toBeInTheDocument()
     expect(screen.getByText("By audience")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "All use cases" })).toHaveAttribute("href", "/use-cases")
+    expect(screen.getByRole("link", { name: "All use cases" })).toHaveAttribute("href", "/en/use-cases")
     expect(screen.getByRole("link", { name: "Event countdown" })).toHaveAttribute(
       "href",
-      "/use-cases/event-countdown-timer",
+      "/en/use-cases/event-countdown-timer",
     )
     expect(screen.getByRole("link", { name: "Teachers" })).toHaveAttribute(
       "href",
-      "/use-cases/countdown-timer-for-teachers",
+      "/en/use-cases/countdown-timer-for-teachers",
     )
     expect(
-      screen.getAllByRole("link").filter((link) => link.getAttribute("href")?.startsWith("/use-cases")),
+      screen.getAllByRole("link").filter((link) => link.getAttribute("href")?.startsWith("/en/use-cases")),
     ).toHaveLength(3)
     expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "/docs")
     expect(screen.getByRole("link", { name: "GitHub" })).toHaveAttribute(
       "href",
       "https://github.com/CorgiCorner/tickward",
     )
-    expect(screen.getByRole("link", { name: "Press kit" })).toHaveAttribute("href", "/press")
+    expect(screen.getByRole("link", { name: "Press kit" })).toHaveAttribute("href", "/en/press")
     expect(screen.queryByRole("link", { name: "Sitemap" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Robots" })).not.toBeInTheDocument()
   })
 
-  it("caps locale-native entry links and keeps the all-calendars link", () => {
-    const marketingLinks = Array.from({ length: 16 }, (_, index) => ({
-      href: `/timers/entry-${index + 1}`,
-      label: `Entry ${index + 1}`,
-      hrefLang: "en",
-    }))
+  it("lists only the global calendars, sorted, with the all-calendars link", () => {
+    const marketingLinks = [
+      { href: "/en/timers/zulu", label: "Zulu", hrefLang: "en" },
+      { href: "/en/timers/golf", label: "Golf", hrefLang: "en" },
+      { href: "/en/timers/alpha", label: "Alpha", hrefLang: "en" },
+      { href: "/en/timers/oscar", label: "Oscar", hrefLang: "en", country: "US" },
+      { href: "/en/timers/bravo", label: "Bravo", hrefLang: "en", country: "GB" },
+      { href: "/en/timers/charlie", label: "Charlie", hrefLang: "en" },
+      { href: "/en/timers/kilo", label: "Kilo", hrefLang: "en" },
+      { href: "/en/timers/juliet", label: "Juliet", hrefLang: "en" },
+      { href: "/en/timers/india", label: "India", hrefLang: "en" },
+    ]
 
     render(<FooterFull docsHref="/docs" releaseTag="v-test" marketingLinks={marketingLinks} />)
 
-    expect(screen.getByRole("link", { name: "Entry 1" })).toHaveAttribute("href", "/timers/entry-1")
-    expect(screen.getByRole("link", { name: "Entry 15" })).toHaveAttribute("href", "/timers/entry-15")
-    expect(screen.queryByRole("link", { name: "Entry 16" })).not.toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "All calendars" })).toHaveAttribute("href", "/timers")
+    const calendars = screen.getByRole("navigation", {
+      name: "Ready-made calendars",
+    })
+
+    const links = within(calendars).getAllByRole("link")
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Alpha",
+      "Charlie",
+      "Golf",
+      "India",
+      "Juliet",
+      "Kilo",
+      "Zulu",
+      "All calendars",
+    ])
+    // Country-specific calendars now live in the homepage section, not the footer.
+    expect(screen.queryByRole("link", { name: "Oscar" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Bravo" })).not.toBeInTheDocument()
+    expect(within(calendars).queryByText("United Kingdom")).not.toBeInTheDocument()
+    expect(within(calendars).queryByText("United States")).not.toBeInTheDocument()
+    expect(screen.getAllByRole("link", { name: "All calendars" })).toHaveLength(1)
+    expect(screen.getByRole("link", { name: "All calendars" })).toHaveAttribute("href", "/en/timers")
   })
 
   it("renders the copyright row with the release tag badge", () => {

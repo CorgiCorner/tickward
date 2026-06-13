@@ -5,7 +5,7 @@ import { SiteFooter } from "@/components/site-footer"
 
 vi.mock("@/lib/app-extensions", () => ({
   appExtensions: {
-    marketingFooterLinks: () => [{ href: "/timers/example-set", label: "Example set", hrefLang: "pl" }],
+    marketingFooterLinks: () => [{ href: "/en/timers/example-set", label: "Example set", hrefLang: "en" }],
   },
 }))
 
@@ -24,7 +24,7 @@ describe("SiteFooter", () => {
       "href",
       "https://github.com/CorgiCorner/tickward",
     )
-    expect(screen.getByRole("link", { name: "Press kit" })).toHaveAttribute("href", "/press")
+    expect(screen.getByRole("link", { name: "Press kit" })).toHaveAttribute("href", "/en/press")
     expect(screen.queryByRole("link", { name: "Sitemap" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Robots" })).not.toBeInTheDocument()
     expect(screen.getByText("Cloud data stays until you delete it.")).toBeInTheDocument()
@@ -32,13 +32,14 @@ describe("SiteFooter", () => {
     expect(screen.getByText(/^v\d+\.\d+\.\d+/)).toBeInTheDocument()
   })
 
-  it("shows curated entry links only on pages of the matching locale", () => {
-    render(<SiteFooter />)
-    expect(screen.queryByRole("link", { name: "Example set" })).not.toBeInTheDocument()
+  it("shows the global calendars on every locale, with the locale's all-calendars link", () => {
+    const { unmount } = render(<SiteFooter />)
+    expect(screen.getByRole("link", { name: "Example set" })).toHaveAttribute("href", "/en/timers/example-set")
+    expect(screen.getByRole("link", { name: "All calendars" })).toHaveAttribute("href", "/en/timers")
+    unmount()
 
     render(<SiteFooter locale="pl" />)
-    const link = screen.getByRole("link", { name: "Example set" })
-    expect(link).toHaveAttribute("href", "/timers/example-set")
+    expect(screen.getByRole("link", { name: "Example set" })).toHaveAttribute("href", "/en/timers/example-set")
     expect(screen.getByRole("link", { name: "Wszystkie kalendarze" })).toHaveAttribute("href", "/pl/timers")
   })
 })

@@ -4,6 +4,20 @@
 
 No unreleased public changes.
 
+## 0.5.0 - 2026-06-13
+
+### Changed
+
+- Locale-prefixed every public route except the homepage, redirecting bare default-locale URLs to their `/en/...` form.
+- Unified the content and press pages on a shared page shell with one consistent, narrower width.
+- Replaced the default loading state with a neutral app-shell skeleton instead of the homepage timer one.
+
+### Fixed
+
+- Fired finishing timer alarms reliably in background tabs by scheduling against absolute time.
+- Preserved the query string on locale rewrites so the sign-in code field shows.
+- Allowed the configured CDN image host under the content security policy.
+
 ## 0.4.0 - 2026-06-12
 
 ### Added

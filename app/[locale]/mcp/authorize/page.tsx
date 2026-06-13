@@ -9,7 +9,7 @@ import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/
 import type { UserActor } from "@/lib/contracts"
 import { getCurrentActor } from "@/lib/actor.server"
 import { getDocsHref } from "@/lib/docs-config"
-import { formatMessage } from "@/lib/i18n/messages"
+import { formatMessage, localeHref, type Locale } from "@/lib/i18n/messages"
 import { normalizeMcpHandoffId, readMcpAuthorizationHandoff } from "@/lib/mcp-authorization-handoff.server"
 import { getPublicReleaseTag } from "@/lib/release.server"
 import { noIndexRobots } from "@/lib/seo-metadata"
@@ -32,14 +32,14 @@ type McpAuthorizeSearchParams = {
   mcp_origin?: string
 }
 
-async function currentRequestUrl() {
+async function currentRequestUrl(locale: Locale) {
   const incomingHeaders = await headers()
   const protocol = incomingHeaders.get("x-forwarded-proto") ?? "https"
   const host = incomingHeaders.get("host") ?? "localhost"
-  return new URL(`${protocol}://${host}/mcp/authorize`)
+  return new URL(`${protocol}://${host}${localeHref(locale, "/mcp/authorize")}`)
 }
 
-async function requireSignedInMcpUser(nextPath: string): Promise<UserActor> {
+async function requireSignedInMcpUser(locale: Locale, nextPath: string): Promise<UserActor> {
   const incomingHeaders = await headers()
   const requestHeaders = new Headers(incomingHeaders)
   const protocol = incomingHeaders.get("x-forwarded-proto") ?? "https"
@@ -52,18 +52,21 @@ async function requireSignedInMcpUser(nextPath: string): Promise<UserActor> {
     if (actor.kind === "user") return actor
   } catch {}
 
-  redirect(`/sign-in?next=${encodeURIComponent(nextPath)}`)
+  redirect(`${localeHref(locale, "/sign-in")}?next=${encodeURIComponent(nextPath)}`)
 }
 
-export default async function McpAuthorizePage(props: Readonly<{ searchParams: Promise<McpAuthorizeSearchParams> }>) {
+export default async function McpAuthorizePage(
+  props: Readonly<{ params: Promise<{ locale: string }>; searchParams: Promise<McpAuthorizeSearchParams> }>,
+) {
+  const locale = await resolveRouteLocale(props.params)
   const searchParams = await props.searchParams
   const handoff = normalizeMcpHandoffId(searchParams.handoff)
   const origin = searchParams.mcp_origin ?? ""
-  const url = await currentRequestUrl()
+  const url = await currentRequestUrl(locale)
   if (handoff) url.searchParams.set("handoff", handoff)
   if (origin) url.searchParams.set("mcp_origin", origin)
 
-  const actor = await requireSignedInMcpUser(`${url.pathname}${url.search}`)
+  const actor = await requireSignedInMcpUser(locale, `${url.pathname}${url.search}`)
 
   const authorization = handoff
     ? await readMcpAuthorizationHandoff({ handoff, mcpOrigin: origin }).catch(() => null)

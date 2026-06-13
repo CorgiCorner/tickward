@@ -3,35 +3,49 @@ title: "Notifications & Alarms"
 description: "How a timer fires: the local alarm pipeline, what works in foreground and background tabs, and where Web Push takes over."
 ---
 
-A timer "firing" is a client-side event. The same shared ticker that drives the
-countdown display also drives alarm detection, so an alarm is just the moment a
-tick observes that a timer's target has been crossed. Web Push exists for the
-one case the client cannot cover: no tab is open at all.
+A timer "firing" is a client-side event. When a timer is armed, the hook
+schedules its alarm to go off at the exact target time, independent of the
+countdown render loop, and keeps a tick-based check as a backstop. Web Push
+exists for the one case the client cannot cover: no tab is open at all.
 
 ## The local alarm pipeline
 
-The ticker in `lib/now-ticker.client.ts` posts a message from a dedicated Web
-Worker once per second; each message samples `Date.now()` on the main thread
-(see [Countdown Accuracy](/concepts/countdown-accuracy) for the details). The
-hook in `components/use-local-timer-alarms.ts` consumes that tick and checks
-every visible timer against it.
+The hook in `components/use-local-timer-alarms.ts` owns alarm delivery. A timer
+participates only if it opted in - `timer.notify` or `timer.notification.enabled`
+is true - and is not archived. Its alarm boundary is the target date, or, for
+recurring timers, the next occurrence.
 
-A timer participates only if it opted in - `timer.notify` or
-`timer.notification.enabled` is true - and is not archived. Its alarm boundary
-is the target date, or, for recurring timers, the most recent occurrence. The
-detection itself is crossing-based:
+Delivery uses two primary mechanisms, both armed at the absolute target time and
+both independent of the render loop, plus a tick-based backstop. All three funnel
+through one `fire()` routine guarded by a fired-key set of the form
+`timerId::boundary`, so each occurrence fires exactly once no matter which path
+reaches it first:
 
-```ts
-// Fire whenever the boundary was crossed since the previous tick, so a tick
-// delayed by background-tab throttling still triggers the alarm instead of
-// silently skipping it.
-const readyToFire = boundaryMs > prevNowMs && boundaryMs <= nowMs && !firedKeys.has(firedKey)
-```
+- **Scheduled sound (primary).** `scheduleNotificationSound` in
+  `lib/notification-audio.client.ts` starts an `AudioBufferSourceNode` on the Web
+  Audio clock at `ctx.currentTime + secondsUntilTarget`. That clock keeps running
+  while the tab is hidden, so a pre-scheduled buffer plays at the target even in a
+  background tab.
+- **Scheduled notification and full-page alarm (primary).** A
+  `setTimeout(boundary - now)` calls `fire()` directly. `setTimeout` still fires
+  in a hidden tab (throttled by roughly a second), unlike React's commit and
+  effect flush, which browsers coalesce while the tab is in the background.
+- **Crossing-based check (backstop).** The shared per-second ticker (see
+  [Countdown Accuracy](/concepts/countdown-accuracy)) still asks, every tick,
+  whether a boundary fell between the previous tick and this one:
 
-There is no scheduled callback at the exact target time. Each tick asks "did
-the boundary fall between the previous tick and this one?", so a tick that
-arrives late still fires the alarm rather than missing it. A fired key of the
-form `timerId::boundary` makes each occurrence fire exactly once.
+  ```ts
+  const readyToFire = boundaryMs > prevNowMs && boundaryMs <= nowMs && !firedKeys.has(firedKey)
+  ```
+
+  This catches anything the primaries miss - audio that was never unlocked, a tab
+  woken after the scheduling horizon, or a boundary already past at mount.
+
+Only boundaries within a ~15-minute horizon are pre-scheduled; longer timers are
+armed once they come within range on a later tick, and the backstop covers the
+gap. When a timer is added, edited, removed, or its sound changes, the schedule
+is cancelled and re-armed; on unmount every scheduled source and timeout is
+cleared.
 
 When a timer fires, up to three things happen, each gated by per-device
 preferences:
@@ -42,12 +56,16 @@ preferences:
   `new Notification(...)`. Clicking the notification focuses an existing app
   window or opens a new one. This path requires the per-device toggle and
   `Notification.permission === "granted"`.
-- **Sound.** `lib/notification-audio.client.ts` plays an mp3 through an HTML
-  `Audio` element (`polite`, `glass`, `chord`, `alarm`; `none` disables it).
-  If that fails, it falls back to a short Web Audio oscillator tone. Browsers
-  block audio that was never preceded by a user gesture, so the hook resumes a
-  shared `AudioContext` on the first `pointerdown` or `keydown`; once resumed,
-  the fallback tone can play later, including in a hidden tab.
+- **Sound.** The primary path pre-schedules the chosen sound (`polite`, `glass`,
+  `chord`, `alarm`; `none` disables it) on the Web Audio clock, as above. To do
+  that the mp3 is decoded into an `AudioBuffer` ahead of time. Browsers block
+  audio that was never preceded by a user gesture, so the hook resumes a shared
+  `AudioContext` on the first `pointerdown` or `keydown`, decodes the selected
+  sound, and starts a near-silent keep-alive source that stops the browser from
+  suspending the context while the tab is hidden; it re-resumes on
+  `visibilitychange`. If a sound was never decoded in time, `fire()` falls back to
+  an HTML `Audio` element and then to a short oscillator tone - the foreground and
+  last-resort paths.
 - **Full-page alarm.** The hook sets alarm state that the app renders as a
   full-screen takeover, dismissed from the UI.
 
@@ -64,12 +82,15 @@ when you enable system alerts.
 | Tab state | What works |
 |-|-|
 | Foreground tab | everything: notification, sound, full-page alarm |
-| Background tab | everything; sound only if audio was primed by an earlier gesture |
+| Background tab | everything, as long as audio was unlocked by an earlier gesture (needed only for sound) |
 | Browser closed, tab discarded or frozen | nothing local - this is what Web Push is for |
 
-Background tabs work because the tick comes from a dedicated Web Worker, which
-browsers do not throttle the way they throttle main-thread timers - and even a
-delayed tick still fires, because detection is crossing-based.
+Background tabs work because the alarm is armed at the absolute target time, not
+polled by the render loop. The sound rides the Web Audio clock and the
+notification and full-page alarm ride a `setTimeout`, both of which keep firing
+while the tab is hidden; the per-second crossing check is only a backstop. (An
+earlier version relied on that tick alone, which browsers throttle once the tab
+loses focus - so a hidden tab's alarm only arrived when you came back to it.)
 
 ## Web Push
 

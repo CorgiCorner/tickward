@@ -10,6 +10,7 @@ export type MarketingFooterLink = {
   href: string
   label: string
   hrefLang?: string
+  country?: string
 }
 
 export type MarketingFooterSection = {
@@ -18,9 +19,16 @@ export type MarketingFooterSection = {
   links: MarketingFooterLink[]
 }
 
+export type MarketingCountryCalendarGroup = {
+  code: string
+  countryLabel: string
+  links: MarketingFooterLink[]
+}
+
 export type AppExtensions = {
   renderHead?: () => ReactNode
   marketingFooterLinks?: () => MarketingFooterLink[]
   marketingFooterSections?: (locale: string) => MarketingFooterSection[]
+  marketingCountryCalendars?: (locale: string) => MarketingCountryCalendarGroup[]
   marketingSitemapEntries?: () => MarketingSitemapEntry[]
 }

@@ -9,7 +9,7 @@ import { listApiKeysForUser } from "@/lib/api-keys.server"
 import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/cookies.server"
 import type { UserActor } from "@/lib/contracts"
 import { getDocsHref, getDocsPageHref } from "@/lib/docs-config"
-import { formatMessage } from "@/lib/i18n/messages"
+import { formatMessage, localeHref, type Locale } from "@/lib/i18n/messages"
 import { getMcpRemoteUrl } from "@/lib/mcp-config.server"
 import { listMcpConnectionsForUser } from "@/lib/mcp-oauth.server"
 import { getPublicReleaseTag } from "@/lib/release.server"
@@ -31,20 +31,21 @@ export async function generateMetadata(props: Readonly<{ params: Promise<{ local
   }
 }
 
-async function requireSignedInSettingsUser(): Promise<UserActor> {
+async function requireSignedInSettingsUser(locale: Locale): Promise<UserActor> {
   const incomingHeaders = await headers()
   const requestHeaders = new Headers(incomingHeaders)
   const protocol = incomingHeaders.get("x-forwarded-proto") ?? "https"
   const host = incomingHeaders.get("host") ?? "localhost"
+  const settingsPath = localeHref(locale, "/settings")
 
   try {
     const actor = await getCurrentActor({
-      request: new Request(`${protocol}://${host}/settings`, { headers: requestHeaders }),
+      request: new Request(`${protocol}://${host}${settingsPath}`, { headers: requestHeaders }),
     })
     if (actor.kind === "user") return actor
   } catch {}
 
-  redirect(`/sign-in?next=${encodeURIComponent("/settings")}`)
+  redirect(`${localeHref(locale, "/sign-in")}?next=${encodeURIComponent(settingsPath)}`)
 }
 
 export async function readInitialAccountData(user: UserActor["user"]): Promise<AccountPageInitialData> {
@@ -84,8 +85,9 @@ export async function readInitialAccountData(user: UserActor["user"]): Promise<A
   }
 }
 
-export default async function SettingsPage() {
-  const actor = await requireSignedInSettingsUser()
+export default async function SettingsPage(props: Readonly<{ params: Promise<{ locale: string }> }>) {
+  const locale = await resolveRouteLocale(props.params)
+  const actor = await requireSignedInSettingsUser(locale)
   const initialAccountData = await readInitialAccountData(actor.user)
   const rawTimers = await readTimersCookie<unknown>()
   const timers: Timer[] = isTimerArray(rawTimers) ? rawTimers : []

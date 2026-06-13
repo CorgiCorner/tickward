@@ -87,7 +87,7 @@ describe("AccountButton", () => {
     renderWithTooltips(<AccountButton />)
 
     const link = screen.getByRole("link", { name: "Sign in" })
-    expect(link).toHaveAttribute("href", "/sign-in")
+    expect(link).toHaveAttribute("href", "/en/sign-in")
   })
 
   it("opens an account popover for signed-in users", async () => {
@@ -106,7 +106,7 @@ describe("AccountButton", () => {
     await user.click(trigger)
 
     expect(screen.getAllByText("AL")).toHaveLength(2)
-    expect(screen.getByRole("link", { name: /Settings/ })).toHaveAttribute("href", "/settings")
+    expect(screen.getByRole("link", { name: /Settings/ })).toHaveAttribute("href", "/en/settings")
     expect(screen.getByRole("button", { name: "Sign out" })).toBeVisible()
   })
 
@@ -145,7 +145,7 @@ describe("AccountPageClient", () => {
   it("points anonymous users to sign in instead of showing inline OTP", () => {
     render(<AccountPageClient />)
 
-    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/sign-in")
+    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/en/sign-in")
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument()
   })
 

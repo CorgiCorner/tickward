@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { formatMessage } from "@/lib/i18n/messages"
+import { formatMessage, localeHref } from "@/lib/i18n/messages"
 import { noIndexRobots } from "@/lib/seo-metadata"
 import { redirect } from "next/navigation"
 import { resolveRouteLocale } from "@/lib/i18n/route-locale"
@@ -12,6 +12,7 @@ export async function generateMetadata(props: Readonly<{ params: Promise<{ local
   }
 }
 
-export default function AccountRedirectPage() {
-  redirect("/settings")
+export default async function AccountRedirectPage(props: Readonly<{ params: Promise<{ locale: string }> }>) {
+  const locale = await resolveRouteLocale(props.params)
+  redirect(localeHref(locale, "/settings"))
 }

@@ -10,10 +10,11 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useLocale } from "@/components/locale-provider"
 import { OtpInput } from "@/components/ui/otp-input"
 import { authClient } from "@/lib/auth/auth-client"
 import { authErrorMessage, authErrorRetryAfter } from "@/lib/auth/auth-client-errors"
-import { formatMessage } from "@/lib/i18n/messages"
+import { formatMessage, isSupportedLocale, localeHref, type Locale } from "@/lib/i18n/messages"
 
 const OTP_COOLDOWN_SECONDS = 60
 const DEFAULT_SIGN_IN_NEXT_PATH = "/"
@@ -52,23 +53,31 @@ function writeCooldownUntil(email: string, seconds: number) {
   return cooldownUntil
 }
 
-function safeNextPath(value: string | null | undefined) {
-  const nextPath = value?.trim()
-  if (!nextPath || !nextPath.startsWith("/") || nextPath.startsWith("//")) return DEFAULT_SIGN_IN_NEXT_PATH
-  return nextPath
+function hasLocalePrefix(path: string) {
+  const pathname = path.split(/[?#]/)[0] ?? ""
+  const segment = pathname.split("/")[1] ?? ""
+  return isSupportedLocale(segment)
 }
 
-function signInPathWithNext(pathname: string, nextPath: string) {
+function safeNextPath(value: string | null | undefined, locale: Locale) {
+  const nextPath = value?.trim()
+  if (!nextPath || !nextPath.startsWith("/") || nextPath.startsWith("//")) return DEFAULT_SIGN_IN_NEXT_PATH
+  if (nextPath === DEFAULT_SIGN_IN_NEXT_PATH || hasLocalePrefix(nextPath)) return nextPath
+  return localeHref(locale, nextPath)
+}
+
+function signInPathWithNext(locale: Locale, pathname: string, nextPath: string) {
   const params = new URLSearchParams()
   if (nextPath !== DEFAULT_SIGN_IN_NEXT_PATH) params.set("next", nextPath)
   const query = params.toString()
-  return query ? `${pathname}?${query}` : pathname
+  const path = localeHref(locale, pathname)
+  return query ? `${path}?${query}` : path
 }
 
-function otpPath(email: string, nextPath: string) {
+function otpPath(locale: Locale, email: string, nextPath: string) {
   const params = new URLSearchParams({ email })
   if (nextPath !== DEFAULT_SIGN_IN_NEXT_PATH) params.set("next", nextPath)
-  return `/sign-in/otp?${params.toString()}`
+  return `${localeHref(locale, "/sign-in/otp")}?${params.toString()}`
 }
 
 function useCooldown(email: string) {
@@ -114,11 +123,12 @@ function AuthShell(props: Readonly<{ centered?: boolean; children: ReactNode; de
 
 export function SignInPageClient(props: Readonly<{ nextPath?: string }>) {
   const router = useRouter()
+  const locale = useLocale()
   const session = authClient.useSession()
   const [email, setEmail] = useState("")
   const [loading, setLoading] = useState(false)
   const normalizedEmail = email.trim().toLowerCase()
-  const nextPath = safeNextPath(props.nextPath)
+  const nextPath = safeNextPath(props.nextPath, locale)
   const cooldown = useCooldown(normalizedEmail)
   const cooldownActive = cooldown.remainingSeconds > 0
 
@@ -133,7 +143,7 @@ export function SignInPageClient(props: Readonly<{ nextPath?: string }>) {
       if (result.error) throw result.error
       cooldown.start()
       toast.success(formatMessage("auth.otp.sent"))
-      router.push(otpPath(normalizedEmail, nextPath))
+      router.push(otpPath(locale, normalizedEmail, nextPath))
     } catch (error) {
       const retryAfter = authErrorRetryAfter(error)
       if (retryAfter) cooldown.start(retryAfter)
@@ -192,11 +202,12 @@ export function SignInPageClient(props: Readonly<{ nextPath?: string }>) {
 
 export function OtpSignInPageClient(props: Readonly<{ email: string; nextPath?: string }>) {
   const router = useRouter()
+  const locale = useLocale()
   const session = authClient.useSession()
   const [code, setCode] = useState("")
   const [loading, setLoading] = useState(false)
   const email = useMemo(() => props.email.trim().toLowerCase(), [props.email])
-  const nextPath = safeNextPath(props.nextPath)
+  const nextPath = safeNextPath(props.nextPath, locale)
   const cooldown = useCooldown(email)
   const cooldownActive = cooldown.remainingSeconds > 0
 
@@ -241,7 +252,7 @@ export function OtpSignInPageClient(props: Readonly<{ email: string; nextPath?: 
     return (
       <AuthShell title={formatMessage("auth.verifyCode")} description={formatMessage("auth.description.signIn")}>
         <Button asChild className="w-fit">
-          <Link href={signInPathWithNext("/sign-in", nextPath)}>
+          <Link href={signInPathWithNext(locale, "/sign-in", nextPath)}>
             <ArrowLeftIcon className="size-4" />
             {formatMessage("auth.signIn")}
           </Link>
@@ -287,7 +298,9 @@ export function OtpSignInPageClient(props: Readonly<{ email: string; nextPath?: 
                 : formatMessage("auth.otp.resend")}
             </Button>
             <Button type="button" variant="ghost" asChild>
-              <Link href={signInPathWithNext("/sign-in", nextPath)}>{formatMessage("auth.otp.changeEmail")}</Link>
+              <Link href={signInPathWithNext(locale, "/sign-in", nextPath)}>
+                {formatMessage("auth.otp.changeEmail")}
+              </Link>
             </Button>
           </div>
         </div>
