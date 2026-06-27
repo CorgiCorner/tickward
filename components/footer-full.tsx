@@ -10,14 +10,14 @@ const GITHUB_REPO_URL = "https://github.com/CorgiCorner/tickward"
 
 function FooterColumnHeading(props: Readonly<{ children: string }>) {
   return (
-    <h2 className="text-[10px] font-medium uppercase leading-none tracking-wide text-muted-foreground/70">
+    <h2 className="text-xs font-medium uppercase leading-none tracking-wide text-muted-foreground/70">
       {props.children}
     </h2>
   )
 }
 
-const FOOTER_LINK_CLASS = "text-[11px] leading-relaxed text-muted-foreground/80 hover:text-foreground"
-const FOOTER_ENTRIES_LIMIT = 15
+const FOOTER_LINK_CLASS = "text-xs leading-relaxed text-muted-foreground/80 hover:text-foreground"
+const FOOTER_ENTRIES_LIMIT = 12
 
 function FooterMarketingSections(props: Readonly<{ sections: readonly MarketingFooterSection[] }>) {
   if (props.sections.length === 0) return null
@@ -46,15 +46,17 @@ function FooterMarketingSections(props: Readonly<{ sections: readonly MarketingF
   )
 }
 
-// The footer now surfaces only the GLOBAL (no-country) calendars as examples,
-// regardless of locale, plus the umbrella link to the full index. Per-country
-// calendars live in the homepage CountryCalendarsSection instead. Renders
-// nothing when there are no global links (e.g. the public mirror has none).
+// The footer surfaces a sample of ready-made calendars: global (no-country)
+// ones first, then per-country ones, sorted within each band and capped at
+// FOOTER_ENTRIES_LIMIT, plus the umbrella link to the full index. The richer
+// per-country breakdown still lives in the homepage CountryCalendarsSection.
+// Renders nothing when there are no links (e.g. the public mirror has none).
 function FooterEntriesColumn(props: Readonly<{ locale: Locale; marketingLinks?: MarketingFooterLink[] }>) {
-  const globalLinks = (props.marketingLinks ?? [])
-    .filter((link) => !link.country)
-    .sort((a, b) => a.label.localeCompare(b.label, props.locale))
-    .slice(0, FOOTER_ENTRIES_LIMIT)
+  const sorted = (props.marketingLinks ?? []).slice().sort((a, b) => a.label.localeCompare(b.label, props.locale))
+  const globalLinks = [...sorted.filter((link) => !link.country), ...sorted.filter((link) => link.country)].slice(
+    0,
+    FOOTER_ENTRIES_LIMIT,
+  )
   if (globalLinks.length === 0) return null
 
   return (
@@ -112,7 +114,7 @@ function FooterCopyright(props: Readonly<{ locale: Locale }>) {
   const year = new Date().getFullYear()
 
   return (
-    <div className="text-[11px] leading-none text-muted-foreground/70">
+    <div className="text-xs leading-none text-muted-foreground/70">
       <span>{formatMessage("app.browserTitle.default", {}, props.locale)}</span>{" "}
       <span>{formatMessage("footer.copyrightYear", { year }, props.locale)}</span>
     </div>

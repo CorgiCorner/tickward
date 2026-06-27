@@ -74,7 +74,7 @@ describe("FooterFull", () => {
     expect(screen.queryByRole("link", { name: "Robots" })).not.toBeInTheDocument()
   })
 
-  it("lists only the global calendars, sorted, with the all-calendars link", () => {
+  it("lists global calendars first, then per-country, with the all-calendars link", () => {
     const marketingLinks = [
       { href: "/en/timers/zulu", label: "Zulu", hrefLang: "en" },
       { href: "/en/timers/golf", label: "Golf", hrefLang: "en" },
@@ -95,6 +95,7 @@ describe("FooterFull", () => {
 
     const links = within(calendars).getAllByRole("link")
     expect(links.map((link) => link.textContent)).toEqual([
+      // global (no-country) calendars first, sorted by label
       "Alpha",
       "Charlie",
       "Golf",
@@ -102,11 +103,14 @@ describe("FooterFull", () => {
       "Juliet",
       "Kilo",
       "Zulu",
+      // then per-country calendars, sorted by label
+      "Bravo",
+      "Oscar",
       "All calendars",
     ])
-    // Country-specific calendars now live in the homepage section, not the footer.
-    expect(screen.queryByRole("link", { name: "Oscar" })).not.toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: "Bravo" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Oscar" })).toHaveAttribute("href", "/en/timers/oscar")
+    expect(screen.getByRole("link", { name: "Bravo" })).toHaveAttribute("href", "/en/timers/bravo")
+    // The footer lists flat calendar links, not country headings.
     expect(within(calendars).queryByText("United Kingdom")).not.toBeInTheDocument()
     expect(within(calendars).queryByText("United States")).not.toBeInTheDocument()
     expect(screen.getAllByRole("link", { name: "All calendars" })).toHaveLength(1)

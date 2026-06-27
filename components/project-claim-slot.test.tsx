@@ -58,19 +58,34 @@ describe("ProjectClaimSlot", () => {
   })
 
   it("renders nothing without project access", () => {
-    render(<ProjectClaimSlot restoreKey={null} projectName="Alpha" />)
+    render(
+      <ProjectClaimSlot claimActiveProject={storeState.claimActiveProject!} restoreKey={null} projectName="Alpha" />,
+    )
 
     expect(screen.queryByText("Save to account")).not.toBeInTheDocument()
   })
 
   it("shows claimed account state for account-backed projects", () => {
-    render(<ProjectClaimSlot restoreKey="restoreKey_123" projectName="Alpha" cloudProjectId="project_123" />)
+    render(
+      <ProjectClaimSlot
+        claimActiveProject={storeState.claimActiveProject!}
+        restoreKey="restoreKey_123"
+        projectName="Alpha"
+        cloudProjectId="project_123"
+      />,
+    )
 
     expect(screen.getByText("This project is saved to your account.")).toBeVisible()
   })
 
   it("asks anonymous visitors to sign in first", () => {
-    render(<ProjectClaimSlot restoreKey="restoreKey_123" projectName="Alpha" />)
+    render(
+      <ProjectClaimSlot
+        claimActiveProject={storeState.claimActiveProject!}
+        restoreKey="restoreKey_123"
+        projectName="Alpha"
+      />,
+    )
 
     expect(screen.getByText("Sign in, then save this project from project settings.")).toBeVisible()
   })
@@ -78,7 +93,13 @@ describe("ProjectClaimSlot", () => {
   it("shows auth unavailable when account sign-in is not configured", () => {
     mocks.useSession.mockReturnValue({ data: null, error: { status: 501 } })
 
-    render(<ProjectClaimSlot restoreKey="restoreKey_123" projectName="Alpha" />)
+    render(
+      <ProjectClaimSlot
+        claimActiveProject={storeState.claimActiveProject!}
+        restoreKey="restoreKey_123"
+        projectName="Alpha"
+      />,
+    )
 
     expect(screen.getByText("Account sign-in is not configured.")).toBeVisible()
     expect(screen.queryByRole("button", { name: "Save to account" })).not.toBeInTheDocument()
@@ -87,7 +108,13 @@ describe("ProjectClaimSlot", () => {
   it("shows a neutral account loading state while the session is pending", () => {
     mocks.useSession.mockReturnValue({ data: null, isPending: true })
 
-    render(<ProjectClaimSlot restoreKey="restoreKey_123" projectName="Alpha" />)
+    render(
+      <ProjectClaimSlot
+        claimActiveProject={storeState.claimActiveProject!}
+        restoreKey="restoreKey_123"
+        projectName="Alpha"
+      />,
+    )
 
     expect(screen.getByText("Checking account...")).toBeVisible()
     expect(screen.queryByRole("button", { name: "Save to account" })).not.toBeInTheDocument()
@@ -96,7 +123,13 @@ describe("ProjectClaimSlot", () => {
   it("claims the active project for signed-in users", async () => {
     const user = userEvent.setup()
     mocks.useSession.mockReturnValue({ data: { user: { email: "ada@example.com" } } })
-    render(<ProjectClaimSlot restoreKey="restoreKey_123" projectName="Alpha" />)
+    render(
+      <ProjectClaimSlot
+        claimActiveProject={storeState.claimActiveProject!}
+        restoreKey="restoreKey_123"
+        projectName="Alpha"
+      />,
+    )
 
     expect(screen.getByText("Keep this project with your account")).toBeVisible()
     expect(screen.getByText("Save Alpha to your account when you want it available after sign-in.")).toBeVisible()
@@ -110,7 +143,13 @@ describe("ProjectClaimSlot", () => {
     const user = userEvent.setup()
     storeState.claimActiveProject = vi.fn().mockRejectedValue(new Error("internal database failure"))
     mocks.useSession.mockReturnValue({ data: { user: { email: "ada@example.com" } } })
-    render(<ProjectClaimSlot restoreKey="restoreKey_123" projectName="Alpha" />)
+    render(
+      <ProjectClaimSlot
+        claimActiveProject={storeState.claimActiveProject!}
+        restoreKey="restoreKey_123"
+        projectName="Alpha"
+      />,
+    )
 
     await user.click(screen.getByRole("button", { name: "Save to account" }))
 

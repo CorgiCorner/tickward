@@ -172,6 +172,50 @@ describe("timer store", () => {
     expect(store.getState().timers.find((timer) => timer.id === "timer-c")?.archivedAt).toBeUndefined()
   })
 
+  it("moves a timer into another project's payload and clears it from the active project", () => {
+    const store = createHydratedStore({
+      spaces: [makeSpace({ id: "space-a" })],
+      timers: [makeTimer({ id: "timer-x", spaceId: "space-a" })],
+    })
+    const projectA = store.getState().activeProjectId as string
+
+    store.getState().createProject("Second")
+    const projectB = store.getState().activeProjectId as string
+    expect(projectB).not.toBe(projectA)
+
+    store.getState().switchProject(projectA)
+    expect(store.getState().timers.map((timer) => timer.id)).toEqual(["timer-x"])
+
+    const moved = store.getState().moveTimerToProject("timer-x", projectB)
+
+    expect(moved).toBe(true)
+    expect(store.getState().timers).toEqual([])
+    expect(store.getState().projects.find((project) => project.id === projectA)?.timerCount).toBe(0)
+
+    const targetPayload = readProjectPayload(projectB)
+    expect(targetPayload?.timers).toHaveLength(1)
+    expect(targetPayload?.timers[0]?.id).toBe("timer-x")
+    expect(targetPayload?.timers[0]?.spaceId).toBeUndefined()
+    expect(store.getState().projects.find((project) => project.id === projectB)?.hasUnsyncedChanges).toBe(true)
+    expect(store.getState().projects.find((project) => project.id === projectB)?.timerCount).toBe(1)
+  })
+
+  it("refuses to move a timer into a project that is already at the timer limit", () => {
+    vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_TIMERS", "1")
+    const store = createHydratedStore({ timers: [makeTimer({ id: "timer-x" })] })
+    const projectA = store.getState().activeProjectId as string
+
+    store.getState().createProject("Second")
+    const projectB = store.getState().activeProjectId as string
+    store.getState().addTimer({ label: "Filler", targetDate: "2026-05-25T00:00:00.000Z", timezone: "UTC" })
+
+    store.getState().switchProject(projectA)
+    const moved = store.getState().moveTimerToProject("timer-x", projectB)
+
+    expect(moved).toBe(false)
+    expect(store.getState().timers.map((timer) => timer.id)).toEqual(["timer-x"])
+  })
+
   it("enforces the configured space limit", () => {
     const store = createHydratedStore()
 

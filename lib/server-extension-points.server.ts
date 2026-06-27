@@ -1,6 +1,7 @@
 import "server-only"
 
 import type { Actor } from "@/lib/contracts"
+import type { ErrorMonitor } from "@/lib/error-monitor"
 import type { MailProvider } from "@/lib/mail-provider"
 import type { NotificationDeliveryProvider } from "@/lib/notification-delivery"
 import type { NotificationOutboxRepository } from "@/lib/notification-outbox.server"
@@ -28,4 +29,5 @@ export type ServerExtensions = {
   notificationOutboxRepository?: NotificationOutboxRepository
   mailProvider?: MailProvider
   webPushSubscriptionRepository?: WebPushSubscriptionRepository
+  errorMonitor?: ErrorMonitor
 }

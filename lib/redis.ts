@@ -14,5 +14,3 @@ export function getRedis() {
   })
   return _redis
 }
-
-export const REDIS_TTL_SECONDS = 60 * 60 * 24 * 90

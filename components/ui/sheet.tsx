@@ -41,6 +41,7 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  style,
   ...props
 }: Readonly<
   React.ComponentProps<typeof SheetPrimitive.Content> & {
@@ -48,6 +49,34 @@ function SheetContent({
     showCloseButton?: boolean
   }
 >) {
+  // Bottom sheets get a real drag handle: swipe it down to dismiss. We use plain
+  // touch events (no pointer capture) and close through a hidden Close button so
+  // the body stays scrollable and nothing tears down a captured pointer.
+  const isBottom = side === "bottom"
+  const closeRef = React.useRef<HTMLButtonElement>(null)
+  const startYRef = React.useRef<number | null>(null)
+  const [dragY, setDragY] = React.useState(0)
+  const [dragging, setDragging] = React.useState(false)
+
+  function handleTouchStart(event: React.TouchEvent) {
+    startYRef.current = event.touches[0]?.clientY ?? null
+    setDragging(true)
+  }
+  function handleTouchMove(event: React.TouchEvent) {
+    if (startYRef.current === null) return
+    const delta = (event.touches[0]?.clientY ?? startYRef.current) - startYRef.current
+    setDragY(delta > 0 ? delta : 0)
+  }
+  function handleTouchEnd() {
+    setDragging(false)
+    if (dragY > 110) closeRef.current?.click()
+    setDragY(0)
+    startYRef.current = null
+  }
+
+  const sheetStyle =
+    isBottom && dragY > 0 ? { transform: `translateY(${dragY}px)`, transition: dragging ? "none" : undefined } : style
+
   return (
     <SheetPortal>
       <SheetOverlay />
@@ -62,11 +91,25 @@ function SheetContent({
           side === "top" &&
             "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b",
           side === "bottom" &&
-            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto max-h-[85dvh] overflow-y-auto border-t",
+            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto max-w-full max-h-[85dvh] overflow-y-auto rounded-t-2xl border-t pb-[max(1rem,env(safe-area-inset-bottom))]",
           className,
         )}
+        style={sheetStyle}
         {...props}
       >
+        {/* Drag handle for the mobile bottom sheet — swipe it down to dismiss. */}
+        {isBottom ? (
+          <div
+            data-slot="sheet-handle"
+            aria-hidden
+            className="-mb-2 flex h-5 w-full shrink-0 cursor-grab touch-none items-center justify-center pt-1"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
+            <span className="h-1.5 w-10 rounded-full bg-muted-foreground/30" />
+          </div>
+        ) : null}
         {children}
         {showCloseButton && (
           <SheetPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-secondary absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
@@ -74,6 +117,7 @@ function SheetContent({
             <span className="sr-only">{formatMessage("common.close")}</span>
           </SheetPrimitive.Close>
         )}
+        {isBottom ? <SheetPrimitive.Close ref={closeRef} aria-hidden tabIndex={-1} className="hidden" /> : null}
       </SheetPrimitive.Content>
     </SheetPortal>
   )

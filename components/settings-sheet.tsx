@@ -31,6 +31,7 @@ import { Label } from "@/components/ui/label"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ProjectClaimSlot } from "@/components/project-claim-slot"
+import { SpacesManager } from "@/components/spaces-manager"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
 import { formatMessage, formatPluralMessage } from "@/lib/i18n/messages"
@@ -179,6 +180,7 @@ function ProjectStorageSection(
     visibleRestoreKey: string | null
   }>,
 ) {
+  const claimActiveProject = useTimerStore((s) => s.claimActiveProject)
   if (props.accountBackedProject) {
     return (
       <div className="rounded-xl border bg-muted/30 p-3">
@@ -201,6 +203,7 @@ function ProjectStorageSection(
       <Label htmlFor="restoreKey">{formatMessage("project.restoreKey")}</Label>
       <div className="flex items-center gap-2">
         <Input
+          className="min-w-0"
           id="restoreKey"
           type={props.restoreKeyRevealed ? "text" : "password"}
           value={props.visibleRestoreKey ?? ""}
@@ -237,6 +240,7 @@ function ProjectStorageSection(
         <div className="text-xs text-muted-foreground">{formatMessage("project.restoreKeyDescription")}</div>
       ) : null}
       <ProjectClaimSlot
+        claimActiveProject={claimActiveProject}
         restoreKey={props.restoreKey}
         projectName={props.activeProjectName}
         cloudProjectId={props.cloudProjectId}
@@ -509,7 +513,7 @@ export function SettingsSheet({ showTriggerTooltip = true, ...props }: Readonly<
         <div
           ref={scrollContainerRef}
           data-slot="settings-scroll-container"
-          className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 pb-6"
+          className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
         >
           <div className="grid gap-4 pt-4">
             <div data-settings-section="project" className="grid scroll-mt-3 gap-4 rounded-lg border p-4">
@@ -577,6 +581,14 @@ export function SettingsSheet({ showTriggerTooltip = true, ...props }: Readonly<
                   {formatMessage("project.refresh")}
                 </Button>
               </div>
+            </div>
+
+            <div data-settings-section="spaces" className="grid scroll-mt-3 gap-4 rounded-lg border p-4">
+              <div className="grid gap-1">
+                <div className="text-sm font-medium">{formatMessage("space.dialogTitle")}</div>
+                <div className="text-xs text-muted-foreground">{formatMessage("space.dialogDescription")}</div>
+              </div>
+              <SpacesManager />
             </div>
 
             <ProjectCleanupSection

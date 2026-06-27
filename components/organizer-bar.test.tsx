@@ -55,16 +55,19 @@ describe("OrganizerBar", () => {
     expect(storeState.setTimerFilter).toHaveBeenCalledWith("notifications", true)
   })
 
-  it("keeps organizer actions icon-only", async () => {
+  it("adds a space inline from the bar without a management modal", async () => {
     const user = userEvent.setup()
     renderOrganizerBar()
 
     expect(screen.getByRole("button", { name: "Filters" })).not.toHaveTextContent("Filters")
     expect(screen.getByRole("button", { name: "Sort timers" })).not.toHaveTextContent(/Manual|Soonest/)
 
-    await user.click(screen.getByRole("button", { name: "Manage spaces" }))
+    await user.click(screen.getByRole("button", { name: "New space" }))
 
-    expect(screen.getByRole("dialog", { name: "Spaces" })).toBeVisible()
+    const input = await screen.findByPlaceholderText("Work")
+    await user.type(input, "Personal{Enter}")
+
+    expect(storeState.createSpace).toHaveBeenCalledWith("Personal", undefined)
   })
 
   it("shows the active filter count", () => {

@@ -45,6 +45,7 @@ export type TimerActions = {
   deleteSpace: (id: string) => void
   reorderSpaces: (fromIndex: number, toIndex: number) => void
   moveTimerToSpace: (timerId: string, spaceId: string | null) => void
+  moveTimerToProject: (timerId: string, targetProjectId: string) => boolean
   setActiveSpace: (spaceId: string | null) => void
   setTimerSortMode: (mode: TimerSortMode) => void
   setTimerFilter: (filter: TimerFilterKey, enabled: boolean) => void

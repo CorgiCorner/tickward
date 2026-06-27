@@ -693,6 +693,40 @@ export function createTimerStore(init?: TimerStoreInit) {
           persistAndSchedule()
         },
 
+        moveTimerToProject: (timerId, targetProjectId) => {
+          const state = get()
+          const timer = findTimerById(state.timers, timerId)
+          const target = state.projects.find((project) => project.id === targetProjectId)
+          if (!timer || !target || target.id === state.activeProjectId) return false
+
+          // The target project's payload lives in browser storage; load it, append
+          // the timer there, and write it back so the move survives without making
+          // the target the active project. Spaces are project-scoped, so the moved
+          // timer drops its space assignment and any pin state.
+          const targetPayload = payloadForProject(target)
+          if (targetPayload.timers.length >= getEntitlements().maxTimers) return false
+
+          const now = new Date().toISOString()
+          const movedTimer: Timer = { ...timer, spaceId: undefined, pinned: undefined, updatedAt: now }
+          const nextTargetTimers = [movedTimer, ...targetPayload.timers]
+          normalizePinnedTimers(nextTargetTimers)
+          writeProjectPayload(target.id, { ...targetPayload, timers: nextTargetTimers, updatedAt: now })
+
+          let moved = false
+          set((s) => {
+            const targetMeta = s.projects.find((project) => project.id === targetProjectId)
+            if (!targetMeta) return
+            targetMeta.updatedAt = now
+            targetMeta.hasUnsyncedChanges = true
+            targetMeta.timerCount = nextTargetTimers.length
+            s.timers = timersWithoutId(s.timers, timerId)
+            markActiveProjectChanged(s, now)
+            moved = true
+          })
+          if (moved) persistAndSchedule()
+          return moved
+        },
+
         setActiveSpace: (spaceId) => {
           set((s) => {
             s.activeSpaceId = safeActiveSpaceId(spaceId, s.spaces)

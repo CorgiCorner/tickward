@@ -119,40 +119,42 @@ export function QuickAddTimer(props: Readonly<QuickAddTimerProps>) {
           onChange={(event) => setLabel(event.target.value)}
         />
       </div>
-      <div className="min-w-0">
-        <Controller
-          control={form.control}
-          name="date"
-          render={({ field }) => <DatePicker value={field.value} onChange={field.onChange} />}
-        />
+      {/* Date and time share one row on mobile; `sm:contents` lets them fall back
+          into their own grid columns on wider screens. */}
+      <div className="grid min-w-0 grid-cols-2 gap-2 sm:contents">
+        <div className="min-w-0">
+          <Controller
+            control={form.control}
+            name="date"
+            render={({ field }) => <DatePicker value={field.value} onChange={field.onChange} />}
+          />
+        </div>
+        <div className="min-w-0">
+          <Controller
+            control={form.control}
+            name="time"
+            render={({ field }) => <TimePicker value={field.value} onChange={field.onChange} />}
+          />
+        </div>
       </div>
-      <div className="min-w-0">
-        <Controller
-          control={form.control}
-          name="time"
-          render={({ field }) => <TimePicker value={field.value} onChange={field.onChange} />}
-        />
-      </div>
-      {atLimit ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="flex w-full min-w-0 sm:w-auto">
-              <Button type="submit" size="sm" disabled className="h-9 w-full sm:h-8 sm:w-auto">
-                <PlusIcon className="mr-1.5 size-4" />
-                {formatMessage("common.add")}
-              </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top" sideOffset={8} className="max-w-[240px] text-center">
-            {limitMessage}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
-        <Button type="submit" size="sm" disabled={!parsedForm.success} className="h-9 w-full sm:h-8 sm:w-auto">
-          <PlusIcon className="mr-1.5 size-4" />
-          {formatMessage("common.add")}
-        </Button>
-      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex">
+            <Button
+              type="submit"
+              size="icon"
+              disabled={atLimit || !parsedForm.success}
+              aria-label={formatMessage("common.add")}
+              className="size-9 shrink-0 sm:size-8"
+            >
+              <PlusIcon className="size-4" />
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" sideOffset={8} className="max-w-[240px] text-center">
+          {atLimit ? limitMessage : formatMessage("common.add")}
+        </TooltipContent>
+      </Tooltip>
     </form>
   )
 }

@@ -1,10 +1,25 @@
 import "server-only"
 
 import type { Actor } from "@/lib/contracts"
+import { getRedis } from "@/lib/redis"
 import type { TimerShareAccess } from "@/lib/repositories"
 import type { ResolvedShare } from "@/lib/share-model"
 import { getServerAdapters } from "@/lib/server-adapters.server"
 import { stableShareId } from "@/lib/static-share-id.server"
+
+// Share resolution is read-only and identical for a given id between edits, but
+// every embed page load and state poll otherwise issues two Postgres queries
+// (share + timer). A short Redis read-through cache collapses repeated reads of
+// the same share - the dominant load when a timer is embedded on a busy host
+// page - to one DB round-trip per window. Staleness is bounded by the TTL, in
+// line with the embed contract's own 60s cache window; a revoked or edited
+// share propagates within that window. Negative results are cached briefly so a
+// flood of valid-format-but-missing ids cannot hammer the DB.
+const RESOLVE_CACHE_PREFIX = "tickward:share:resolve:"
+const RESOLVE_CACHE_TTL_SECONDS = 30
+const RESOLVE_CACHE_MISS_TTL_SECONDS = 10
+
+type ResolveCacheEntry = { v: ResolvedShare | null }
 
 export type CreateTimerShareInput = {
   actor: Actor
@@ -72,7 +87,29 @@ export async function getExistingTimerShare(input: CreateTimerShareInput): Promi
 }
 
 export async function resolveTimerShare(shareId: string): Promise<ResolvedShare | null> {
-  return getServerAdapters().shareRepository.resolve(shareId)
+  const cacheKey = `${RESOLVE_CACHE_PREFIX}${shareId}`
+
+  try {
+    const cached = await getRedis().get<ResolveCacheEntry>(cacheKey)
+    if (cached) return cached.v
+  } catch {
+    // Fail open: a Redis hiccup (or no Redis configured locally) must never
+    // break a read path. Fall through to the database.
+  }
+
+  const resolved = await getServerAdapters().shareRepository.resolve(shareId)
+
+  try {
+    await getRedis().set<ResolveCacheEntry>(
+      cacheKey,
+      { v: resolved },
+      { ex: resolved ? RESOLVE_CACHE_TTL_SECONDS : RESOLVE_CACHE_MISS_TTL_SECONDS },
+    )
+  } catch {
+    // Best-effort cache population; never fail the request on a write error.
+  }
+
+  return resolved
 }
 
 export async function resolveTimerShareBatch(shareIds: string[]): Promise<Map<string, ResolvedShare | null>> {

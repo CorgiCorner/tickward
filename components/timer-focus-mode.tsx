@@ -284,7 +284,7 @@ export function TimerFocusMode(
         <XIcon className="size-5" />
       </Button>
 
-      <main className="flex min-h-dvh flex-1 items-center justify-center px-4 py-20 sm:px-8">
+      <main className="flex flex-1 items-center justify-center px-4 py-20 sm:px-8">
         <div className="mx-auto grid w-full max-w-5xl gap-10 text-center sm:gap-14">
           <h1 id="timer-focus-mode-title" className="text-balance text-3xl font-semibold sm:text-5xl">
             {timerLabel}

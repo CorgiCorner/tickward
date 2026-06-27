@@ -526,8 +526,6 @@ async function runUnsplashSpacingSmoke(baseUrl) {
 
     const dialog = page.getByRole("dialog", { name: "Edit timer" })
     await dialog.waitFor({ state: "visible", timeout: 10_000 })
-    await dialog.getByRole("button", { name: "Next" }).click()
-    await dialog.getByRole("button", { name: "Next" }).click()
     await dialog.getByRole("button", { name: "Add photo" }).click()
 
     const emptySpacing = await page.evaluate(() => {
@@ -639,7 +637,6 @@ async function runEditTimezoneSmoke(baseUrl) {
 
     const dialog = page.getByRole("dialog", { name: "Edit timer" })
     await dialog.waitFor({ state: "visible", timeout: 10_000 })
-    await dialog.getByRole("button", { name: "Next" }).click()
     await dialog.getByRole("button", { name: /Europe\/Warsaw/ }).click()
     await page.getByPlaceholder("Search timezones...").waitFor({ state: "visible", timeout: 10_000 })
 

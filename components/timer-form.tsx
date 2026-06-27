@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import {
   TimerBasicsSection,
   TimerCustomizeSection,
+  TimerFormSectionHeading,
   TimerFormStepper,
   TimerScheduleSection,
 } from "@/components/timer-form-sections"
@@ -196,6 +197,66 @@ function TimerFormFooter(
   )
 }
 
+function TimerEditFooter(props: Readonly<{ saveDisabled: boolean }>) {
+  return (
+    <DialogFooter className="flex-row justify-end gap-2">
+      <Button type="submit" disabled={props.saveDisabled}>
+        {formatMessage("common.save")}
+      </Button>
+    </DialogFooter>
+  )
+}
+
+// Edit reveals every section at once (basics, schedule, customize) so changing a
+// single field never forces a walk through the create wizard's three steps.
+function TimerEditSections(
+  props: Readonly<{
+    form: UseFormReturn<TimerFormValues>
+    spaces: ComponentProps<typeof TimerBasicsSection>["spaces"]
+    labelLength: number
+    descriptionLength: number
+    localTz: string
+    timezone: string
+    repeatEnabled: boolean
+    repeatType: TimerFormValues["repeatType"]
+    repeatPreview: string[]
+    isPastDate: boolean
+    onNotifyChange: (checked: boolean) => void
+  }>,
+) {
+  return (
+    <div className="grid gap-5">
+      <section className="grid gap-3">
+        <TimerFormSectionHeading step={1} labelKey="timer.form.basics" />
+        <TimerBasicsSection
+          control={props.form.control}
+          register={props.form.register}
+          spaces={props.spaces}
+          labelLength={props.labelLength}
+          descriptionLength={props.descriptionLength}
+        />
+      </section>
+      <section className="grid gap-3">
+        <TimerFormSectionHeading step={2} labelKey="timer.form.schedule" />
+        <TimerScheduleSection
+          control={props.form.control}
+          localTz={props.localTz}
+          timezone={props.timezone}
+          repeatEnabled={props.repeatEnabled}
+          repeatType={props.repeatType}
+          repeatPreview={props.repeatPreview}
+          isPastDate={props.isPastDate}
+          onNotifyChange={props.onNotifyChange}
+        />
+      </section>
+      <section className="grid gap-3">
+        <TimerFormSectionHeading step={3} labelKey="timer.form.customize" />
+        <TimerCustomizeSection control={props.form.control} />
+      </section>
+    </div>
+  )
+}
+
 function TimerFormContent(
   props: Readonly<
     Omit<TimerFormProps, "onOpenChange" | "open" | "trigger"> & {
@@ -251,8 +312,11 @@ function TimerFormContent(
     return new Date(targetDate).getTime() < nowMs
   }, [date, nowMs, scheduleValid, time, timezone])
 
+  const isEdit = props.mode === "edit"
   const notifyBlockedByPastDate = notify && isPastDate
   const currentStepReady = currentStepValid && !(step === 2 && notifyBlockedByPastDate)
+  const basicsValid = isTimerFormStepValid(1, values)
+  const editSaveDisabled = !basicsValid || !scheduleValid || notifyBlockedByPastDate
 
   const firstOccurrence = useMemo(() => {
     if (!repeatEnabled || !scheduleValid) return null
@@ -312,7 +376,7 @@ function TimerFormContent(
   }
 
   return (
-    <DialogContent>
+    <DialogContent sheetOnMobile>
       <DialogHeader>
         <DialogTitle>
           {formatMessage(props.mode === "create" ? "timer.form.createTitle" : "timer.form.editTitle")}
@@ -321,35 +385,56 @@ function TimerFormContent(
       </DialogHeader>
 
       <form onSubmit={form.handleSubmit(handleSubmit)} className="grid gap-4">
-        <TimerFormStepper step={step} />
+        {isEdit ? (
+          <>
+            <TimerEditSections
+              form={form}
+              spaces={spaces}
+              labelLength={labelLength}
+              descriptionLength={descriptionLength}
+              localTz={browserTz}
+              timezone={timezone}
+              repeatEnabled={repeatEnabled}
+              repeatType={repeatType}
+              repeatPreview={repeatPreview}
+              isPastDate={isPastDate}
+              onNotifyChange={(checked) => void handleNotifyChange(checked)}
+            />
+            <TimerEditFooter saveDisabled={editSaveDisabled} />
+          </>
+        ) : (
+          <>
+            <TimerFormStepper step={step} />
 
-        <div className="grid min-h-[280px] content-start gap-4">
-          <TimerStepContent
-            currentStep={step}
-            descriptionLength={descriptionLength}
-            form={form}
-            isPastDate={isPastDate}
-            labelLength={labelLength}
-            localTz={browserTz}
-            repeatEnabled={repeatEnabled}
-            repeatPreview={repeatPreview}
-            repeatType={repeatType}
-            spaces={spaces}
-            timezone={timezone}
-            onNotifyChange={(checked) => void handleNotifyChange(checked)}
-          />
-        </div>
+            <div className="grid min-h-[280px] content-start gap-4">
+              <TimerStepContent
+                currentStep={step}
+                descriptionLength={descriptionLength}
+                form={form}
+                isPastDate={isPastDate}
+                labelLength={labelLength}
+                localTz={browserTz}
+                repeatEnabled={repeatEnabled}
+                repeatPreview={repeatPreview}
+                repeatType={repeatType}
+                spaces={spaces}
+                timezone={timezone}
+                onNotifyChange={(checked) => void handleNotifyChange(checked)}
+              />
+            </div>
 
-        <TimerFormFooter
-          currentStep={step}
-          currentStepReady={currentStepReady}
-          currentStepValid={currentStepValid}
-          mode={props.mode}
-          notifyBlockedByPastDate={notifyBlockedByPastDate}
-          scheduleValid={scheduleValid}
-          onBack={() => setStep(previousStep(step))}
-          onNext={(event) => void handleNextStep(event)}
-        />
+            <TimerFormFooter
+              currentStep={step}
+              currentStepReady={currentStepReady}
+              currentStepValid={currentStepValid}
+              mode={props.mode}
+              notifyBlockedByPastDate={notifyBlockedByPastDate}
+              scheduleValid={scheduleValid}
+              onBack={() => setStep(previousStep(step))}
+              onNext={(event) => void handleNextStep(event)}
+            />
+          </>
+        )}
       </form>
     </DialogContent>
   )

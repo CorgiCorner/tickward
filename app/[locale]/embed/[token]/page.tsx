@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 
+import { EmbedBeacon } from "@/components/embed-beacon"
 import { EmbedTimer, EmbedUnavailableCard } from "@/components/embed-timer"
 import { getEmbedAttribution } from "@/lib/embed-attribution"
 import { parseEmbedParams, parseHexColor } from "@/lib/embed-params"
@@ -56,6 +57,7 @@ export default async function EmbedPage(props: PageProps) {
       }}
     >
       <style>{"html, body { background: transparent !important; }"}</style>
+      {isRoutableShareId(token) ? <EmbedBeacon token={token} /> : null}
       {resolved ? (
         <EmbedTimer
           label={resolved.timer.label}

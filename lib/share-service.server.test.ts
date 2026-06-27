@@ -13,12 +13,20 @@ const mocks = vi.hoisted(() => ({
     resolve: vi.fn(),
     resolveBatch: vi.fn(),
   },
+  redis: {
+    get: vi.fn(),
+    set: vi.fn(),
+  },
 }))
 
 vi.mock("@/lib/server-adapters.server", () => ({
   getServerAdapters: () => ({
     shareRepository: mocks.shareRepository,
   }),
+}))
+
+vi.mock("@/lib/redis", () => ({
+  getRedis: () => mocks.redis,
 }))
 
 describe("share service", () => {
@@ -28,6 +36,10 @@ describe("share service", () => {
     mocks.shareRepository.findPublishedTimer.mockReset()
     mocks.shareRepository.resolve.mockReset()
     mocks.shareRepository.resolveBatch.mockReset()
+    // Default to a cache miss with a working store so resolve falls through to
+    // the repository unless a test opts into a cache hit.
+    mocks.redis.get.mockReset().mockResolvedValue(null)
+    mocks.redis.set.mockReset().mockResolvedValue("OK")
   })
 
   afterEach(() => {
@@ -134,6 +146,55 @@ describe("share service", () => {
       resolvedFrom: "live" as const,
       timer: { label: "Launch", targetDate: "2026-05-25T12:00:00.000Z", timezone: "Europe/Warsaw" },
     }
+    mocks.shareRepository.resolve.mockResolvedValue(resolved)
+
+    await expect(resolveTimerShare("shareId_12345")).resolves.toBe(resolved)
+    expect(mocks.shareRepository.resolve).toHaveBeenCalledWith("shareId_12345")
+  })
+
+  it("serves a cached share without touching the repository", async () => {
+    const { resolveTimerShare } = await import("./share-service.server")
+    const resolved = {
+      resolvedFrom: "live" as const,
+      timer: { label: "Launch", targetDate: "2026-05-25T12:00:00.000Z", timezone: "Europe/Warsaw" },
+    }
+    mocks.redis.get.mockResolvedValue({ v: resolved })
+
+    await expect(resolveTimerShare("shareId_12345")).resolves.toEqual(resolved)
+    expect(mocks.redis.get).toHaveBeenCalledWith("tickward:share:resolve:shareId_12345")
+    expect(mocks.shareRepository.resolve).not.toHaveBeenCalled()
+    expect(mocks.redis.set).not.toHaveBeenCalled()
+  })
+
+  it("populates the cache after resolving a share from the repository", async () => {
+    const { resolveTimerShare } = await import("./share-service.server")
+    const resolved = {
+      resolvedFrom: "live" as const,
+      timer: { label: "Launch", targetDate: "2026-05-25T12:00:00.000Z", timezone: "Europe/Warsaw" },
+    }
+    mocks.shareRepository.resolve.mockResolvedValue(resolved)
+
+    await resolveTimerShare("shareId_12345")
+
+    expect(mocks.redis.set).toHaveBeenCalledWith("tickward:share:resolve:shareId_12345", { v: resolved }, { ex: 30 })
+  })
+
+  it("negatively caches a missing share with a shorter ttl", async () => {
+    const { resolveTimerShare } = await import("./share-service.server")
+    mocks.shareRepository.resolve.mockResolvedValue(null)
+
+    await expect(resolveTimerShare("missing_id_123")).resolves.toBeNull()
+
+    expect(mocks.redis.set).toHaveBeenCalledWith("tickward:share:resolve:missing_id_123", { v: null }, { ex: 10 })
+  })
+
+  it("falls open to the repository when the cache read throws", async () => {
+    const { resolveTimerShare } = await import("./share-service.server")
+    const resolved = {
+      resolvedFrom: "live" as const,
+      timer: { label: "Launch", targetDate: "2026-05-25T12:00:00.000Z", timezone: "Europe/Warsaw" },
+    }
+    mocks.redis.get.mockRejectedValue(new Error("redis down"))
     mocks.shareRepository.resolve.mockResolvedValue(resolved)
 
     await expect(resolveTimerShare("shareId_12345")).resolves.toBe(resolved)

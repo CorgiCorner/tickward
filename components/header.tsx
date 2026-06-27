@@ -10,7 +10,8 @@ import { GitHubRepoButton } from "@/components/github-repo-button"
 import { ProjectSwitcher } from "@/components/project-switcher"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { formatMessage } from "@/lib/i18n/messages"
+import { formatMessage, formatPluralMessage } from "@/lib/i18n/messages"
+import { useTimerStore } from "@/lib/store"
 
 function subscribeToHydrationStore() {
   return () => {}
@@ -22,6 +23,26 @@ function getHydratedSnapshot() {
 
 function getServerSnapshot() {
   return false
+}
+
+// Compact count of the active project's live (non-archived) timers, shown on the
+// top bar so the running total is visible without scanning the list.
+function HeaderTimerCount() {
+  const timers = useTimerStore((s) => s.timers) ?? []
+  const count = timers.filter((timer) => !timer.archivedAt).length
+  if (count === 0) return null
+
+  const label = formatPluralMessage("timer.count", count)
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs text-muted-foreground"
+      aria-label={label}
+      title={label}
+    >
+      <TimerIcon className="size-3.5" />
+      {count}
+    </span>
+  )
 }
 
 export function Header() {
@@ -43,8 +64,9 @@ export function Header() {
           </Link>
         </div>
 
-        <div className="ml-2 min-w-0 flex-1">
+        <div className="ml-2 flex min-w-0 flex-1 items-center gap-2">
           <ProjectSwitcher />
+          <HeaderTimerCount />
         </div>
 
         <div className="flex shrink-0 items-center gap-2.5">

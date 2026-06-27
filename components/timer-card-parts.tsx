@@ -1,4 +1,13 @@
-import { EllipsisVerticalIcon, LockIcon, PencilIcon, PinIcon, PinOffIcon, RepeatIcon } from "lucide-react"
+import {
+  BellIcon,
+  EllipsisVerticalIcon,
+  FolderIcon,
+  LockIcon,
+  PencilIcon,
+  PinIcon,
+  PinOffIcon,
+  RepeatIcon,
+} from "lucide-react"
 import Image from "next/image"
 import { useState, type MouseEvent, type ReactNode } from "react"
 
@@ -121,6 +130,17 @@ function TimerCardTitleBlock(
       <div className={["min-w-0", props.isArchived ? "pr-28 md:pr-0" : "pr-36 md:pr-0"].join(" ")}>
         <div className="flex min-w-0 items-center gap-2">
           <div className="truncate text-base font-semibold">{props.timer.label}</div>
+          {props.timer.notify === true || props.timer.notification?.enabled === true ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <BellIcon
+                  aria-label={formatMessage("timer.notificationsOn")}
+                  className="size-3.5 shrink-0 text-muted-foreground/70"
+                />
+              </TooltipTrigger>
+              <TooltipContent>{formatMessage("timer.notificationsOn")}</TooltipContent>
+            </Tooltip>
+          ) : null}
           {props.isRecurring ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -173,11 +193,13 @@ export function TimerCardMobileActions(
     isPinned: boolean
     isFollowed: boolean
     notificationsEnabled: boolean
+    canMove?: boolean
     onTogglePin: () => void
     onToggleNotification: () => void
     onOpenShare: () => void
     onOpenFocus: () => void
     onOpenEdit: () => void
+    onOpenMove?: () => void
     onUnfollow: () => void
     onDuplicate: () => void
     onToggleArchive: () => void
@@ -237,6 +259,8 @@ export function TimerCardMobileActions(
         isArchived={props.isArchived}
         isFollowed={props.isFollowed}
         notificationsEnabled={props.notificationsEnabled}
+        canMove={props.canMove}
+        onOpenMove={props.onOpenMove}
         onToggleNotification={props.onToggleNotification}
         onOpenShare={props.onOpenShare}
         onUnfollow={props.onUnfollow}
@@ -368,6 +392,8 @@ function TimerOverflowActions(
     isArchived: boolean
     isFollowed: boolean
     notificationsEnabled: boolean
+    canMove?: boolean
+    onOpenMove?: () => void
     onToggleNotification: () => void
     onOpenShare: () => void
     onUnfollow: () => void
@@ -412,6 +438,11 @@ function TimerOverflowActions(
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => props.onOpenShare()}>{formatMessage("common.share")}</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => props.onDuplicate()}>{formatMessage("common.duplicate")}</DropdownMenuItem>
+        {props.canMove && props.onOpenMove ? (
+          <DropdownMenuItem onSelect={() => props.onOpenMove?.()}>
+            {formatMessage("timer.move.action")}
+          </DropdownMenuItem>
+        ) : null}
         {props.isFollowed ? (
           <DropdownMenuItem onSelect={() => props.onUnfollow()}>{formatMessage("timer.unfollow")}</DropdownMenuItem>
         ) : null}
@@ -431,10 +462,12 @@ export function TimerCardDesktopActions(
     isPinned: boolean
     isFollowed: boolean
     notificationsEnabled: boolean
+    canMove?: boolean
     onTogglePin: () => void
     onToggleNotification: () => void
     onOpenShare: () => void
     onOpenFocus: () => void
+    onOpenMove?: () => void
     onEditSubmit: (timer: TimerFormSubmitValue) => void
     onUnfollow: () => void
     onDuplicate: () => void
@@ -455,6 +488,8 @@ export function TimerCardDesktopActions(
         isArchived={props.isArchived}
         isFollowed={props.isFollowed}
         notificationsEnabled={props.notificationsEnabled}
+        canMove={props.canMove}
+        onOpenMove={props.onOpenMove}
         onToggleNotification={props.onToggleNotification}
         onOpenShare={props.onOpenShare}
         onUnfollow={props.onUnfollow}
@@ -463,6 +498,43 @@ export function TimerCardDesktopActions(
         onDelete={props.onDelete}
       />
     </div>
+  )
+}
+
+export function MoveToProjectDialog(
+  props: Readonly<{
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    projects: { id: string; name: string }[]
+    onMove: (projectId: string) => void
+  }>,
+) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{formatMessage("timer.move.title")}</DialogTitle>
+          <DialogDescription>{formatMessage("timer.move.description")}</DialogDescription>
+        </DialogHeader>
+        {props.projects.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{formatMessage("timer.move.empty")}</p>
+        ) : (
+          <div className="grid gap-1">
+            {props.projects.map((project) => (
+              <button
+                key={project.id}
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm outline-none transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                onClick={() => props.onMove(project.id)}
+              >
+                <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">{project.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }
 

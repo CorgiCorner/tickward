@@ -2,7 +2,7 @@
 
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core"
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable"
-import { AlertTriangleIcon, KeyIcon, TimerIcon, XIcon } from "lucide-react"
+import { AlertTriangleIcon, ArrowDownIcon, ArrowUpIcon, KeyIcon, TimerIcon, XIcon } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
@@ -187,7 +187,7 @@ function ActiveTimerList(
   if (!props.pinnedTimer && props.sortableTimers.length === 0) return null
 
   return (
-    <div data-slot="timer-list" className="-mx-4 grid gap-4 md:mx-0">
+    <div id="active-timers" data-slot="timer-list" className="-mx-4 grid gap-4 scroll-mt-20 md:mx-0">
       {props.pinnedTimer ? (
         <TimerCard key={props.pinnedTimer.id} timer={props.pinnedTimer} nowMs={props.nowMs} sortable={false} />
       ) : null}
@@ -207,12 +207,36 @@ function ActiveTimerList(
   )
 }
 
-function ArchivedTimerList(props: Readonly<{ timers: Timer[]; nowMs: number }>) {
+function scrollToId(id: string) {
+  const reduceMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+  document.getElementById(id)?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" })
+}
+
+// Jump control between the active list and the archived list, shown only when
+// both are present so reaching the archive (or getting back) is a single tap.
+function SectionJump(props: Readonly<{ direction: "toArchived" | "toActive" }>) {
+  const toArchived = props.direction === "toArchived"
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+      onClick={() => scrollToId(toArchived ? "archived-timers" : "active-timers")}
+    >
+      {toArchived ? <ArrowDownIcon className="size-3.5" /> : <ArrowUpIcon className="size-3.5" />}
+      {formatMessage(toArchived ? "home.jumpToArchived" : "home.jumpToActive")}
+    </button>
+  )
+}
+
+function ArchivedTimerList(props: Readonly<{ timers: Timer[]; nowMs: number; showJumpToActive: boolean }>) {
   if (props.timers.length === 0) return null
 
   return (
-    <section className="mt-6 border-t border-dashed border-border pt-5">
-      <div className="mb-3 text-xs font-medium uppercase text-muted-foreground">{formatMessage("home.archived")}</div>
+    <section id="archived-timers" className="mt-6 border-t border-dashed border-border pt-5 scroll-mt-20">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <span className="text-xs font-medium uppercase text-muted-foreground">{formatMessage("home.archived")}</span>
+        {props.showJumpToActive ? <SectionJump direction="toActive" /> : null}
+      </div>
       <div data-slot="archived-timer-list" className="-mx-4 grid gap-4 md:mx-0">
         {props.timers.map((t) => (
           <TimerCard key={t.id} timer={t} nowMs={props.nowMs} sortable={false} />
@@ -245,6 +269,8 @@ function TimerCollection(
     )
   }
 
+  const showSectionJump = props.activeTimers.length > 0 && props.archivedTimers.length > 0
+
   return (
     <>
       <OrganizerBar />
@@ -257,7 +283,16 @@ function TimerCollection(
           onDragEnd={props.onDragEnd}
         />
       ) : null}
-      <ArchivedTimerList timers={props.archivedTimers} nowMs={props.nowMs} />
+      {showSectionJump ? (
+        <div className="mt-4 flex justify-center">
+          <SectionJump direction="toArchived" />
+        </div>
+      ) : null}
+      <ArchivedTimerList
+        timers={props.archivedTimers}
+        nowMs={props.nowMs}
+        showJumpToActive={props.activeTimers.length > 0}
+      />
       {props.activeTimers.length === 0 && props.archivedTimers.length === 0 ? <FilteredEmptyState /> : null}
     </>
   )

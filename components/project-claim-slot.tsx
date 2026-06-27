@@ -13,7 +13,7 @@ import {
   isProjectClaimDismissed,
   subscribeProjectClaimDismissed,
 } from "@/lib/project-claim-dismissal.client"
-import { useTimerStore } from "@/lib/store"
+import { useTimerStore, type TimerStore } from "@/lib/store"
 
 export const PROJECT_CLAIM_TOAST_DELAY_MS = 30_000
 
@@ -31,6 +31,10 @@ function useProjectClaimDismissed(projectId: string | null | undefined) {
 
 export function ProjectClaimSlot(
   props: Readonly<{
+    // The store action is passed in rather than read here so this component is
+    // safe to render outside the TimerStoreProvider — e.g. inside a Sonner toast,
+    // whose portal lives in the root layout, above the home page's provider.
+    claimActiveProject: TimerStore["claimActiveProject"]
     cloudProjectId?: string
     onClaimed?: () => void
     projectName: string
@@ -39,7 +43,6 @@ export function ProjectClaimSlot(
   }>,
 ) {
   const session = authClient.useSession()
-  const claimActiveProject = useTimerStore((s) => s.claimActiveProject)
   const [loading, setLoading] = useState(false)
   const authUnavailable = session.error?.status === 501
   const sessionPending = Boolean(session.isPending)
@@ -73,7 +76,7 @@ export function ProjectClaimSlot(
   async function claimProject() {
     setLoading(true)
     try {
-      const status = await claimActiveProject()
+      const status = await props.claimActiveProject()
       if (status === "claimed") {
         toast.success(formatMessage("auth.claim.claimed"))
         props.onClaimed?.()
@@ -92,14 +95,7 @@ export function ProjectClaimSlot(
   }
 
   const action = (
-    <Button
-      variant="outline"
-      size="sm"
-      loading={loading}
-      className="w-full justify-start"
-      onClick={() => void claimProject()}
-    >
-      <ShieldCheckIcon className="size-4" />
+    <Button variant="outline" size="sm" loading={loading} onClick={() => void claimProject()}>
       {formatMessage("auth.claim.action")}
     </Button>
   )
@@ -115,7 +111,7 @@ export function ProjectClaimSlot(
           <div className="mt-1 text-xs text-muted-foreground">
             {formatMessage("auth.claim.description", { project: props.projectName })}
           </div>
-          <div className="mt-3">{action}</div>
+          <div className="mt-3 flex justify-end">{action}</div>
         </div>
       </div>
     </div>
@@ -124,6 +120,7 @@ export function ProjectClaimSlot(
 
 function ProjectClaimToastContent(
   props: Readonly<{
+    claimActiveProject: TimerStore["claimActiveProject"]
     onClaimed: () => void
     onDismiss: () => void
     projectName: string
@@ -152,8 +149,9 @@ function ProjectClaimToastContent(
           <div className="mt-1 text-xs text-muted-foreground">
             {formatMessage("home.claimProject.description", { project: props.projectName })}
           </div>
-          <div className="mt-3">
+          <div className="mt-3 flex justify-end">
             <ProjectClaimSlot
+              claimActiveProject={props.claimActiveProject}
               restoreKey={props.restoreKey}
               projectName={props.projectName}
               variant="button"
@@ -177,6 +175,10 @@ export function ProjectClaimToast(
 ) {
   const session = authClient.useSession()
   const dismissed = useProjectClaimDismissed(props.projectId)
+  // Read the store action here, inside the provider, and hand it to the toast.
+  // The toast renders in the layout's Sonner portal, outside the provider, so it
+  // must never call useTimerStore itself.
+  const claimActiveProject = useTimerStore((s) => s.claimActiveProject)
   const toastIdRef = useRef<number | string | null>(null)
   const shownProjectIdRef = useRef<string | null>(null)
 
@@ -226,6 +228,7 @@ export function ProjectClaimToast(
 
           return (
             <ProjectClaimToastContent
+              claimActiveProject={claimActiveProject}
               restoreKey={eligibleRestoreKey}
               projectName={props.projectName}
               onDismiss={dismissToastForSession}
@@ -238,6 +241,9 @@ export function ProjectClaimToast(
           duration: Infinity,
           dismissible: false,
           position: "bottom-right",
+          // ProjectClaimToastContent draws its own bordered box, so strip the
+          // Sonner toast shell (bg/shadow/padding) to avoid a box-in-a-box.
+          classNames: { toast: "!border-0 !bg-transparent !p-0 !shadow-none" },
         },
       )
       toastIdRef.current = id
@@ -245,7 +251,7 @@ export function ProjectClaimToast(
     }, PROJECT_CLAIM_TOAST_DELAY_MS)
 
     return () => globalThis.clearTimeout(timeoutId)
-  }, [eligible, projectId, props.projectName, restoreKey])
+  }, [eligible, projectId, props.projectName, restoreKey, claimActiveProject])
 
   useEffect(() => {
     return () => {

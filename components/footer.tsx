@@ -1,11 +1,43 @@
 "use client"
 
+import { WifiOffIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { formatMessage } from "@/lib/i18n/messages"
 import { useTimerStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
+
+// Tracks the browser's connectivity. Tickward keeps working offline because state
+// is stored locally; this only drives the visible indicator.
+function useOnlineStatus() {
+  const [online, setOnline] = useState(true)
+
+  useEffect(() => {
+    const update = () => setOnline(globalThis.navigator?.onLine ?? true)
+    update()
+    globalThis.addEventListener("online", update)
+    globalThis.addEventListener("offline", update)
+    return () => {
+      globalThis.removeEventListener("online", update)
+      globalThis.removeEventListener("offline", update)
+    }
+  }, [])
+
+  return online
+}
+
+function OfflineBadge() {
+  const online = useOnlineStatus()
+  if (online) return null
+
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/40 bg-amber-50 px-2 py-0.5 text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+      <WifiOffIcon className="size-3" />
+      {formatMessage("footer.offline")}
+    </span>
+  )
+}
 
 function formatTimeAgo(isoDate: string) {
   const diffMs = Date.now() - new Date(isoDate).getTime()
@@ -56,14 +88,20 @@ function SyncStatus() {
 
   const activeProject = projects.find((project) => project.id === activeProjectId)
   const hasCloudAccess = Boolean(restoreKey || activeProject?.cloudProjectId)
+  // Synced through a restore key but never claimed by a signed-in account, so the
+  // "Synced" label needs a hint that this project is not tied to an account yet.
+  const isAnonymousCloud = hasCloudAccess && !activeProject?.cloudProjectId
 
   const label = syncStatusLabel({ hasCloudAccess, isSyncing, lastSyncError, lastSyncAt })
   const dotClass = syncStatusDotClass({ hasCloudAccess, isSyncing, lastSyncError })
 
   const status = (
-    <div className="flex min-w-0 items-center gap-1.5">
+    <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
       <span className={["inline-block size-1.5 shrink-0 rounded-full", dotClass].join(" ")} />
       <span className="truncate">{label}</span>
+      {isAnonymousCloud && !isSyncing && !lastSyncError ? (
+        <span className="shrink-0 text-muted-foreground/70">· {formatMessage("footer.noAccount")}</span>
+      ) : null}
     </div>
   )
 
@@ -94,11 +132,15 @@ export function FooterStatusBar(props: Readonly<FooterStatusBarProps>) {
   return (
     <footer
       className={cn(
-        "sticky bottom-0 z-30 border-t border-border bg-background/85 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] text-xs text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/80",
+        // Safe-area padding is only applied in standalone/PWA mode. In a mobile
+        // browser, `env(safe-area-inset-bottom)` flips as the bottom toolbar
+        // shows/hides while scrolling, which made the sticky footer jump in height.
+        "sticky bottom-0 z-30 border-t border-border bg-background/85 py-2 [@media(display-mode:standalone)]:pb-[calc(0.5rem+env(safe-area-inset-bottom))] text-xs text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/80",
         props.className,
       )}
     >
-      <div className="mx-auto flex w-full max-w-[640px] min-w-0 items-center px-4 text-left">
+      <div className="mx-auto flex min-h-6 w-full max-w-[640px] min-w-0 items-center gap-2 px-4 text-left">
+        <OfflineBadge />
         <SyncStatus />
       </div>
     </footer>

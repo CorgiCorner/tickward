@@ -1,19 +1,11 @@
 "use client"
 
-import { ArrowUpDownIcon, CheckIcon, Layers2Icon, PlusIcon, Settings2Icon, Trash2Icon } from "lucide-react"
+import { ArrowUpDownIcon, CheckIcon, PlusIcon, Settings2Icon } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
+import { ColorSwatches } from "@/components/spaces-manager"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -24,8 +16,6 @@ import { useTimerStore } from "@/lib/store"
 import { activeTimerFilterCount, timerHasNotifications, timerIsShared } from "@/lib/timer-filters"
 import type { Space, Timer, TimerFilterKey, TimerSortMode } from "@/lib/types"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
-
-const SPACE_COLORS = [undefined, "#2563eb", "#16a34a", "#f97316", "#db2777", "#7c3aed"] as const
 
 const SORT_OPTIONS: Array<{ value: TimerSortMode; labelKey: MessageKey }> = [
   { value: "manual", labelKey: "organizer.sort.label.manual" },
@@ -85,54 +75,26 @@ function chipClass(active: boolean) {
   ].join(" ")
 }
 
-function ColorSwatches(props: Readonly<{ value?: string; onChange: (color?: string) => void }>) {
-  return (
-    <div className="flex flex-wrap gap-2 pt-2">
-      {SPACE_COLORS.map((color) => {
-        const active = props.value === color || (!props.value && !color)
-        return (
-          <button
-            key={color ?? "none"}
-            type="button"
-            aria-label={color ? formatMessage("organizer.color.use", { color }) : formatMessage("organizer.color.none")}
-            aria-pressed={active}
-            className={[
-              "size-6 rounded-full border transition",
-              active ? "ring-2 ring-ring ring-offset-2 ring-offset-background" : "hover:scale-105",
-              color ? "" : "bg-background",
-            ].join(" ")}
-            style={color ? { backgroundColor: color } : undefined}
-            onClick={() => props.onChange(color)}
-          >
-            {color === undefined ? <span className="mx-auto block h-px w-3 rotate-45 bg-muted-foreground" /> : null}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-function SpaceManagerDialog() {
+// Adding a space happens inline from the bar: a dashed "+" chip opens a small
+// popover where you type a name and press Enter (no plus to hunt for in a modal).
+// Renaming / recoloring / reordering / deleting spaces lives in project settings.
+function SpacesControl() {
   const spaces = useTimerStore((s) => s.spaces)
   const createSpace = useTimerStore((s) => s.createSpace)
-  const updateSpace = useTimerStore((s) => s.updateSpace)
-  const deleteSpace = useTimerStore((s) => s.deleteSpace)
 
-  const [open, setOpen] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
   const [newName, setNewName] = useState("")
   const [newColor, setNewColor] = useState<string | undefined>()
-  const [drafts, setDrafts] = useState<Record<string, Pick<Space, "name" | "color">>>({})
   const entitlements = getEntitlements()
-  const maxSpaces = entitlements.maxSpaces
-  const atSpaceLimit = spaces.length >= maxSpaces
-
-  function resetDrafts() {
-    setDrafts(Object.fromEntries(spaces.map((space) => [space.id, { name: space.name, color: space.color }])))
-  }
+  const atSpaceLimit = spaces.length >= entitlements.maxSpaces
 
   const canCreate = newName.trim().length > 0 && !atSpaceLimit
 
   function handleCreate() {
+    if (atSpaceLimit) {
+      toast.error(spaceLimitMessage(entitlements))
+      return
+    }
     if (!canCreate) return
     createSpace(newName, newColor)
     toast.success(formatMessage("space.created"))
@@ -140,137 +102,53 @@ function SpaceManagerDialog() {
     setNewColor(undefined)
   }
 
-  function handleSave(space: Space) {
-    const draft = drafts[space.id]
-    if (!draft) return
-    updateSpace(space.id, draft)
-    toast.success(formatMessage("space.updated"))
-  }
-
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen)
-        if (nextOpen) resetDrafts()
-      }}
-    >
+    <Popover open={addOpen} onOpenChange={setAddOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="icon-sm" aria-label={formatMessage("organizer.manageSpaces")}>
-              <Layers2Icon className="size-4" />
-            </Button>
-          </DialogTrigger>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label={formatMessage("space.new")}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center gap-1 rounded-full border border-dashed border-muted-foreground/40 bg-background text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/50 hover:text-foreground sm:w-auto sm:px-3"
+            >
+              <PlusIcon className="size-3.5" />
+              <span className="hidden sm:inline">{formatMessage("space.new")}</span>
+            </button>
+          </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent side="top" sideOffset={8}>
-          {formatMessage("organizer.manageSpaces")}
+          {formatMessage("space.new")}
         </TooltipContent>
       </Tooltip>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{formatMessage("space.dialogTitle")}</DialogTitle>
-          <DialogDescription className="sr-only">{formatMessage("space.dialogDescription")}</DialogDescription>
-        </DialogHeader>
-
-        <div className="grid gap-5">
-          <div className="grid gap-2">
-            <Label htmlFor="new-space-name">{formatMessage("space.new")}</Label>
-            <div className="flex gap-2">
-              <Input
-                id="new-space-name"
-                value={newName}
-                maxLength={30}
-                placeholder={formatMessage("space.placeholder")}
-                disabled={atSpaceLimit}
-                onChange={(event) => setNewName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") handleCreate()
-                }}
-              />
-              <Button
-                size="icon"
-                disabled={!canCreate}
-                aria-label={formatMessage("space.create")}
-                onClick={handleCreate}
-              >
-                <span className="sr-only">{formatMessage("space.create")}</span>
-                <PlusIcon className="size-4" />
-              </Button>
+      <PopoverContent align="end" className="w-72 p-3">
+        <div className="grid gap-2">
+          <Label htmlFor="new-space-name">{formatMessage("space.new")}</Label>
+          <Input
+            id="new-space-name"
+            value={newName}
+            maxLength={30}
+            autoFocus
+            placeholder={formatMessage("space.placeholder")}
+            disabled={atSpaceLimit}
+            onChange={(event) => setNewName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") handleCreate()
+            }}
+          />
+          <ColorSwatches value={newColor} onChange={setNewColor} />
+          {atSpaceLimit ? (
+            <div className="rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+              {spaceLimitMessage(entitlements)}
             </div>
-            <ColorSwatches value={newColor} onChange={setNewColor} />
-            <div className="text-xs text-muted-foreground">
-              {spaces.length}/{maxSpaces}
-            </div>
-            {atSpaceLimit ? (
-              <div className="text-xs text-muted-foreground">{spaceLimitMessage(entitlements)}</div>
-            ) : null}
-          </div>
-
-          {spaces.length > 0 ? (
-            <div className="grid max-h-[45dvh] gap-3 overflow-y-auto pr-1">
-              {spaces.map((space) => {
-                const draft = drafts[space.id] ?? { name: space.name, color: space.color }
-                const canSave =
-                  draft.name.trim().length > 0 && (draft.name.trim() !== space.name || draft.color !== space.color)
-
-                return (
-                  <div key={space.id} className="grid gap-2 rounded-lg border p-3">
-                    <div className="flex gap-2">
-                      <Input
-                        value={draft.name}
-                        maxLength={30}
-                        onChange={(event) => {
-                          setDrafts((current) => ({
-                            ...current,
-                            [space.id]: { ...draft, name: event.target.value },
-                          }))
-                        }}
-                      />
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        aria-label={formatMessage("space.save", { name: space.name })}
-                        disabled={!canSave}
-                        onClick={() => handleSave(space)}
-                      >
-                        <CheckIcon className="size-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={formatMessage("space.delete", { name: space.name })}
-                        onClick={() => {
-                          deleteSpace(space.id)
-                          toast.success(formatMessage("space.deleted"))
-                        }}
-                      >
-                        <Trash2Icon className="size-4" />
-                      </Button>
-                    </div>
-                    <ColorSwatches
-                      value={draft.color}
-                      onChange={(color) => {
-                        setDrafts((current) => ({
-                          ...current,
-                          [space.id]: { ...draft, color },
-                        }))
-                      }}
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          ) : null}
+          ) : (
+            <Button size="sm" disabled={!canCreate} onClick={handleCreate}>
+              {formatMessage("space.create")}
+            </Button>
+          )}
         </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            {formatMessage("common.done")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -330,7 +208,7 @@ export function OrganizerBar() {
           </div>
         </div>
 
-        <SpaceManagerDialog />
+        <SpacesControl />
 
         <Popover>
           <Tooltip>

@@ -4,6 +4,26 @@
 
 No unreleased public changes.
 
+## 0.6.0 - 2026-06-27
+
+### Added
+
+- Wrapped the app in error boundaries and added a pluggable client error reporter with a no-op default, so you can wire your own monitoring.
+- Showed a muted bell next to a timer's title when its notifications are on.
+- Added timer editing, sync status, and moving timers across projects to the spaces UI.
+
+### Changed
+
+- Made the Quick Add submit a plus icon with a hover tooltip.
+- Served images unoptimized since the app ships pre-sized assets, keeping the build small.
+- Emitted production browser source maps so client error stacks point at real source instead of minified chunks.
+
+### Fixed
+
+- Padded overlays for the iOS safe area and guarded narrow-screen overflow.
+- Tidied the project-claim toast: removed the double box, right-aligned the button, and stopped it reading the timer store.
+- Permitted the configured error-monitoring script source and ingest origin under the content security policy.
+
 ## 0.5.0 - 2026-06-13
 
 ### Changed

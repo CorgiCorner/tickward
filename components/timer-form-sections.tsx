@@ -1,5 +1,6 @@
 import { formatInTimeZone } from "date-fns-tz"
-import { BellIcon, BellRingIcon } from "lucide-react"
+import { BellIcon, BellRingIcon, ClockIcon, ImageIcon, PencilIcon } from "lucide-react"
+import type { ComponentType } from "react"
 import type { Control, UseFormRegister } from "react-hook-form"
 import { Controller } from "react-hook-form"
 
@@ -15,6 +16,10 @@ import type { TimerFormRecurrenceType, TimerFormValues } from "@/lib/schemas/tim
 import type { Space } from "@/lib/types"
 
 const TIMER_FORM_STEPS = ["timer.form.basics", "timer.form.schedule", "timer.form.customize"] as const
+
+// Small per-section glyphs (pen / clock / photo) shown in the stepper and in the
+// edit view section headers so each part of the form is scannable at a glance.
+const TIMER_FORM_STEP_ICONS: ComponentType<{ className?: string }>[] = [PencilIcon, ClockIcon, ImageIcon]
 const RECURRENCE_TYPES: TimerFormRecurrenceType[] = ["daily", "weekly", "monthly", "yearly"]
 const RECURRENCE_TYPE_LABEL_KEYS: Record<TimerFormRecurrenceType, MessageKey> = {
   daily: "timer.form.recurrence.daily",
@@ -42,16 +47,34 @@ export function TimerFormStepper(props: Readonly<{ step: number }>) {
         const stepNumber = i + 1
         const active = stepNumber === props.step
         const done = stepNumber < props.step
+        const Icon = TIMER_FORM_STEP_ICONS[i]
 
         return (
           <div key={labelKey} className="flex items-center gap-1">
             {i > 0 && <div className={["h-px w-4 transition-colors", done ? "bg-primary" : "bg-border"].join(" ")} />}
-            <span className={["text-xs transition-colors", stepLabelClassName({ active, done })].join(" ")}>
+            <span
+              className={[
+                "inline-flex items-center gap-1 text-xs transition-colors",
+                stepLabelClassName({ active, done }),
+              ].join(" ")}
+            >
+              {Icon ? <Icon className="size-3.5" /> : null}
               {formatMessage(labelKey)}
             </span>
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// Compact icon + title used to delimit each section in the all-at-once edit view.
+export function TimerFormSectionHeading(props: Readonly<{ step: number; labelKey: MessageKey }>) {
+  const Icon = TIMER_FORM_STEP_ICONS[props.step - 1]
+  return (
+    <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      {Icon ? <Icon className="size-3.5" /> : null}
+      {formatMessage(props.labelKey)}
     </div>
   )
 }
@@ -158,7 +181,7 @@ export function TimerScheduleSection(
 
   return (
     <>
-      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-2 gap-3">
         <Controller
           control={control}
           name="date"

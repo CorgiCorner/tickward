@@ -17,6 +17,7 @@ import "react-swipeable-list/dist/styles.css"
 import { toast } from "sonner"
 
 import {
+  MoveToProjectDialog,
   TimerCardContent,
   TimerCardDesktopActions,
   TimerCardMobileActions,
@@ -61,7 +62,10 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
   const projects = useTimerStore((s) => s.projects)
   const activeProjectId = useTimerStore((s) => s.activeProjectId)
   const syncToCloud = useTimerStore((s) => s.syncToCloud)
+  const moveTimerToProject = useTimerStore((s) => s.moveTimerToProject)
   const activeProject = projects.find((project) => project.id === activeProjectId)
+  const otherProjects = projects.filter((project) => project.id !== activeProjectId)
+  const canMove = !isFollowed && otherProjects.length > 0
 
   const sub = `${formatTargetInTimeZone(effectiveTarget, timer.timezone)} · ${timer.timezone}`
 
@@ -70,6 +74,7 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
   const [shareLoading, setShareLoading] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [focusOpen, setFocusOpen] = useState(false)
+  const [moveOpen, setMoveOpen] = useState(false)
 
   function shareOwnerPayload() {
     return { projectId: activeProject?.cloudProjectId, restoreKey, timerId: timer.id }
@@ -268,6 +273,15 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
     toast.success(formatMessage(isFollowed ? "timer.addCopy" : "timer.duplicated"))
   }
 
+  function handleMoveToProject(projectId: string) {
+    const target = projects.find((project) => project.id === projectId)
+    const moved = moveTimerToProject(timer.id, projectId)
+    const name = target?.name ?? ""
+    if (moved) toast.success(formatMessage("timer.move.success", { name }))
+    else toast.error(formatMessage("timer.move.full", { name }))
+    setMoveOpen(false)
+  }
+
   function handleMobileCardTap() {
     if (globalThis.window !== undefined && "matchMedia" in globalThis) {
       const mobile = globalThis.matchMedia("(max-width: 767px)").matches
@@ -329,11 +343,13 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
           isPinned={isPinned}
           isFollowed={isFollowed}
           notificationsEnabled={notificationsEnabled}
+          canMove={canMove}
           onTogglePin={togglePin}
           onToggleNotification={() => void toggleNotification()}
           onOpenShare={openShareDialog}
           onOpenFocus={() => setFocusOpen(true)}
           onOpenEdit={() => setEditOpen(true)}
+          onOpenMove={() => setMoveOpen(true)}
           onUnfollow={handleUnfollow}
           onDuplicate={handleDuplicate}
           onToggleArchive={toggleArchive}
@@ -347,10 +363,12 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
           isPinned={isPinned}
           isFollowed={isFollowed}
           notificationsEnabled={notificationsEnabled}
+          canMove={canMove}
           onTogglePin={togglePin}
           onToggleNotification={() => void toggleNotification()}
           onOpenShare={openShareDialog}
           onOpenFocus={() => setFocusOpen(true)}
+          onOpenMove={() => setMoveOpen(true)}
           onEditSubmit={handleEditSubmit}
           onUnfollow={handleUnfollow}
           onDuplicate={handleDuplicate}
@@ -400,6 +418,13 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
         targetDateIsoUtc={effectiveTarget}
         nowMs={nowMs}
         onClose={() => setFocusOpen(false)}
+      />
+
+      <MoveToProjectDialog
+        open={moveOpen}
+        onOpenChange={setMoveOpen}
+        projects={otherProjects.map((project) => ({ id: project.id, name: project.name }))}
+        onMove={handleMoveToProject}
       />
 
       <TimerImageAttribution timer={timer} />

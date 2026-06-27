@@ -49,12 +49,26 @@ function uniqueSources(sources: string[]) {
 
 function contentSecurityPolicy() {
   const plausibleOrigin = originSource(process.env.NEXT_PUBLIC_PLAUSIBLE_URL)
-  const connectSrc = uniqueSources(["'self'", "https://api.github.com", ...(plausibleOrigin ? [plausibleOrigin] : [])])
+  // When a Sentry-compatible DSN is configured, allow its browser monitor to
+  // load and report: the Loader Script CDN in script-src and the DSN's ingest
+  // origin in connect-src. Without these the loader is blocked by CSP and no
+  // client error ever reaches the monitor. Stays empty when no DSN is set.
+  // js.sentry-cdn.com serves the Loader Script; browser.sentry-cdn.com serves the
+  // SDK bundle the loader then pulls in. Both must be allowed or the SDK is blocked.
+  const sentryIngestOrigin = originSource(process.env.NEXT_PUBLIC_SENTRY_DSN)
+  const sentryScriptSources = sentryIngestOrigin ? ["https://js.sentry-cdn.com", "https://browser.sentry-cdn.com"] : []
+  const connectSrc = uniqueSources([
+    "'self'",
+    "https://api.github.com",
+    ...(plausibleOrigin ? [plausibleOrigin] : []),
+    ...(sentryIngestOrigin ? [sentryIngestOrigin] : []),
+  ])
   const scriptSrc = uniqueSources([
     "'self'",
     "'unsafe-inline'",
     "'unsafe-eval'",
     ...(plausibleOrigin ? [plausibleOrigin] : []),
+    ...sentryScriptSources,
   ])
 
   return [
@@ -215,7 +229,20 @@ export async function proxy(request: NextRequest) {
   // for these routes come from next.config headers(), as before.
   const pageRewriteUrl = request.nextUrl.clone()
   pageRewriteUrl.pathname = internalPathname
-  return prefixed ? NextResponse.next() : NextResponse.rewrite(pageRewriteUrl)
+  const response = prefixed ? NextResponse.next() : NextResponse.rewrite(pageRewriteUrl)
+
+  // The embed page is anonymous, cookie-free, and identical for a given URL, so
+  // let a CDN absorb repeat loads when a timer is embedded on a busy host page.
+  // Without this the framework marks the dynamic page (it reads searchParams)
+  // no-store, and every iframe load is a fresh SSR invocation. The window
+  // mirrors the embed state API (app/api/embed/[token]/route.ts). Set here in
+  // the proxy because a dynamic page's Cache-Control set via next.config
+  // headers() is overwritten by the framework, whereas proxy headers win.
+  if (publicPath === "/embed" || publicPath.startsWith("/embed/")) {
+    response.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
+  }
+
+  return response
 }
 
 export const config = {
