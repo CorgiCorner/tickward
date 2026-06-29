@@ -5,34 +5,11 @@ import { describe, expect, it } from "vitest"
 const rootDir = path.resolve(import.meta.dirname, "..")
 const docsSiteDir = path.join(rootDir, "docs/site")
 
-const syncedDocsFiles = [
-  "api-reference.mdx",
-  "concepts/api-reliability.mdx",
-  "concepts/countdown-accuracy.mdx",
-  "concepts/notifications-and-alarms.mdx",
-  "concepts/recurrence.mdx",
-  "concepts/sharing-model.mdx",
-  "concepts/where-timers-live.mdx",
-  "docs.json",
-  "guides/agent-usage.mdx",
-  "guides/api-quickstart.mdx",
-  "guides/embedding-timers.mdx",
-  "guides/mcp.mdx",
-  "guides/recipes/create-project-with-timers.mdx",
-  "guides/recipes/preview-and-delete-project.mdx",
-  "guides/recipes/retry-safe-mutation.mdx",
-  "guides/self-hosting.mdx",
-  "guides/webhooks.mdx",
-  "index.mdx",
-  "openapi.json",
-  "skill.md",
-] as const
-
-const syncedBinaryDocsFiles = ["favicon.png"] as const
-
-// These root artifacts are served by app routes (app/openapi.json and the
-// agent-skills discovery index), so they stay at the root but must remain
-// byte-identical to the canonical docs/site copies.
+// Mintlify deploys the docs site from the docs/site subdirectory, so the .mdx
+// pages, docs.json, and favicon live ONLY there. The two artifacts below also
+// live at the repo root because app routes serve them - app/openapi.json
+// imports the root openapi.json, and the agent-skills discovery route reads the
+// root skill.md - so they must stay byte-identical to the docs/site copies.
 const appServedDocsArtifacts = ["openapi.json", "skill.md"] as const
 
 function readDocsSiteFile(filePath: string) {
@@ -70,26 +47,6 @@ function schema(openapi: unknown, name: string) {
 }
 
 describe("docs site structure", () => {
-  it("keeps root Mintlify files aligned with docs/site", () => {
-    const offenders = syncedDocsFiles.filter(
-      (filePath) =>
-        Buffer.compare(readFileSync(path.join(rootDir, filePath)), readFileSync(path.join(docsSiteDir, filePath))) !==
-        0,
-    )
-
-    expect(offenders).toEqual([])
-  })
-
-  it("keeps root Mintlify binary files aligned with docs/site", () => {
-    const offenders = syncedBinaryDocsFiles.filter(
-      (filePath) =>
-        Buffer.compare(readFileSync(path.join(rootDir, filePath)), readFileSync(path.join(docsSiteDir, filePath))) !==
-        0,
-    )
-
-    expect(offenders).toEqual([])
-  })
-
   it("keeps app-served root artifacts aligned with docs/site", () => {
     const offenders = appServedDocsArtifacts.filter(
       (filePath) =>
@@ -100,28 +57,24 @@ describe("docs site structure", () => {
     expect(offenders).toEqual([])
   })
 
-  it("keeps the Mintlify favicon available inside docs/site", () => {
+  it("keeps the Mintlify favicon present in docs/site", () => {
     const docsJson = JSON.parse(readDocsSiteFile("docs.json")) as { favicon?: unknown }
 
     expect(docsJson.favicon).toBe("/favicon.png")
-    expect(existsSync(path.join(rootDir, "favicon.png"))).toBe(true)
     expect(existsSync(path.join(docsSiteDir, "favicon.png"))).toBe(true)
   })
 
-  it("keeps docs navigation and OpenAPI references resolvable from root and docs/site", () => {
+  it("keeps docs navigation and OpenAPI references resolvable in docs/site", () => {
     const docsJson = JSON.parse(readDocsSiteFile("docs.json"))
     const pageRefs = collectStringValues(docsJson, "pages")
     const openapiRefs = collectStringValues(docsJson, "openapi")
     const offenders: string[] = []
 
     for (const page of pageRefs) {
-      const file = `${page}.mdx`
-      if (!existsSync(path.join(rootDir, file))) offenders.push(file)
-      if (!existsSync(path.join(docsSiteDir, file))) offenders.push(`docs/site/${file}`)
+      if (!existsSync(path.join(docsSiteDir, `${page}.mdx`))) offenders.push(`docs/site/${page}.mdx`)
     }
 
     for (const file of openapiRefs) {
-      if (!existsSync(path.join(rootDir, file))) offenders.push(file)
       if (!existsSync(path.join(docsSiteDir, file))) offenders.push(`docs/site/${file}`)
     }
 

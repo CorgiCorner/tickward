@@ -13,10 +13,16 @@ Upstash-compatible REST API.
 git clone https://github.com/CorgiCorner/tickward.git tickward
 cd tickward
 cp .env.example .env
-docker compose up --build
+docker compose pull
+docker compose up -d
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+The default Compose stack uses the published Docker Hub image
+`docker.io/corgicorner/tickward:0.7.1`. To use GHCR instead, set
+`TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.7.1` in `.env`. To build from a
+local checkout, run `docker compose up --build`.
 
 ## Features
 

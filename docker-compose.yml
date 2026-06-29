@@ -2,6 +2,8 @@ name: tickward
 
 services:
   app:
+    image: ${TICKWARD_IMAGE:-docker.io/corgicorner/tickward:0.7.1}
+    pull_policy: ${TICKWARD_PULL_POLICY:-missing}
     build:
       context: .
       args:

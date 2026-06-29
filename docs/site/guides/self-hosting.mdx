@@ -12,13 +12,34 @@ Redis-compatible REST endpoint for rate limiting.
 git clone https://github.com/CorgiCorner/tickward.git tickward
 cd tickward
 cp .env.example .env
-docker compose up --build
+docker compose pull
+docker compose up -d
 ```
 
 Open `http://localhost:3000`.
 
-The Compose stack starts the app, PostgreSQL, Redis, and an Upstash-compatible
-HTTP proxy for local rate limiting.
+The Compose stack starts the published tickward app image, PostgreSQL, Redis,
+and an Upstash-compatible HTTP proxy for local rate limiting.
+
+Published app images:
+
+| Registry   | Image                                      |
+| ---------- | ------------------------------------------ |
+| Docker Hub | `docker.io/corgicorner/tickward:0.7.1`     |
+| GHCR       | `ghcr.io/corgicorner/tickward:0.7.1`       |
+
+Docker Compose reads `TICKWARD_IMAGE` from `.env`. The default example uses
+Docker Hub. To use GHCR instead:
+
+```bash
+TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.7.1 docker compose up -d
+```
+
+To build from a local checkout instead of using a published image:
+
+```bash
+docker compose up --build
+```
 
 ## Local development
 
@@ -47,6 +68,7 @@ Use host-reachable URLs in `.env` when you run services outside Compose.
 | `DIRECT_URL`                                |      Yes | Direct PostgreSQL connection used by Prisma migrations.                             |
 | `UPSTASH_REDIS_REST_URL`                    |      Yes | Upstash-compatible Redis REST endpoint for rate limiting.                           |
 | `UPSTASH_REDIS_REST_TOKEN`                  |      Yes | Token accepted by the Redis REST endpoint.                                          |
+| `TICKWARD_IMAGE`                            |       No | Docker image used by the Compose app service.                                       |
 | `SITE_URL`                                  |      Yes | Public app URL used for metadata, sitemap, robots.txt, and generated social images. |
 | `NEXT_PUBLIC_TICKWARD_MAX_TIMERS`           |       No | Public timer limit embedded into the browser bundle at build time.                  |
 | `NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE` |       No | Public per-space active timer limit embedded into the browser bundle at build time. |
@@ -72,6 +94,17 @@ Use host-reachable URLs in `.env` when you run services outside Compose.
 | `SEED_DEMO_PROJECT_ID`                      |       No | Optional project id for the PostgreSQL demo seed.                                   |
 | `SEED_DEMO_RESTORE_KEY`                     |       No | Restore key for the PostgreSQL demo project seed.                                   |
 | `SEED_DEMO_BASE_DATE`                       |       No | Optional base date for deterministic screenshot data.                               |
+
+For Web Push, generate a VAPID key pair with `npx web-push generate-vapid-keys`
+(from the [`web-push`](https://github.com/web-push-libs/web-push) library; no
+install needed, `npx` fetches it). It prints a **Public Key** and a **Private
+Key** — copy them into `WEB_PUSH_VAPID_PUBLIC_KEY` and
+`WEB_PUSH_VAPID_PRIVATE_KEY`. Set `WEB_PUSH_VAPID_SUBJECT` to a contact
+`mailto:` address such as `mailto:admin@example.com`, or to your site URL — it
+identifies the sender to push services as required by the
+[VAPID spec (RFC 8292)](https://datatracker.ietf.org/doc/html/rfc8292). Keep the
+private key secret; the public key is exposed to browsers via
+`/api/push/public-key`.
 
 `SITE_URL` and `NEXT_PUBLIC_*` values affect build-time metadata or browser
 bundles. Rebuild the app after changing them.

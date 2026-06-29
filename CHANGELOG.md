@@ -4,6 +4,12 @@
 
 No unreleased public changes.
 
+## 0.7.1 - 2026-06-30
+
+### Added
+
+- Published container images to GHCR and Docker Hub from release tags.
+
 ## 0.7.0 - 2026-06-29
 
 ### Added
