@@ -18,6 +18,7 @@ import type { Prisma } from "@/lib/generated/prisma/client"
 import { getEntitlements } from "@/lib/entitlements"
 import { getMcpRemoteUrl } from "@/lib/mcp-config.server"
 import type { McpOAuthScope } from "@/lib/mcp-oauth"
+import { timerNotificationsEnabled } from "@/lib/notification-preferences"
 import { type ProjectSnapshotV2, createProjectSnapshot, isProjectSnapshot } from "@/lib/project-model"
 import { checkRateLimit } from "@/lib/rate-limit.server"
 import { stableShareId } from "@/lib/static-share-id.server"
@@ -500,7 +501,7 @@ function timerObject(project: Pick<ProjectRow, "id" | "name">, timer: Timer) {
     description: timer.description ?? null,
     space_id: timer.spaceId ?? null,
     shared_at: timer.sharedAt ?? null,
-    notify: timer.notify ?? false,
+    notify: timerNotificationsEnabled(timer.notification, timer.notify),
     recurrence: timer.recurrence ?? null,
     pinned: timer.pinned ?? false,
     image: timer.image ?? null,
@@ -807,7 +808,7 @@ function timerFromCreate(input: z.infer<typeof timerCreateSchema>): Timer {
     color: nonEmptyOrUndefined(input.color),
     description: nonEmptyOrUndefined(input.description),
     image: input.image,
-    notify: input.notify,
+    notify: input.notify ?? true,
     pinned: input.pinned,
     recurrence: input.recurrence,
     spaceId: nonEmptyOrUndefined(input.space_id),
@@ -853,7 +854,7 @@ function timerPlanInput(input: z.infer<typeof timerCreateSchema>) {
     id: input.id ?? null,
     image: input.image ?? null,
     label: input.label,
-    notify: input.notify ?? false,
+    notify: input.notify ?? true,
     pinned: input.pinned ?? false,
     recurrence: input.recurrence ?? null,
     space_id: nonEmptyOrNull(input.space_id),
@@ -939,7 +940,7 @@ function projectCreateWarnings(input: z.infer<typeof projectCreateSchema>) {
   const warnings: Array<{ code: string; message: string; path: string; remediation: string }> = []
 
   input.timers?.forEach((timer, index) => {
-    if (!timer.notify) return
+    if (timer.notify === false) return
     warnings.push({
       code: "timer_notify_uses_account_settings",
       message: "notify=true uses account-level notification settings.",
@@ -950,7 +951,7 @@ function projectCreateWarnings(input: z.infer<typeof projectCreateSchema>) {
 
   input.spaces?.forEach((space, spaceIndex) => {
     space.timers?.forEach((timer, timerIndex) => {
-      if (!timer.notify) return
+      if (timer.notify === false) return
       warnings.push({
         code: "timer_notify_uses_account_settings",
         message: "notify=true uses account-level notification settings.",

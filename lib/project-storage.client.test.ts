@@ -77,7 +77,7 @@ describe("local project storage", () => {
       spaces: [expect.objectContaining({ id: "space-a" })],
       activeSpaceId: "space-a",
       sortMode: "manual",
-      timerFilters: { notifications: false, shared: false },
+      timerFilters: { type: "all", pinned: false, muted: false, shared: false, recurring: false },
       updatedAt: "2026-05-24T00:00:00.000Z",
     })
 
@@ -87,6 +87,7 @@ describe("local project storage", () => {
         timers: [makeTimer({ id: "timer-b" })],
         spaces: [makeSpace({ id: "space-b" })],
         activeSpaceId: "missing-space",
+        timerFilters: { notifications: true, shared: true },
       }),
     )
 
@@ -95,7 +96,7 @@ describe("local project storage", () => {
         timers: [expect.objectContaining({ id: "timer-b" })],
         activeSpaceId: null,
         sortMode: "manual",
-        timerFilters: { notifications: false, shared: false },
+        timerFilters: { type: "all", pinned: false, muted: false, shared: true, recurring: false },
       }),
     )
   })
@@ -106,7 +107,7 @@ describe("local project storage", () => {
       spaces: [makeSpace({ id: "space-a" })],
       activeSpaceId: UNASSIGNED_SPACE_ID,
       sortMode: "soonest",
-      timerFilters: { notifications: false, shared: true },
+      timerFilters: { type: "countdown", pinned: false, muted: true, shared: true, recurring: false },
       updatedAt: "2026-05-24T00:00:00.000Z",
     })
 
@@ -114,7 +115,7 @@ describe("local project storage", () => {
       expect.objectContaining({
         activeSpaceId: UNASSIGNED_SPACE_ID,
         sortMode: "soonest",
-        timerFilters: { notifications: false, shared: true },
+        timerFilters: { type: "countdown", pinned: false, muted: true, shared: true, recurring: false },
       }),
     )
   })

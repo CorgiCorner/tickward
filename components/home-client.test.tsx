@@ -133,7 +133,7 @@ describe("HomeClient", () => {
       isSyncing: false,
       lastSyncAt: null,
       lastSyncError: null,
-      timerFilters: { notifications: false, shared: false },
+      timerFilters: { type: "all", pinned: false, muted: false, shared: false, recurring: false },
       timers: [],
       useCloudProjectVersion: vi.fn(),
     }
@@ -154,7 +154,7 @@ describe("HomeClient", () => {
     // The server-rendered HomeContentSection owns the real h1 below the client
     // shell; the hydration loader starts where the hydrated HomeClient starts.
     expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument()
-    expect(screen.queryByText("Countdown Timer to Any Date")).not.toBeInTheDocument()
+    expect(screen.queryByText("Countdown timer to any date")).not.toBeInTheDocument()
     expect(container.querySelector('[data-loading-region="home-intro"]')).not.toBeInTheDocument()
     expect(container.querySelector('[data-loading-region="quick-add"]')).toBeInTheDocument()
   })
@@ -181,12 +181,13 @@ describe("HomeClient", () => {
     expect(screen.getByText("Keep timers across devices")).toBeVisible()
   })
 
-  it("renders mobile timer lists full-bleed inside the padded page shell", () => {
+  it("renders active timers inside the upcoming card group", () => {
     storeState.timers = [makeTimer()]
 
     const { container } = renderHomeClient()
 
-    expect(container.querySelector('[data-slot="timer-list"]')).toHaveClass("-mx-4", "md:mx-0")
+    expect(screen.getByText("Upcoming")).toBeInTheDocument()
+    expect(container.querySelector('[data-slot="timer-list"]')).not.toHaveClass("-mx-4", "md:mx-0")
   })
 
   it("shows the onboarding banner when the user has a space", () => {

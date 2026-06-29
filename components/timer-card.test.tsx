@@ -105,6 +105,7 @@ describe("TimerCard", () => {
           updatedAt: "2026-05-24T00:00:00.000Z",
         },
       ],
+      spaces: [],
       activeProjectId: "project-local",
       removeTimer: vi.fn(),
       addTimer: vi.fn(),
@@ -173,7 +174,8 @@ describe("TimerCard", () => {
 
     rerender(<TimerCard timer={makeTimer({ pinned: true })} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
     await user.click(screen.getAllByRole("button", { name: "Unpin timer" })[0])
-    expect(storeState.setPinnedTimer).toHaveBeenCalledWith(null)
+    // Toggle semantics: unpin targets this timer (others may stay pinned).
+    expect(storeState.setPinnedTimer).toHaveBeenCalledWith("timer-a")
   })
 
   it("opens focus mode from the card icon and closes it with the exit button", async () => {
@@ -264,8 +266,8 @@ describe("TimerCard", () => {
     expect(screen.getByRole("button", { name: "Mint background" })).toHaveAttribute("aria-pressed", "true")
   })
 
-  it("explains the locked mobile edit action for followed timers", () => {
-    setViewportMobile(true)
+  it("explains the locked overflow edit action for followed timers", async () => {
+    const user = userEvent.setup()
     render(
       <TimerCard
         timer={makeTimer({ sourceShareId: "share_public_launch" })}
@@ -273,12 +275,10 @@ describe("TimerCard", () => {
       />,
     )
 
-    const lockedEditButtons = screen.getAllByRole("button", {
-      name: "Can't edit followed timers. Unfollow or duplicate.",
-    })
+    await openFirstTimerActions(user)
 
-    expect(lockedEditButtons.length).toBeGreaterThan(0)
-    expect(lockedEditButtons[0]).toBeDisabled()
+    const lockedEditItems = screen.getAllByRole("menuitem", { name: "Edit" })
+    expect(lockedEditItems[0]).toHaveAttribute("data-disabled")
     expect(screen.getAllByText("Can't edit followed timers. Unfollow or duplicate.").length).toBeGreaterThan(0)
   })
 
@@ -293,7 +293,9 @@ describe("TimerCard", () => {
 
     await openFirstTimerActions(user)
 
-    expect(screen.getByRole("menuitem", { name: "Enable notifications" })).toBeVisible()
+    expect(screen.getAllByRole("menuitem")[0]).toHaveTextContent("Edit")
+    expect(screen.getByRole("menuitem", { name: "Edit" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "Disable notifications" })).toBeVisible()
     expect(screen.getByRole("menuitem", { name: "Archive" })).toBeVisible()
     expect(screen.getByRole("menuitem", { name: "Share" })).toBeVisible()
     expect(screen.getByRole("menuitem", { name: "Duplicate" })).toBeVisible()
@@ -302,8 +304,17 @@ describe("TimerCard", () => {
 
     await user.keyboard("{Escape}")
     await waitFor(() => {
-      expect(screen.queryByRole("menuitem", { name: "Enable notifications" })).not.toBeInTheDocument()
+      expect(screen.queryByRole("menuitem", { name: "Disable notifications" })).not.toBeInTheDocument()
     })
+  })
+
+  it("opens the edit form from the overflow menu", async () => {
+    const user = userEvent.setup()
+    render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+
+    await clickFirstTimerAction(user, "Edit")
+
+    expect(await screen.findByRole("dialog", { name: "Edit timer" })).toBeVisible()
   })
 
   it("enables a timer local alarm without browser notification permission", async () => {

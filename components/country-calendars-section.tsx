@@ -12,32 +12,96 @@ import { formatMessage, localeHref, type Locale } from "@/lib/i18n/messages"
 // heading links to that country's section on the full /timers index.
 const COUNTRY_LINK_LIMIT = 6
 
+function normalizeFlagCode(code: string) {
+  const normalized = code.toUpperCase()
+  if (normalized === "UK") return "GB"
+  if (normalized === "PL" || normalized === "GB" || normalized === "US" || normalized === "CA") return normalized
+  return null
+}
+
+function CountryFlag(props: Readonly<{ code: string }>) {
+  const flagCode = normalizeFlagCode(props.code)
+  if (!flagCode) return null
+
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex h-3.5 w-5 shrink-0 overflow-hidden rounded-[3px] ring-1 ring-black/10"
+    >
+      {flagCode === "PL" ? (
+        <svg viewBox="0 0 20 14" className="h-full w-full">
+          <rect width="20" height="7" fill="#fff" />
+          <rect y="7" width="20" height="7" fill="#dc143c" />
+        </svg>
+      ) : null}
+      {flagCode === "GB" ? (
+        <svg viewBox="0 0 20 14" className="h-full w-full">
+          <rect width="20" height="14" fill="#012169" />
+          <path d="M0,0 L20,14 M20,0 L0,14" stroke="#fff" strokeWidth="3" />
+          <path d="M0,0 L20,14 M20,0 L0,14" stroke="#C8102E" strokeWidth="1.5" />
+          <rect x="8" width="4" height="14" fill="#fff" />
+          <rect y="5" width="20" height="4" fill="#fff" />
+          <rect x="9" width="2" height="14" fill="#C8102E" />
+          <rect y="6" width="20" height="2" fill="#C8102E" />
+        </svg>
+      ) : null}
+      {flagCode === "US" ? (
+        <svg viewBox="0 0 20 14" className="h-full w-full">
+          <rect width="20" height="14" fill="#fff" />
+          <g fill="#B22234">
+            <rect y="0" width="20" height="2" />
+            <rect y="4" width="20" height="2" />
+            <rect y="8" width="20" height="2" />
+            <rect y="12" width="20" height="2" />
+          </g>
+          <rect width="9" height="8" fill="#3C3B6E" />
+        </svg>
+      ) : null}
+      {flagCode === "CA" ? (
+        <svg viewBox="0 0 20 14" className="h-full w-full">
+          <rect width="20" height="14" fill="#fff" />
+          <rect width="5" height="14" fill="#FF0000" />
+          <rect x="15" width="5" height="14" fill="#FF0000" />
+          <path
+            fill="#FF0000"
+            d="M10 4 l0.5 1.5 1.5-0.3-0.6 1.3 1 0.2-0.9 0.8 0.3 0.5-1.4 0.2 0.2 1.7-0.6-0.6-0.6 0.6 0.2-1.7-1.4-0.2 0.3-0.5-0.9-0.8 1-0.2-0.6-1.3 1.5 0.3z"
+          />
+        </svg>
+      ) : null}
+    </span>
+  )
+}
+
 export function CountryCalendarsSection(props: Readonly<{ locale: Locale }>) {
   const groups = appExtensions.marketingCountryCalendars?.(props.locale) ?? []
   if (groups.length === 0) return null
 
   return (
-    <section aria-label={formatMessage("entry.byCountryHeading", {}, props.locale)} className="border-t bg-muted/20">
-      <div className="mx-auto grid w-full max-w-[880px] gap-6 px-5 py-12">
-        <h2 className="text-xs font-semibold tracking-normal text-foreground">
+    <section
+      aria-label={formatMessage("entry.byCountryHeading", {}, props.locale)}
+      className="border-t border-border bg-secondary"
+    >
+      <div className="mx-auto w-full max-w-[640px] px-4 py-12">
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
           {formatMessage("entry.byCountryHeading", {}, props.locale)}
         </h2>
-        <div className="grid gap-x-10 gap-y-6 sm:grid-cols-2">
+        <div className="mt-4 grid gap-x-8 gap-y-6 sm:grid-cols-2">
           {groups.map((group) => (
             <nav key={group.code} aria-label={group.countryLabel} className="grid content-start gap-2">
-              <h3 className="text-xs font-medium uppercase leading-none tracking-wide text-muted-foreground/70">
+              <h3 className="text-xs font-medium leading-none text-foreground">
                 <Link
-                  className="hover:text-foreground hover:underline"
+                  className="inline-flex items-center gap-2 hover:text-foreground hover:underline"
                   href={`${localeHref(props.locale, "/timers")}#country-${group.code}`}
                 >
-                  {group.countryLabel}
+                  <CountryFlag code={group.code} />
+                  <span>{group.countryLabel}</span>
                 </Link>
               </h3>
               <ul className="grid gap-1.5">
                 {group.links.slice(0, COUNTRY_LINK_LIMIT).map((link) => (
                   <li key={link.href}>
                     <Link
-                      className="text-xs leading-relaxed text-muted-foreground hover:text-foreground hover:underline"
+                      className="text-sm leading-relaxed text-muted-foreground hover:text-foreground hover:underline"
                       href={link.href}
                       hrefLang={link.hrefLang}
                     >
@@ -50,7 +114,7 @@ export function CountryCalendarsSection(props: Readonly<{ locale: Locale }>) {
           ))}
         </div>
         <Link
-          className="text-xs font-medium text-foreground hover:underline"
+          className="text-sm font-medium text-foreground hover:underline"
           href={localeHref(props.locale, "/timers")}
         >
           {formatMessage("entry.indexAll", {}, props.locale)}

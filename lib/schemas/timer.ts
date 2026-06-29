@@ -13,6 +13,30 @@ function isValidImageUrl(value: string) {
   return value.startsWith("https://images.unsplash.com/")
 }
 
+export const TIMER_URL_MAX_LENGTH = 2048
+
+// Normalize a user-supplied timer link. Returns "" for blank input, the cleaned
+// URL for a valid one, or null when invalid. Only http(s) is allowed (rendering
+// a `javascript:`/`data:` href would be an XSS vector), and query strings and
+// fragments are stripped per product rules. SQL injection is a non-issue: the
+// value is stored in a JSON column via parameterized Prisma writes.
+export function normalizeTimerUrl(raw: string): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return ""
+
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return null
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null
+  parsed.search = ""
+  parsed.hash = ""
+  return parsed.toString()
+}
+
 export function isValidTimezoneValue(value: string) {
   if (value === "UTC") return true
   try {
@@ -71,6 +95,7 @@ export const timerSchema = z.object({
   pinned: z.boolean().optional(),
   recurrence: recurrenceSchema.optional(),
   description: z.string().optional(),
+  url: z.string().optional(),
   spaceId: z.string().optional(),
   image: unsplashImageSchema.optional(),
 })
@@ -86,8 +111,6 @@ export const timerArraySchema = z.array(timerSchema)
 export const spaceArraySchema = z.array(spaceSchema)
 
 export const timersPayloadSchema = timerArraySchema.superRefine((timers, ctx) => {
-  let pinnedCount = 0
-
   for (const timer of timers) {
     if (timer.label.length > 200) {
       ctx.addIssue({
@@ -96,21 +119,13 @@ export const timersPayloadSchema = timerArraySchema.superRefine((timers, ctx) =>
       })
     }
 
-    if (!timer.pinned) continue
-    if (timer.archivedAt) {
+    // Any number of timers may be pinned, but an archived timer must not be.
+    if (timer.pinned && timer.archivedAt) {
       ctx.addIssue({
         code: "custom",
         message: formatMessage("validation.archivedPinned"),
       })
     }
-    pinnedCount += 1
-  }
-
-  if (pinnedCount > 1) {
-    ctx.addIssue({
-      code: "custom",
-      message: formatMessage("validation.onePinnedTimer"),
-    })
   }
 })
 
@@ -129,6 +144,7 @@ export const quickAddTimerFormSchema = z.object({
   label: z.string().trim().min(1).max(60),
   date: z.string().regex(dateInputPattern),
   time: z.string().regex(timeInputPattern),
+  timezone: timezoneSchema,
 })
 
 export type QuickAddTimerFormValues = z.input<typeof quickAddTimerFormSchema>
@@ -136,6 +152,13 @@ export type QuickAddTimerFormValues = z.input<typeof quickAddTimerFormSchema>
 export const timerFormSchema = z.object({
   label: z.string().trim().min(1).max(60),
   description: z.string().trim().max(200),
+  url: z
+    .string()
+    .trim()
+    .max(TIMER_URL_MAX_LENGTH)
+    .refine((value) => value === "" || normalizeTimerUrl(value) !== null, {
+      message: formatMessage("validation.timerUrlInvalid"),
+    }),
   date: z.string().regex(dateInputPattern),
   time: z.string().regex(timeInputPattern),
   timezone: timezoneSchema,
@@ -148,13 +171,13 @@ export const timerFormSchema = z.object({
 })
 
 export const timerFormStepFields = {
-  1: ["label", "description", "spaceId"],
+  1: ["label", "description", "url", "spaceId"],
   2: ["date", "time", "timezone", "notify", "repeatEnabled", "repeatType", "lastDay"],
   3: ["image"],
 } as const
 
 export const timerFormStepSchemas = {
-  1: timerFormSchema.pick({ label: true, description: true, spaceId: true }),
+  1: timerFormSchema.pick({ label: true, description: true, url: true, spaceId: true }),
   2: timerFormSchema.pick({
     date: true,
     time: true,
@@ -177,6 +200,7 @@ export type TimerFormSubmitValue = {
   targetDate: string
   timezone: string
   description?: string
+  url?: string
   notify?: boolean
   recurrence?: { type: TimerFormRecurrenceType; enabled: boolean; lastDay?: boolean }
   spaceId?: string

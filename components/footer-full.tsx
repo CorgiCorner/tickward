@@ -1,22 +1,24 @@
 import Link from "next/link"
 
+import { FooterStatusDot } from "@/components/footer-status-dot"
 import { LocaleSwitcher } from "@/components/locale-switcher"
 import type { MarketingFooterLink, MarketingFooterSection } from "@/lib/app-extension-points"
 import { appExtensions } from "@/lib/app-extensions"
 import { DEFAULT_LOCALE, formatMessage, localeHref, type Locale } from "@/lib/i18n/messages"
+import { STATUS_PAGE_URL } from "@/lib/status-summary"
 import { cn } from "@/lib/utils"
 
 const GITHUB_REPO_URL = "https://github.com/CorgiCorner/tickward"
 
 function FooterColumnHeading(props: Readonly<{ children: string }>) {
   return (
-    <h2 className="text-xs font-medium uppercase leading-none tracking-wide text-muted-foreground/70">
+    <h2 className="text-[11px] font-semibold uppercase leading-none tracking-[0.1em] text-muted-foreground">
       {props.children}
     </h2>
   )
 }
 
-const FOOTER_LINK_CLASS = "text-xs leading-relaxed text-muted-foreground/80 hover:text-foreground"
+const FOOTER_LINK_CLASS = "text-sm leading-relaxed text-muted-foreground hover:text-foreground"
 const FOOTER_ENTRIES_LIMIT = 12
 
 function FooterMarketingSections(props: Readonly<{ sections: readonly MarketingFooterSection[] }>) {
@@ -105,6 +107,17 @@ function FooterProductColumn(props: Readonly<{ docsHref?: string | null; locale:
             {formatMessage("footer.press", {}, props.locale)}
           </Link>
         </li>
+        <li>
+          <a
+            className={cn(FOOTER_LINK_CLASS, "inline-flex items-center gap-1.5")}
+            href={STATUS_PAGE_URL}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <FooterStatusDot />
+            {formatMessage("footer.status", {}, props.locale)}
+          </a>
+        </li>
       </ul>
     </nav>
   )
@@ -123,7 +136,7 @@ function FooterCopyright(props: Readonly<{ locale: Locale }>) {
 
 function ReleaseTagBadge(props: Readonly<{ releaseTag: string }>) {
   return (
-    <span className="shrink-0 rounded-full bg-muted px-2 py-1 font-mono text-[10px] leading-none text-muted-foreground ring-1 ring-border/60">
+    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground">
       {props.releaseTag}
     </span>
   )
@@ -149,16 +162,18 @@ export function FooterFull({
   releaseTag,
 }: Readonly<FooterFullProps>) {
   return (
-    <footer className={cn("border-t bg-background", className)}>
-      <div className="mx-auto grid w-full max-w-[880px] gap-8 px-5 py-10 text-xs text-muted-foreground">
-        <div className="grid grid-cols-2 gap-x-8 gap-y-8 sm:flex sm:flex-wrap sm:gap-x-14">
+    <footer className={cn("border-t border-border bg-background", className)}>
+      <div className="mx-auto w-full max-w-[640px] px-4 py-12 text-xs text-muted-foreground">
+        <div className="grid gap-8 sm:grid-cols-2">
           <FooterMarketingSections sections={marketingSections} />
           <FooterEntriesColumn locale={locale} marketingLinks={marketingLinks} />
           <FooterProductColumn docsHref={docsHref} locale={locale} />
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t pt-5">
+      </div>
+      <div className="border-t border-border">
+        <div className="mx-auto flex w-full max-w-[640px] flex-wrap items-center justify-between gap-3 px-4 py-6 text-xs text-muted-foreground">
           <p className="leading-relaxed">{formatMessage("footer.inactivityPolicy", {}, locale)}</p>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <LocaleSwitcher alternates={localeAlternates} />
             <div className="flex items-center gap-2">
               <FooterCopyright locale={locale} />

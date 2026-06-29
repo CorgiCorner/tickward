@@ -14,7 +14,7 @@ import {
   resumeAudioContextIfNeeded,
   scheduleNotificationSound,
 } from "@/lib/notification-audio.client"
-import type { NotificationSound } from "@/lib/notification-preferences"
+import { timerNotificationsEnabled, type NotificationSound } from "@/lib/notification-preferences"
 import type { Timer } from "@/lib/types"
 import { effectiveTargetDate, recurrenceHistory } from "@/lib/utils"
 
@@ -81,7 +81,7 @@ function timerAlarmBoundary(timer: Timer, nowMs: number) {
 // Check whether this timer is eligible for any local alarm at all.
 function timerIsAlarmable(timer: Timer): boolean {
   if (timer.archivedAt) return false
-  if (timer.notify !== true && timer.notification?.enabled !== true) return false
+  if (!timerNotificationsEnabled(timer.notification, timer.notify)) return false
   return true
 }
 
@@ -181,43 +181,41 @@ export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
   // Re-reads preferences at fire time so stale arm-time snapshots never deliver
   // sound/overlay against the user's current settings.
   // ---------------------------------------------------------------------------
-  const fire = useRef(
-    (candidate: TimerAlarmCandidate, setAlarmFn: (alarm: LocalTimerAlarm) => void) => {
-      if (firedRef.current.has(candidate.firedKey)) return
-      firedRef.current.add(candidate.firedKey)
+  const fire = useRef((candidate: TimerAlarmCandidate, setAlarmFn: (alarm: LocalTimerAlarm) => void) => {
+    if (firedRef.current.has(candidate.firedKey)) return
+    firedRef.current.add(candidate.firedKey)
 
-      // Re-read fresh prefs at fire time (fixes issue #4: stale arm-time snapshot).
-      const freshPrefs = readLocalNotificationPreferences()
+    // Re-read fresh prefs at fire time (fixes issue #4: stale arm-time snapshot).
+    const freshPrefs = readLocalNotificationPreferences()
 
-      // Update candidate fields with fresh prefs so the notification/overlay
-      // respect current user settings.
-      const freshedCandidate: TimerAlarmCandidate = {
-        ...candidate,
-        fullPageAlarm: freshPrefs.fullPageAlarm,
-        sound: freshPrefs.sound,
-      }
+    // Update candidate fields with fresh prefs so the notification/overlay
+    // respect current user settings.
+    const freshedCandidate: TimerAlarmCandidate = {
+      ...candidate,
+      fullPageAlarm: freshPrefs.fullPageAlarm,
+      sound: freshPrefs.sound,
+    }
 
-      showTimerBrowserNotification(freshedCandidate, freshPrefs)
+    showTimerBrowserNotification(freshedCandidate, freshPrefs)
 
-      // Only play the backstop sound if the scheduled audio handle did not
-      // already (or will not) handle it. If the entry still exists in
-      // scheduledRef, the scheduled source either played or was cancelled; in
-      // both cases the backstop avoids double-play.
-      const entry = scheduledRef.current.get(candidate.firedKey)
-      if (!entry?.cancelSound) {
-        void playNotificationSound(freshedCandidate.sound)
-      }
+    // Only play the backstop sound if the scheduled audio handle did not
+    // already (or will not) handle it. If the entry still exists in
+    // scheduledRef, the scheduled source either played or was cancelled; in
+    // both cases the backstop avoids double-play.
+    const entry = scheduledRef.current.get(candidate.firedKey)
+    if (!entry?.cancelSound) {
+      void playNotificationSound(freshedCandidate.sound)
+    }
 
-      triggerFullPageAlarm(freshedCandidate, setAlarmFn)
+    triggerFullPageAlarm(freshedCandidate, setAlarmFn)
 
-      // Clean up the schedule entry now that it has fired.
-      const sched = scheduledRef.current.get(candidate.firedKey)
-      if (sched) {
-        clearTimeout(sched.timeoutId)
-        scheduledRef.current.delete(candidate.firedKey)
-      }
-    },
-  )
+    // Clean up the schedule entry now that it has fired.
+    const sched = scheduledRef.current.get(candidate.firedKey)
+    if (sched) {
+      clearTimeout(sched.timeoutId)
+      scheduledRef.current.delete(candidate.firedKey)
+    }
+  })
 
   // ---------------------------------------------------------------------------
   // SCHEDULING effect — arms primary sound (Web Audio hardware clock) +

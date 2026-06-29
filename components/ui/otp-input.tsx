@@ -14,6 +14,8 @@ function focusSlot(input: HTMLInputElement, index: number) {
 }
 
 export function OtpInput({
+  ariaDescribedBy,
+  ariaInvalid,
   className,
   disabled,
   id,
@@ -22,6 +24,8 @@ export function OtpInput({
   onChange,
   value,
 }: Readonly<{
+  ariaDescribedBy?: string
+  ariaInvalid?: boolean
   className?: string
   disabled?: boolean
   id?: string
@@ -61,6 +65,8 @@ export function OtpInput({
           key={index}
           id={index === 0 ? id : undefined}
           data-otp-slot
+          aria-describedby={index === 0 ? ariaDescribedBy : undefined}
+          aria-invalid={ariaInvalid}
           aria-label={`${label} ${index + 1}`}
           autoComplete={index === 0 ? "one-time-code" : "off"}
           autoCorrect="off"

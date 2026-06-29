@@ -194,11 +194,11 @@ async function runSmoke(baseUrl) {
     })
 
     await page.goto("/", { waitUntil: "networkidle" })
-    await expectVisible(page.getByPlaceholder("Timer name"), "quick add")
+    await expectVisible(page.getByPlaceholder("Add a timer"), "quick add")
     await assertNoBrowserErrors(browserErrors)
     log("home loaded without browser errors")
 
-    await page.getByPlaceholder("Timer name").fill("Smoke launch")
+    await page.getByPlaceholder("Add a timer").fill("Smoke launch")
     await page.getByRole("button", { name: "Add", exact: true }).click()
     await expectVisible(page.getByText("Smoke launch", { exact: true }).first(), "created timer")
     log("quick add created a timer")

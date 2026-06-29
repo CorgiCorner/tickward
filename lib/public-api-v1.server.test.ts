@@ -374,14 +374,12 @@ describe("public API v1", () => {
   it("updates webhook event subscriptions through the public API", async () => {
     const { handlePublicApiV1Request } = await import("./public-api-v1.server")
     mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
-    const updateManyAndReturn = vi
-      .fn()
-      .mockResolvedValue([
-        webhookEndpointRow({
-          eventTypes: ["timer.created", "timer.ended"],
-          updatedAt: new Date("2026-06-10T09:00:00Z"),
-        }),
-      ])
+    const updateManyAndReturn = vi.fn().mockResolvedValue([
+      webhookEndpointRow({
+        eventTypes: ["timer.created", "timer.ended"],
+        updatedAt: new Date("2026-06-10T09:00:00Z"),
+      }),
+    ])
     mocks.requirePrismaClient.mockReturnValue({ webhookEndpoint: { updateManyAndReturn } })
 
     const res = await handlePublicApiV1Request(
@@ -514,6 +512,10 @@ describe("public API v1", () => {
         timers: { create: 2 },
       },
       warnings: [
+        expect.objectContaining({
+          code: "timer_notify_uses_account_settings",
+          path: "#/timers/0/notify",
+        }),
         expect.objectContaining({
           code: "timer_notify_uses_account_settings",
           path: "#/spaces/0/timers/0/notify",

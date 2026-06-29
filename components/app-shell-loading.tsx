@@ -21,6 +21,7 @@ export const HOME_EMPTY_TIMER_EXAMPLES = [
   "home.empty.example.trip",
   "home.empty.example.deadline",
   "home.empty.example.birthday",
+  "home.empty.example.newYear",
 ] as const
 
 function ScreenReaderLoadingLabel(props: Readonly<{ label: string }>) {
@@ -59,22 +60,22 @@ export function QuickAddTimerLoadingSkeleton() {
   return (
     <div
       data-loading-region="quick-add"
-      className="mb-4 grid min-w-0 grid-cols-1 gap-2 rounded-2xl border bg-card p-3 sm:grid-cols-[minmax(0,1fr)_minmax(8.5rem,10rem)_minmax(6.5rem,7rem)_auto] sm:items-center"
+      className="mb-4 flex min-w-0 items-center gap-1.5 rounded-[12px] border border-border bg-card py-1 pl-1.5 pr-2"
     >
-      <Skeleton className="h-9 min-w-0 rounded-md" />
-      <Skeleton className="h-9 min-w-0 rounded-md" />
-      <Skeleton className="h-9 min-w-0 rounded-md" />
-      <Skeleton className="h-8 w-full rounded-md sm:w-[72px]" />
+      <Skeleton className="size-8 shrink-0 rounded-md" />
+      <Skeleton className="h-9 min-w-0 flex-1 rounded-md" />
+      <Skeleton className="hidden h-[18px] w-5 shrink-0 rounded border sm:block" />
+      <Skeleton className="h-8 w-9 shrink-0 rounded-md min-[420px]:w-28" />
     </div>
   )
 }
 
 export function OrganizerBarLoadingSkeleton() {
   return (
-    <section data-loading-region="organizer" className="mb-4 grid min-w-0 gap-2">
-      <div className="flex min-w-0 items-center gap-2">
+    <section data-loading-region="organizer" className="mb-4 flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <div className="min-w-0 flex-1 self-center overflow-hidden">
-          <div className="flex min-w-max items-center gap-2">
+          <div className="flex min-w-max items-center gap-1.5">
             {SPACE_CHIPS.map((chip, index) => (
               <Skeleton
                 key={chip.id}
@@ -84,9 +85,9 @@ export function OrganizerBarLoadingSkeleton() {
           </div>
         </div>
 
+        <Skeleton className="size-7 shrink-0 rounded-full" />
         <Skeleton className="size-8 shrink-0 rounded-md" />
-        <Skeleton className="h-8 w-9 shrink-0 rounded-md sm:w-[82px]" />
-        <Skeleton className="h-8 w-9 shrink-0 rounded-md sm:w-[88px]" />
+        <Skeleton className="size-8 shrink-0 rounded-md" />
       </div>
     </section>
   )
@@ -467,7 +468,7 @@ export function AppShellLoading() {
 
 export function HomePageLoading() {
   return (
-    <LoadingShell label={formatMessage("home.loading.title")} className="bg-zinc-50 dark:bg-black" footer="status">
+    <LoadingShell label={formatMessage("home.loading.title")} className="bg-secondary" footer="status">
       <HomeMainLoadingSkeleton announce={false} />
     </LoadingShell>
   )

@@ -9,26 +9,36 @@ import {
   normalizeProjectName,
 } from "@/lib/project-model"
 import type { TimerState, TimerStore } from "@/lib/stores/timer-store-types"
-import type { Space, Timer, TimerFilters, TimerSortMode } from "@/lib/types"
+import type { Space, Timer, TimerFilterType, TimerFilters, TimerSortMode } from "@/lib/types"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
 
 const TIMER_SORT_MODES = new Set<TimerSortMode>(["manual", "soonest", "latest", "name_asc", "recently_added"])
 
 export const DEFAULT_TIMER_FILTERS: TimerFilters = {
-  notifications: false,
+  type: "all",
+  pinned: false,
+  muted: false,
   shared: false,
+  recurring: false,
 }
 
 export function safeSortMode(mode: unknown): TimerSortMode {
   return typeof mode === "string" && TIMER_SORT_MODES.has(mode as TimerSortMode) ? (mode as TimerSortMode) : "manual"
 }
 
+export function safeTimerFilterType(type: unknown): TimerFilterType {
+  return type === "countdown" || type === "countUp" ? type : "all"
+}
+
 export function safeTimerFilters(filters: unknown): TimerFilters {
   if (!filters || typeof filters !== "object") return { ...DEFAULT_TIMER_FILTERS }
   const candidate = filters as Partial<Record<keyof TimerFilters, unknown>>
   return {
-    notifications: candidate.notifications === true,
+    type: safeTimerFilterType(candidate.type),
+    pinned: candidate.pinned === true,
+    muted: candidate.muted === true,
     shared: candidate.shared === true,
+    recurring: candidate.recurring === true,
   }
 }
 
@@ -38,20 +48,17 @@ export function safeActiveSpaceId(activeSpaceId: string | null | undefined, spac
 }
 
 export function normalizePinnedTimers(timers: Timer[]) {
-  let hasPinned = false
+  // Any number of timers may be pinned, but archived ones never stay pinned.
   for (const timer of timers) {
-    if (!timer.pinned) continue
-    if (timer.archivedAt || hasPinned) {
-      timer.pinned = undefined
-      continue
-    }
-    hasPinned = true
+    if (timer.pinned && timer.archivedAt) timer.pinned = undefined
   }
 
-  const pinnedIndex = timers.findIndex((timer) => timer.pinned && !timer.archivedAt)
-  if (pinnedIndex <= 0) return
-  const [pinned] = timers.splice(pinnedIndex, 1)
-  if (pinned) timers.unshift(pinned)
+  // Float all pinned (active) timers to the top, preserving their relative order.
+  const pinned = timers.filter((timer) => timer.pinned && !timer.archivedAt)
+  if (pinned.length === 0) return
+  const rest = timers.filter((timer) => !(timer.pinned && !timer.archivedAt))
+  timers.length = 0
+  timers.push(...pinned, ...rest)
 }
 
 export function safeTimers(timers: Timer[] | undefined) {

@@ -129,6 +129,14 @@
 }
 
 @layer components {
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   .native-date-time-input {
     -webkit-appearance: none;
     appearance: none;

@@ -10,6 +10,8 @@ import {
   timerLimitMessage,
   timerSpaceLimitMessage,
 } from "@/lib/entitlements"
+import { LIMITS } from "@/lib/limits"
+import { MAX_PROJECTS } from "@/lib/project-model"
 import { MAX_TIMERS, timerLimitMessage as legacyTimerLimitMessage } from "@/lib/timer-limits"
 import { MAX_SPACES } from "@/lib/types"
 
@@ -23,7 +25,7 @@ describe("entitlements", () => {
       plan: "anonymous",
       maxTimers: 20,
       maxTimersPerSpace: 20,
-      maxProjects: 12,
+      maxProjects: 10,
       maxSpaces: 2,
       maxSnapshotTimers: 50,
     })
@@ -75,12 +77,14 @@ describe("entitlements", () => {
   it("reads safe public limit overrides from env", () => {
     vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_TIMERS", "8")
     vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE", "3")
+    vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_PROJECTS", "2")
     vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_SPACES", "4")
 
     expect(getEntitlements()).toEqual({
       ...ANONYMOUS_ENTITLEMENTS,
       maxTimers: 8,
       maxTimersPerSpace: 3,
+      maxProjects: 2,
       maxSpaces: 4,
     })
   })
@@ -88,6 +92,7 @@ describe("entitlements", () => {
   it("ignores invalid public limit overrides", () => {
     vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_TIMERS", "0")
     vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE", "not-a-number")
+    vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_PROJECTS", "0")
     vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_SPACES", "1001")
 
     expect(getEntitlements()).toEqual(ANONYMOUS_ENTITLEMENTS)
@@ -97,7 +102,19 @@ describe("entitlements", () => {
     expect(MAX_TIMERS).toBe(ANONYMOUS_ENTITLEMENTS.maxTimers)
   })
 
+  it("keeps MAX_PROJECTS in sync with the anonymous plan", () => {
+    expect(MAX_PROJECTS).toBe(ANONYMOUS_ENTITLEMENTS.maxProjects)
+  })
+
   it("keeps MAX_SPACES in sync with the anonymous plan", () => {
     expect(ANONYMOUS_ENTITLEMENTS.maxSpaces).toBe(MAX_SPACES)
+  })
+
+  it("exposes UI limits from the anonymous plan", () => {
+    expect(LIMITS).toEqual({
+      projects: ANONYMOUS_ENTITLEMENTS.maxProjects,
+      spacesPerProject: ANONYMOUS_ENTITLEMENTS.maxSpaces,
+      timersPerProject: ANONYMOUS_ENTITLEMENTS.maxTimers,
+    })
   })
 })

@@ -117,6 +117,29 @@ export function TimerBasicsSection(
         <div className="text-xs text-muted-foreground">{props.descriptionLength}/200</div>
       </div>
 
+      <Controller
+        control={control}
+        name="url"
+        render={({ field, fieldState }) => (
+          <div className="grid gap-2">
+            <Label htmlFor="url">{formatMessage("timer.form.url")}</Label>
+            <Input
+              id="url"
+              type="url"
+              inputMode="url"
+              maxLength={2048}
+              placeholder={formatMessage("timer.form.urlPlaceholder")}
+              value={field.value ?? ""}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              name={field.name}
+              ref={field.ref}
+            />
+            {fieldState.error ? <div className="text-xs text-destructive">{fieldState.error.message}</div> : null}
+          </div>
+        )}
+      />
+
       {spaces.length > 0 ? (
         <Controller
           control={control}

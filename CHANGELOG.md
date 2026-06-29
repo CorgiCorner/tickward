@@ -4,6 +4,25 @@
 
 No unreleased public changes.
 
+## 0.7.0 - 2026-06-29
+
+### Added
+
+- Redesigned the home page.
+- Made the per-project active-timer limit configurable, including in the Docker image.
+- Added a public /api/health endpoint reporting app and database status.
+- Showed a live service-status dot in the footer, driven by the public status page.
+- Added an optional link on each timer, shown as an external-link icon by its title.
+- Allowed pinning more than one timer at a time.
+
+### Changed
+
+- Showed a timer's description in place of its date line, on a single line.
+
+### Fixed
+
+- Aligned the timer card countdown with the title instead of the drag handle.
+
 ## 0.6.0 - 2026-06-27
 
 ### Added

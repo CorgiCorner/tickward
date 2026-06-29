@@ -14,7 +14,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { formatMessage } from "@/lib/i18n/messages"
 import { cn } from "@/lib/utils"
-import { getAllTimeZones, getPinnedTimeZones } from "@/lib/timezones"
+import { formatTimeZoneLabel, getAllTimeZones, getPinnedTimeZones } from "@/lib/timezones"
 
 export function TimezoneSelect(
   props: Readonly<{ disabled?: boolean; value: string; onChange: (value: string) => void; localTz: string }>,
@@ -35,7 +35,7 @@ export function TimezoneSelect(
           className="w-full justify-between"
           disabled={disabled}
         >
-          <span className="truncate">{value}</span>
+          <span className="truncate">{formatTimeZoneLabel(value)}</span>
           <ChevronsUpDownIcon className="ml-1.5 size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -55,7 +55,7 @@ export function TimezoneSelect(
                   }}
                 >
                   <CheckIcon className={cn("mr-1.5 size-4", value === tz ? "opacity-100" : "opacity-0")} />
-                  {tz}
+                  {formatTimeZoneLabel(tz)}
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -71,7 +71,7 @@ export function TimezoneSelect(
                   }}
                 >
                   <CheckIcon className={cn("mr-1.5 size-4", value === tz ? "opacity-100" : "opacity-0")} />
-                  {tz}
+                  {formatTimeZoneLabel(tz)}
                 </CommandItem>
               ))}
             </CommandGroup>

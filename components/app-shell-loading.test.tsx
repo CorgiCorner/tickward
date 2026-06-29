@@ -47,7 +47,7 @@ describe("app shell loading skeletons", () => {
     expect(container.querySelector("section > footer")).toBeInTheDocument()
     expect(container.querySelector("footer")?.closest("section")).not.toBeNull()
     expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument()
-    expect(screen.queryByText("Countdown Timer to Any Date")).not.toBeInTheDocument()
+    expect(screen.queryByText("Countdown timer to any date")).not.toBeInTheDocument()
     expect(screen.queryByText(/Create a Countdown Timer that counts down/)).not.toBeInTheDocument()
     expect(loadingRegion(container, "home-intro")).not.toBeInTheDocument()
     expect(loadingRegion(container, "quick-add")).toBeInTheDocument()

@@ -21,6 +21,12 @@ vi.mock("@/lib/default-timezone.client", () => ({
   useDefaultTimeZone: () => "UTC",
 }))
 
+vi.mock("@/components/timezone-select", () => ({
+  TimezoneSelect: (props: { value: string; onChange: (value: string) => void }) => (
+    <input aria-label="Timezone" value={props.value} onChange={(event) => props.onChange(event.target.value)} />
+  ),
+}))
+
 vi.mock("sonner", () => ({
   toast: {
     error: vi.fn(),
@@ -63,7 +69,7 @@ describe("QuickAddTimer", () => {
     const addButton = screen.getByRole("button", { name: "Add" })
     expect(addButton).toBeDisabled()
 
-    await user.type(screen.getByPlaceholderText("Timer name"), " Launch ")
+    await user.type(screen.getByPlaceholderText("Add a timer…"), " Launch ")
 
     await waitFor(() => expect(addButton).toBeEnabled())
     await user.click(addButton)
@@ -71,6 +77,7 @@ describe("QuickAddTimer", () => {
     expect(storeState.addTimer).toHaveBeenCalledWith(
       expect.objectContaining({
         label: "Launch",
+        notify: true,
         spaceId: "space-a",
         targetDate: expect.any(String),
         timezone: "UTC",
@@ -83,7 +90,7 @@ describe("QuickAddTimer", () => {
 
     renderQuickAddTimer({ label: "Trip to Tokyo", onLabelChange })
 
-    const input = screen.getByPlaceholderText("Timer name")
+    const input = screen.getByPlaceholderText("Add a timer…")
     expect(input).toHaveValue("Trip to Tokyo")
 
     await userEvent.setup().type(input, "!")
@@ -97,7 +104,7 @@ describe("QuickAddTimer", () => {
 
     renderQuickAddTimer()
 
-    expect(screen.getByPlaceholderText("Timer name")).toBeVisible()
+    expect(screen.getByPlaceholderText("Add a timer…")).toBeVisible()
     const addButton = screen.getByRole("button", { name: "Add" })
     expect(addButton).toBeDisabled()
 
@@ -131,11 +138,28 @@ describe("QuickAddTimer", () => {
     renderQuickAddTimer()
 
     const addButton = screen.getByRole("button", { name: "Add" })
-    await user.type(screen.getByPlaceholderText("Timer name"), "Launch")
+    await user.type(screen.getByPlaceholderText("Add a timer…"), "Launch")
     await waitFor(() => expect(addButton).toBeEnabled())
     await user.click(addButton)
 
     expect(toast.error).toHaveBeenCalledWith(timerLimitMessage())
     expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it("uses custom schedule controls without native date, time, or select inputs", async () => {
+    const user = userEvent.setup()
+    const { container } = renderQuickAddTimer()
+
+    expect(container.querySelector("kbd")).toBeVisible()
+
+    await user.click(screen.getByRole("button", { name: "Schedule" }))
+
+    expect(screen.getByLabelText("Hours")).toBeVisible()
+    expect(screen.getByLabelText("Minutes")).toBeVisible()
+    expect(container.querySelector('input[type="date"]')).not.toBeInTheDocument()
+    expect(container.querySelector('input[type="time"]')).not.toBeInTheDocument()
+    expect(container.querySelector("select")).not.toBeInTheDocument()
+
+    expect(screen.getByLabelText("Timezone")).toBeVisible()
   })
 })

@@ -67,7 +67,7 @@ export const Filtered: Story = {
       ]}
       spaces={storybookSpaces}
       activeSpaceId={null}
-      timerFilters={{ notifications: false, shared: true }}
+      timerFilters={{ type: "all", pinned: false, muted: false, shared: true, recurring: false }}
     >
       <OrganizerBar />
     </TimerStorePreview>

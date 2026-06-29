@@ -145,7 +145,7 @@ function makeProjectSeed(projectName, payloadOverrides = {}) {
       spaces,
       activeSpaceId: null,
       sortMode: "soonest",
-      timerFilters: { notifications: false, shared: false },
+      timerFilters: { type: "all", pinned: false, muted: false, shared: false, recurring: false },
       updatedAt: now,
     },
     project,
@@ -304,36 +304,22 @@ async function assertNoHorizontalOverflow(page, label) {
 }
 
 async function assertMobileInputs(page, label) {
+  // The redesigned quick-add is a flat bar: a single inline "Add a timer…" text
+  // input (h-9) plus a date/time/timezone popover trigger. There are no longer
+  // inline native date/time inputs, so we assert the inline input stays h-9.
   const metrics = await page.evaluate(() => {
-    const name = document.querySelector('input[placeholder="Timer name"]')
-    const date = document.querySelector('input[type="date"]')
-    const time = document.querySelector('input[type="time"]')
-    if (!(name instanceof HTMLElement) || !(date instanceof HTMLElement) || !(time instanceof HTMLElement)) {
+    const name = document.querySelector('input[placeholder="Add a timer…"]')
+    if (!(name instanceof HTMLElement)) {
       return null
     }
-    const inputMetrics = (node) => {
-      const rect = node.getBoundingClientRect()
-      const styles = getComputedStyle(node)
-      return {
-        alignItems: styles.alignItems,
-        display: styles.display,
-        height: rect.height,
-        lineHeight: styles.lineHeight,
-        paddingBottom: styles.paddingBottom,
-        paddingTop: styles.paddingTop,
-      }
-    }
-    return {
-      date: inputMetrics(date),
-      name: inputMetrics(name),
-      time: inputMetrics(time),
-    }
+    const rect = name.getBoundingClientRect()
+    return { height: rect.height }
   })
-  assert(metrics, `${label} could not find quick-add inputs`)
-  for (const inputName of ["date", "name", "time"]) {
-    const height = metrics[inputName].height
-    assert(height >= 35 && height <= 37, `${label} ${inputName} input height is ${height}, expected h-9`)
-  }
+  assert(metrics, `${label} could not find the quick-add input`)
+  assert(
+    metrics.height >= 35 && metrics.height <= 37,
+    `${label} quick-add input height is ${metrics.height}, expected h-9`,
+  )
 }
 
 async function assertHeader(page, projectName) {
@@ -370,7 +356,7 @@ async function openSeededHome(browserType, baseUrl, projectName) {
   const browserErrors = collectBrowserErrors(page)
   await installRoutes(page)
   await page.goto("/", { waitUntil: "domcontentloaded" })
-  await page.getByPlaceholder("Timer name").waitFor({ state: "visible", timeout: 10_000 })
+  await page.getByPlaceholder("Add a timer…").waitFor({ state: "visible", timeout: 10_000 })
   return { browser, browserErrors, page }
 }
 
@@ -518,11 +504,11 @@ async function runUnsplashSpacingSmoke(baseUrl) {
     const desktopCard = page.locator(".hidden.md\\:block", { hasText: "Visual smoke timer" }).first()
     await desktopCard.waitFor({ state: "visible", timeout: 10_000 })
     await desktopCard.hover()
-    // The card also renders a hidden mobile action row; pick the visible edit button.
-    const editButton = desktopCard.locator('button[aria-label="Edit timer"]').filter({ visible: true }).first()
-    await editButton.waitFor({ state: "visible", timeout: 10_000 })
-    await editButton.hover()
-    await editButton.click()
+    // Edit now lives in the card's overflow menu; open it, then pick Edit.
+    const menuButton = desktopCard.locator('button[aria-label="Open timer actions"]').filter({ visible: true }).first()
+    await menuButton.waitFor({ state: "visible", timeout: 10_000 })
+    await menuButton.click()
+    await page.getByRole("menuitem", { name: "Edit" }).click()
 
     const dialog = page.getByRole("dialog", { name: "Edit timer" })
     await dialog.waitFor({ state: "visible", timeout: 10_000 })
@@ -628,16 +614,15 @@ async function runEditTimezoneSmoke(baseUrl) {
     const desktopCard = page.locator(".hidden.md\\:block", { hasText: "Timezone smoke" }).first()
     await desktopCard.waitFor({ state: "visible", timeout: 10_000 })
     await desktopCard.hover()
-    // The card also renders a hidden mobile action row; pick the visible edit button.
-    const editButton = desktopCard.locator('button[aria-label="Edit timer"]').filter({ visible: true }).first()
-    await editButton.waitFor({ state: "visible", timeout: 10_000 })
-    await editButton.hover()
-    await editButton.click()
-    await page.getByText("Edit", { exact: true }).waitFor({ state: "hidden", timeout: 10_000 })
+    // Edit now lives in the card's overflow menu; open it, then pick Edit.
+    const menuButton = desktopCard.locator('button[aria-label="Open timer actions"]').filter({ visible: true }).first()
+    await menuButton.waitFor({ state: "visible", timeout: 10_000 })
+    await menuButton.click()
+    await page.getByRole("menuitem", { name: "Edit" }).click()
 
     const dialog = page.getByRole("dialog", { name: "Edit timer" })
     await dialog.waitFor({ state: "visible", timeout: 10_000 })
-    await dialog.getByRole("button", { name: /Europe\/Warsaw/ }).click()
+    await dialog.getByRole("button", { name: /Europe\s*\/\s*Warsaw/ }).click()
     await page.getByPlaceholder("Search timezones...").waitFor({ state: "visible", timeout: 10_000 })
 
     const list = page.locator('[data-slot="command-list"]')

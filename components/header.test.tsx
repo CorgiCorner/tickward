@@ -26,7 +26,11 @@ vi.mock("@/components/account-auth", () => ({
 }))
 
 vi.mock("@/components/github-repo-button", () => ({
-  GitHubRepoButton: () => <a href="https://github.com/CorgiCorner/tickward">GitHub stars</a>,
+  GitHubRepoButton: (props: { className?: string; variant?: string }) => (
+    <a className={props.className} data-variant={props.variant} href="https://github.com/CorgiCorner/tickward">
+      GitHub stars
+    </a>
+  ),
 }))
 
 vi.mock("@/components/settings-sheet", () => ({
@@ -87,7 +91,7 @@ describe("Header", () => {
     renderHeader()
 
     const header = screen.getByRole("banner")
-    expect(within(header).getByText("GitHub stars")).toBeVisible()
+    expect(within(header).getByText("GitHub stars")).toHaveAttribute("data-variant", "compact")
     expect(within(header).getByText("Sign in")).toBeVisible()
     expect(within(header).getByRole("button", { name: "Toggle theme" })).toBeVisible()
   })

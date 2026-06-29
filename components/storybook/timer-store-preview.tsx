@@ -51,7 +51,13 @@ export function TimerStorePreview(props: TimerStorePreviewProps) {
         spaces: props.spaces ?? storybookSpaces,
         activeSpaceId: props.activeSpaceId ?? "space-work",
         sortMode: "manual",
-        timerFilters: props.timerFilters ?? { notifications: false, shared: false },
+        timerFilters: props.timerFilters ?? {
+          type: "all",
+          pinned: false,
+          muted: false,
+          shared: false,
+          recurring: false,
+        },
         restoreKey: "storybook_restore_key",
       }}
     >

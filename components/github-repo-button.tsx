@@ -1,7 +1,6 @@
 "use client"
 
-import { GithubLogoIcon } from "@phosphor-icons/react"
-import { StarIcon } from "lucide-react"
+import { GithubIcon, StarIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -25,6 +24,7 @@ export function GitHubRepoButton(
 ) {
   const [stars, setStars] = useState<number | null>(cachedStars)
   const variant = props.variant ?? "header"
+  const starLabel = stars === null ? formatMessage("header.githubStar") : compactNumber(stars)
 
   useEffect(() => {
     if (cachedStars !== null) return
@@ -47,24 +47,57 @@ export function GitHubRepoButton(
     })
   }, [])
 
+  if (variant === "compact") {
+    const button = (
+      <Button
+        variant="outline"
+        size="sm"
+        asChild
+        className={cn(
+          "group h-8 overflow-hidden border-border bg-background p-0 text-xs font-medium shadow-none hover:bg-muted",
+          props.className,
+        )}
+      >
+        <a
+          href="https://github.com/CorgiCorner/tickward"
+          target="_blank"
+          rel="noreferrer"
+          aria-label={formatMessage("header.github")}
+        >
+          <span className="inline-flex h-full items-center gap-1.5 px-2.5 text-muted-foreground group-hover:text-foreground">
+            <GithubIcon className="size-3.5" />
+          </span>
+          <span className="inline-flex h-full items-center gap-1 border-l border-border px-2.5 tabular-nums">
+            <StarIcon className="size-3 text-muted-foreground" />
+            {starLabel}
+          </span>
+        </a>
+      </Button>
+    )
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent side="bottom" sideOffset={8}>
+          {formatMessage("header.github")}
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
+
   const button = (
-    <Button
-      variant="ghost"
-      size={variant === "compact" ? "xs" : "sm"}
-      asChild
-      className={cn(variant === "compact" ? "gap-1.5 px-2" : "hidden gap-1.5 px-2.5 sm:inline-flex", props.className)}
-    >
+    <Button variant="ghost" size="sm" asChild className={cn("hidden gap-1.5 px-2.5 sm:inline-flex", props.className)}>
       <a
         href="https://github.com/CorgiCorner/tickward"
         target="_blank"
         rel="noreferrer"
         aria-label={formatMessage("header.github")}
       >
-        <GithubLogoIcon className="size-[1.15rem]" />
-        {variant === "compact" ? null : <span className="hidden lg:inline">{formatMessage("header.githubStar")}</span>}
+        <GithubIcon className="size-[1.15rem]" />
+        <span className="hidden lg:inline">{formatMessage("header.githubStar")}</span>
         <span className="inline-flex items-center gap-1 rounded-sm border bg-background px-1.5 py-0.5 text-xs text-muted-foreground">
           <StarIcon className="size-3 fill-current" />
-          {stars === null ? "Star" : compactNumber(stars)}
+          {starLabel}
         </span>
       </a>
     </Button>
@@ -73,7 +106,7 @@ export function GitHubRepoButton(
   return (
     <Tooltip>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent side={variant === "compact" ? "top" : "bottom"} sideOffset={8}>
+      <TooltipContent side="bottom" sideOffset={8}>
         {formatMessage("header.github")}
       </TooltipContent>
     </Tooltip>

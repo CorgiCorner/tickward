@@ -1,5 +1,5 @@
 import type { ProjectMeta, ProjectRestoreResponse, ProjectSnapshotV2 } from "@/lib/project-model"
-import type { Space, Timer, TimerFilterKey, TimerFilters, TimerSortMode } from "@/lib/types"
+import type { Space, Timer, TimerFilterKey, TimerFilterType, TimerFilters, TimerSortMode } from "@/lib/types"
 
 export type ProjectConflict = {
   projectId: string
@@ -48,7 +48,9 @@ export type TimerActions = {
   moveTimerToProject: (timerId: string, targetProjectId: string) => boolean
   setActiveSpace: (spaceId: string | null) => void
   setTimerSortMode: (mode: TimerSortMode) => void
+  setTimerFilterType: (type: TimerFilterType) => void
   setTimerFilter: (filter: TimerFilterKey, enabled: boolean) => void
+  clearTimerFilters: () => void
 
   createProject: (name?: string) => void
   switchProject: (projectId: string) => void

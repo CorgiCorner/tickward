@@ -8,7 +8,8 @@ import {
   normalizeProjectName,
 } from "@/lib/project-model"
 import { getEntitlements } from "@/lib/entitlements"
-import type { Space, Timer, TimerFilters, TimerSortMode } from "@/lib/types"
+import { safeTimerFilters } from "@/lib/stores/timer-store-domain"
+import type { Space, Timer, TimerSortMode } from "@/lib/types"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
 import { isSpaceArray, isTimerArray } from "@/lib/validate"
 
@@ -29,15 +30,6 @@ function safeParse<T>(raw: string | null): T | null {
 
 function normalizeSortMode(value: unknown): TimerSortMode {
   return typeof value === "string" && TIMER_SORT_MODES.has(value as TimerSortMode) ? (value as TimerSortMode) : "manual"
-}
-
-function normalizeTimerFilters(value: unknown): TimerFilters {
-  if (!value || typeof value !== "object") return { notifications: false, shared: false }
-  const any = value as Partial<Record<keyof TimerFilters, unknown>>
-  return {
-    notifications: any.notifications === true,
-    shared: any.shared === true,
-  }
 }
 
 function normalizeTimerSpaceIds(timers: Timer[], spaces: Space[]) {
@@ -128,7 +120,7 @@ export function readProjectPayload(projectId: string): LocalProjectPayload | nul
   const timers: Timer[] = normalizeTimerSpaceIds(isTimerArray(raw.timers) ? raw.timers.slice(0, 50) : [], spaces)
   const activeSpaceId = typeof raw.activeSpaceId === "string" ? raw.activeSpaceId : null
   const sortMode = normalizeSortMode(raw.sortMode)
-  const timerFilters = normalizeTimerFilters(raw.timerFilters)
+  const timerFilters = safeTimerFilters(raw.timerFilters)
   const updatedAt = typeof raw.updatedAt === "string" ? raw.updatedAt : new Date().toISOString()
   const safeActiveSpaceId =
     activeSpaceId === UNASSIGNED_SPACE_ID || (activeSpaceId && spaces.some((s) => s.id === activeSpaceId))

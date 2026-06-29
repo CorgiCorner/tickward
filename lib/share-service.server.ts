@@ -52,11 +52,27 @@ function timerShareLocation(input: CreateTimerShareInput) {
   return { access, shareId, url: `/share/${shareId}` }
 }
 
+// Thrown when an anonymous actor tries to share a timer that carries a link.
+// Links may only be shared by signed-in users.
+export class TimerShareLinkRequiresAuthError extends Error {
+  constructor() {
+    super("Sharing a timer with a link requires sign in")
+    this.name = "TimerShareLinkRequiresAuthError"
+  }
+}
+
 export async function createTimerShare(input: CreateTimerShareInput): Promise<CreateTimerShareResult | null> {
   const location = timerShareLocation(input)
   if (!location) return null
 
-  const published = await getServerAdapters().shareRepository.publishTimer({
+  const shareRepository = getServerAdapters().shareRepository
+
+  if (input.actor.kind !== "user") {
+    const timer = await shareRepository.findTimerForShare({ timerId: input.timerId, access: location.access })
+    if (timer?.url) throw new TimerShareLinkRequiresAuthError()
+  }
+
+  const published = await shareRepository.publishTimer({
     access: location.access,
     shareId: location.shareId,
     timerId: input.timerId,

@@ -4,7 +4,7 @@ import { apiErrorResponse } from "@/lib/api-error-response"
 import { PUBLIC_ERROR_CODES } from "@/lib/public-errors"
 import { enforceRateLimit } from "@/lib/rate-limit.server"
 import { parseTimerShareOwner, resolveTimerShareActor, timerShareRateLimitKey } from "@/lib/share-request.server"
-import { createTimerShare } from "@/lib/share-service.server"
+import { createTimerShare, TimerShareLinkRequiresAuthError } from "@/lib/share-service.server"
 
 export const runtime = "nodejs"
 
@@ -36,11 +36,19 @@ export async function POST(req: Request) {
     return apiErrorResponse(PUBLIC_ERROR_CODES.signInRequired, "errors.signInRequired", { status: 401 })
   }
 
-  const result = await createTimerShare({
-    actor,
-    timerId: owner.timerId,
-    projectId: owner.projectId ?? undefined,
-  })
+  let result
+  try {
+    result = await createTimerShare({
+      actor,
+      timerId: owner.timerId,
+      projectId: owner.projectId ?? undefined,
+    })
+  } catch (error) {
+    if (error instanceof TimerShareLinkRequiresAuthError) {
+      return apiErrorResponse(PUBLIC_ERROR_CODES.signInRequired, "errors.shareTimerLinkRequiresSignIn", { status: 401 })
+    }
+    throw error
+  }
   if (!result) return apiErrorResponse(PUBLIC_ERROR_CODES.notFound, "errors.notFound", { status: 404 })
 
   return NextResponse.json(result)

@@ -47,11 +47,11 @@ export const DEFAULT_NOTIFICATION_PRESENTATION: NotificationPresentation = {
 }
 
 export const DEFAULT_TIMER_NOTIFICATION_SETTINGS: TimerNotificationSettings = {
-  enabled: false,
+  enabled: true,
 }
 
 export const DEFAULT_RESOLVED_TIMER_NOTIFICATION_SETTINGS: ResolvedTimerNotificationSettings = {
-  enabled: false,
+  enabled: true,
   channels: {
     in_app: true,
     push: false,
@@ -76,10 +76,17 @@ export function normalizeTimerNotificationSettings(
   legacyNotify: boolean | undefined,
 ): ResolvedTimerNotificationSettings {
   return {
-    enabled: value?.enabled ?? legacyNotify === true,
+    enabled: timerNotificationsEnabled(value, legacyNotify),
     channels: normalizeNotificationChannels(undefined),
     presentation: DEFAULT_NOTIFICATION_PRESENTATION,
   }
+}
+
+export function timerNotificationsEnabled(
+  value: Partial<TimerNotificationSettings> | undefined,
+  legacyNotify: boolean | undefined,
+) {
+  return value?.enabled ?? legacyNotify ?? DEFAULT_TIMER_NOTIFICATION_SETTINGS.enabled
 }
 
 export const LOCAL_NOTIFICATION_STORAGE_KEYS = {

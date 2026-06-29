@@ -1,9 +1,8 @@
 import {
-  BellIcon,
+  BellOffIcon,
   EllipsisVerticalIcon,
+  ExternalLinkIcon,
   FolderIcon,
-  LockIcon,
-  PencilIcon,
   PinIcon,
   PinOffIcon,
   RepeatIcon,
@@ -11,10 +10,8 @@ import {
 import Image from "next/image"
 import { useState, type MouseEvent, type ReactNode } from "react"
 
-import { CountdownDisplay } from "@/components/countdown-display"
 import { EmbedSnippetControls, parseShareUrl } from "@/components/embed-snippet"
 import { TimerFocusAction } from "@/components/timer-focus-mode"
-import { TimerForm, type TimerFormSubmitValue } from "@/components/timer-form"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -33,9 +30,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { formatMessage } from "@/lib/i18n/messages"
-import type { Timer } from "@/lib/types"
-import { cn, formatTargetInTimeZone } from "@/lib/utils"
+import { formatMessage, formatPluralMessage } from "@/lib/i18n/messages"
+import { timerNotificationsEnabled } from "@/lib/notification-preferences"
+import type { Space, Timer } from "@/lib/types"
+import { cn, formatTargetInTimeZone, getCountdownParts, pad2 } from "@/lib/utils"
 
 type RecurrenceHistory = {
   count: number
@@ -49,6 +47,180 @@ type StopPropagationEvent = {
   stopPropagation: () => void
 }
 
+function timerAccentColor(timer: Timer, space: Space | undefined) {
+  return timer.color || space?.color
+}
+
+function notificationEnabled(timer: Timer) {
+  return timerNotificationsEnabled(timer.notification, timer.notify)
+}
+
+function recurrenceTypeLabel(type: NonNullable<Timer["recurrence"]>["type"]) {
+  if (type === "daily") return formatMessage("timer.form.recurrence.daily")
+  if (type === "weekly") return formatMessage("timer.form.recurrence.weekly")
+  if (type === "monthly") return formatMessage("timer.form.recurrence.monthly")
+  return formatMessage("timer.form.recurrence.yearly")
+}
+
+function TimerSpaceDot(props: Readonly<{ timer: Timer; space?: Space }>) {
+  const accent = timerAccentColor(props.timer, props.space)
+
+  return (
+    <span
+      className="size-1.5 shrink-0 rounded-full bg-muted-foreground/40"
+      style={accent ? { backgroundColor: accent } : undefined}
+    />
+  )
+}
+
+function TimerRecurrenceBadge(props: Readonly<{ timer: Timer; history: RecurrenceHistory }>) {
+  const recurrence = props.timer.recurrence
+  if (!recurrence?.enabled) return null
+
+  const type = recurrenceTypeLabel(recurrence.type).toLowerCase()
+  const label =
+    props.history.count > 0 ? formatMessage("timer.recurrence.badge", { type, count: props.history.count }) : type
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase text-muted-foreground">
+          <RepeatIcon className="size-2.5" />
+          {label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        {props.history.count > 0 && props.history.last
+          ? formatMessage("timer.recurrence.history", {
+              count: props.history.count,
+              last: formatTargetInTimeZone(props.history.last, props.timer.timezone),
+            })
+          : formatMessage("timer.recurrence.nextShown")}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+function TimerNotificationStateIcon(props: Readonly<{ timer: Timer }>) {
+  if (notificationEnabled(props.timer)) {
+    return null
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <BellOffIcon
+          aria-label={formatMessage("timer.notificationsOff")}
+          className="size-3 shrink-0 text-muted-foreground/60"
+        />
+      </TooltipTrigger>
+      <TooltipContent>{formatMessage("timer.notificationsOff")}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function TimerSinceBadge() {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase text-muted-foreground">
+      {formatMessage("timer.countdown.since")}
+    </span>
+  )
+}
+
+function HeroCountdownUnit(
+  props: Readonly<{
+    value: string
+    label: string
+    muted?: boolean
+  }>,
+) {
+  return (
+    <div className="flex flex-col items-center">
+      <span
+        className={cn(
+          "text-[40px] font-medium leading-none tracking-normal",
+          props.muted ? "text-muted-foreground/55" : "",
+        )}
+        suppressHydrationWarning
+      >
+        {props.value}
+      </span>
+      <span className="mt-2 text-[9px] uppercase tracking-[0.14em] text-muted-foreground">{props.label}</span>
+    </div>
+  )
+}
+
+function HeroCountdownSeparator() {
+  return <span className="flex h-[40px] items-center text-xl leading-none text-muted-foreground/35">:</span>
+}
+
+function HeroCountdown(props: Readonly<{ targetDateIsoUtc: string; nowMs: number }>) {
+  const parts = getCountdownParts(props.targetDateIsoUtc, props.nowMs)
+
+  return (
+    <div>
+      <div className="flex items-start gap-1.5 font-mono tabular-nums">
+        {/* references: timer.countdown.dayUnit.one / timer.countdown.dayUnit.few / timer.countdown.dayUnit.many */}
+        <HeroCountdownUnit
+          value={String(parts.days)}
+          label={formatPluralMessage("timer.countdown.dayUnit", parts.days)}
+        />
+        <HeroCountdownSeparator />
+        <HeroCountdownUnit value={pad2(parts.hours)} label={formatMessage("timer.countdown.hoursShort")} />
+        <HeroCountdownSeparator />
+        <HeroCountdownUnit value={pad2(parts.minutes)} label={formatMessage("timer.countdown.minutesShort")} />
+        <HeroCountdownSeparator />
+        <HeroCountdownUnit value={pad2(parts.seconds)} label={formatMessage("timer.countdown.secondsShort")} muted />
+      </div>
+    </div>
+  )
+}
+
+function TimerProgressBar(
+  props: Readonly<{
+    timer: Timer
+    effectiveTarget: string
+    nowMs: number
+    history: RecurrenceHistory
+  }>,
+) {
+  const parts = getCountdownParts(props.effectiveTarget, props.nowMs)
+  if (parts.isCountUp) return null
+
+  const cycleStart = props.timer.recurrence?.enabled && props.history.last ? props.history.last : props.timer.createdAt
+  const startedAt = new Date(cycleStart).getTime()
+  const targetAt = new Date(props.effectiveTarget).getTime()
+  if (!Number.isFinite(startedAt) || !Number.isFinite(targetAt) || targetAt <= startedAt) return null
+
+  const rawProgress = ((props.nowMs - startedAt) / (targetAt - startedAt)) * 100
+  const progress = Math.max(0, Math.min(100, rawProgress))
+  const startDate = formatTargetInTimeZone(new Date(startedAt).toISOString(), props.timer.timezone)
+  const targetDate = formatTargetInTimeZone(props.effectiveTarget, props.timer.timezone)
+
+  const startMessage = formatMessage("timer.progress.start", { date: startDate })
+  const targetMessage = formatMessage("timer.progress.target", { date: targetDate })
+
+  // The progress is built into the card's bottom border: a thin strip flush on the
+  // bottom edge, clipped to the rounded bottom corners (rounded-b matches the card's
+  // inner radius). The track is the border colour, the blue fill is elapsed time.
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          role="img"
+          aria-label={`${startMessage} · ${targetMessage}`}
+          className="absolute inset-x-0 bottom-0 h-[3px] bg-border"
+        >
+          <div className="h-full bg-blue-600 dark:bg-blue-500" style={{ width: `${progress}%` }} />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        {startMessage} → {targetMessage}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 export function TimerCardContent(
   props: Readonly<{
     timer: Timer
@@ -59,129 +231,125 @@ export function TimerCardContent(
     isPinned: boolean
     isRecurring: boolean
     history: RecurrenceHistory
+    space?: Space
     dragHandle?: ReactNode
     mobileActions: ReactNode
     desktopActions: ReactNode
     onMobileCardTap?: () => void
   }>,
 ) {
-  function handleRootClick(event: MouseEvent<HTMLDivElement>) {
+  function handleRootClick(event: MouseEvent<HTMLElement>) {
     if (!props.onMobileCardTap) return
     if (event.target instanceof Element && event.target.closest("[data-timer-card-action]")) return
     props.onMobileCardTap()
   }
 
   return (
-    <div
-      className={[
-        "group relative min-w-0 w-full md:rounded-2xl md:border bg-card p-5 transition-colors",
-        props.isPinned
-          ? "border-l-2 border-l-primary/45 bg-primary/[0.025] md:border-primary/15 dark:bg-primary/[0.04]"
-          : "md:border-border",
-        props.isArchived ? "bg-muted/30" : "",
-      ].join(" ")}
+    <article
+      className={cn(
+        // overflow-hidden lets the card clip the bottom-border progress strip to its
+        // own rounded corners (a 3px strip can't reproduce the 12px corner itself).
+        "group relative min-w-0 w-full overflow-hidden rounded-[12px] border border-border bg-card px-4 pb-6 pt-4 transition-colors",
+        props.isArchived ? "bg-card/70 text-muted-foreground" : "",
+      )}
       onClick={handleRootClick}
     >
       {props.mobileActions}
 
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-1.5">
-          {props.dragHandle}
-          <TimerCardTitleBlock
-            timer={props.timer}
-            sub={props.sub}
-            isArchived={props.isArchived}
-            isRecurring={props.isRecurring}
-            history={props.history}
-          />
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        {props.dragHandle}
+        <TimerCardTitleBlock
+          timer={props.timer}
+          effectiveTarget={props.effectiveTarget}
+          nowMs={props.nowMs}
+          sub={props.sub}
+          isArchived={props.isArchived}
+          isRecurring={props.isRecurring}
+          history={props.history}
+          space={props.space}
+          hasDragHandle={Boolean(props.dragHandle)}
+        />
+        <div data-timer-card-action="" className="hidden shrink-0 md:block">
+          {props.desktopActions}
         </div>
-
-        {props.desktopActions}
       </div>
 
-      <div className="mt-5">
-        <CountdownDisplay targetDateIsoUtc={props.effectiveTarget} nowMs={props.nowMs} />
+      {/* Match the title block's left inset so the countdown lines up with the
+          title, not with the drag handle gutter. */}
+      <div className={cn("mt-5 min-w-0 overflow-x-auto pb-1", props.dragHandle ? "pl-5" : "")}>
+        <HeroCountdown targetDateIsoUtc={props.effectiveTarget} nowMs={props.nowMs} />
       </div>
-    </div>
+
+      <TimerProgressBar
+        timer={props.timer}
+        effectiveTarget={props.effectiveTarget}
+        nowMs={props.nowMs}
+        history={props.history}
+      />
+    </article>
   )
 }
 
 function TimerCardTitleBlock(
   props: Readonly<{
     timer: Timer
+    effectiveTarget: string
+    nowMs: number
     sub: string
     isArchived: boolean
     isRecurring: boolean
     history: RecurrenceHistory
+    space?: Space
+    hasDragHandle?: boolean
   }>,
 ) {
+  const parts = getCountdownParts(props.effectiveTarget, props.nowMs)
+
   return (
-    <div className="flex min-w-0 items-start gap-3">
+    <div className={cn("flex min-w-0 items-start gap-2 pr-24 md:pr-0", props.hasDragHandle ? "pl-5" : "")}>
       {props.timer.image ? (
         <Image
           src={props.timer.image.thumbUrl}
           alt=""
-          width={48}
-          height={48}
+          width={36}
+          height={36}
           unoptimized
-          className="size-12 shrink-0 rounded-xl object-cover"
+          className="size-9 shrink-0 rounded-lg object-cover"
         />
       ) : null}
-      <div className={["min-w-0", props.isArchived ? "pr-28 md:pr-0" : "pr-36 md:pr-0"].join(" ")}>
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="truncate text-base font-semibold">{props.timer.label}</div>
-          {props.timer.notify === true || props.timer.notification?.enabled === true ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <BellIcon
-                  aria-label={formatMessage("timer.notificationsOn")}
-                  className="size-3.5 shrink-0 text-muted-foreground/70"
-                />
-              </TooltipTrigger>
-              <TooltipContent>{formatMessage("timer.notificationsOn")}</TooltipContent>
-            </Tooltip>
-          ) : null}
-          {props.isRecurring ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
-                  <RepeatIcon className="size-3" />
-                  {props.timer.recurrence?.type}
-                  {props.history.count > 0 ? ` · ${props.history.count}x` : null}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                {props.history.count > 0 && props.history.last
-                  ? formatMessage("timer.recurrence.history", {
-                      count: props.history.count,
-                      last: formatTargetInTimeZone(props.history.last, props.timer.timezone),
-                    })
-                  : formatMessage("timer.recurrence.nextShown")}
-              </TooltipContent>
-            </Tooltip>
+      <div className={cn("min-w-0", props.isArchived ? "text-muted-foreground" : "")}>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <TimerSpaceDot timer={props.timer} space={props.space} />
+          <h4 className="truncate text-sm font-semibold tracking-normal">{props.timer.label}</h4>
+          {props.isRecurring ? <TimerRecurrenceBadge timer={props.timer} history={props.history} /> : null}
+          {!props.isRecurring && parts.isCountUp ? <TimerSinceBadge /> : null}
+          <TimerNotificationStateIcon timer={props.timer} />
+          {props.timer.url ? (
+            <a
+              data-timer-card-action=""
+              href={props.timer.url}
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+              aria-label={formatMessage("timer.openLink")}
+              title={props.timer.url}
+              className="shrink-0 text-muted-foreground/60 transition hover:text-foreground"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <ExternalLinkIcon className="size-3.5" />
+            </a>
           ) : null}
           {props.isArchived ? (
-            <span className="shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
+            <span className="shrink-0 rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase text-muted-foreground">
               {formatMessage("timer.recurrence.archived")}
             </span>
           ) : null}
         </div>
 
-        {props.timer.description ? (
-          <>
-            <div className="mt-0.5 hidden min-w-0 text-sm text-muted-foreground md:line-clamp-2 md:h-10 md:block">
-              <span className="md:group-hover:hidden">{props.sub}</span>
-              <span className="hidden md:group-hover:inline">{props.timer.description}</span>
-            </div>
-            <div className="mt-0.5 line-clamp-2 min-w-0 text-sm text-muted-foreground md:hidden">
-              <span>{props.sub}</span>
-            </div>
-          </>
-        ) : (
-          <div className="mt-0.5 line-clamp-2 min-w-0 text-sm text-muted-foreground md:h-10">
-            <span>{props.sub}</span>
-          </div>
-        )}
+        {/* Description takes the date's slot when present; the exact date still
+            shows in the countdown below. */}
+        <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
+          {props.timer.description?.trim() || props.sub}
+        </p>
       </div>
     </div>
   )
@@ -229,27 +397,6 @@ export function TimerCardMobileActions(
           </TooltipContent>
         </Tooltip>
       )}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-flex">
-            <button
-              type="button"
-              className={`rounded-full p-1.5 ${timerActionClassName}`}
-              aria-label={formatMessage(props.isFollowed ? "timer.unfollowOrDuplicate" : "timer.edit")}
-              disabled={props.isFollowed}
-              onClick={(event) => {
-                event.stopPropagation()
-                if (!props.isFollowed) props.onOpenEdit()
-              }}
-            >
-              {props.isFollowed ? <LockIcon className="size-4" /> : <PencilIcon className="size-4" />}
-            </button>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" sideOffset={6} className={props.isFollowed ? "max-w-[220px]" : undefined}>
-          {formatMessage(props.isFollowed ? "timer.unfollowOrDuplicate" : "common.edit")}
-        </TooltipContent>
-      </Tooltip>
       <TimerFocusAction
         className={`rounded-full p-1.5 ${timerActionClassName}`}
         onOpen={props.onOpenFocus}
@@ -261,6 +408,7 @@ export function TimerCardMobileActions(
         notificationsEnabled={props.notificationsEnabled}
         canMove={props.canMove}
         onOpenMove={props.onOpenMove}
+        onOpenEdit={props.onOpenEdit}
         onToggleNotification={props.onToggleNotification}
         onOpenShare={props.onOpenShare}
         onUnfollow={props.onUnfollow}
@@ -309,80 +457,6 @@ function TimerPinAction(
   )
 }
 
-function TimerLockedEditAction() {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className={timerActionClassName}
-            aria-label={formatMessage("timer.edit")}
-            disabled
-          >
-            <LockIcon className="size-4" />
-          </Button>
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={6} className="max-w-[220px]">
-        {formatMessage("timer.unfollowOrDuplicate")}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
-function TimerEditAction(
-  props: Readonly<{
-    timer: Timer
-    onEditSubmit: (timer: TimerFormSubmitValue) => void
-  }>,
-) {
-  const [formOpen, setFormOpen] = useState(false)
-  const [tooltipOpen, setTooltipOpen] = useState(false)
-
-  function handleFormOpenChange(nextOpen: boolean) {
-    setFormOpen(nextOpen)
-    if (nextOpen) setTooltipOpen(false)
-  }
-
-  return (
-    <>
-      <Tooltip
-        open={!formOpen && tooltipOpen}
-        onOpenChange={(nextOpen) => {
-          setTooltipOpen(nextOpen && !formOpen)
-        }}
-      >
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className={timerActionClassName}
-            aria-label={formatMessage("timer.edit")}
-            onClick={() => {
-              setTooltipOpen(false)
-              setFormOpen(true)
-            }}
-          >
-            <PencilIcon className="size-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" sideOffset={6}>
-          {formatMessage("common.edit")}
-        </TooltipContent>
-      </Tooltip>
-      <TimerForm
-        mode="edit"
-        initial={props.timer}
-        open={formOpen}
-        onOpenChange={handleFormOpenChange}
-        onSubmit={props.onEditSubmit}
-      />
-    </>
-  )
-}
-
 function TimerFocusDesktopAction(props: Readonly<{ onOpenFocus: () => void }>) {
   return <TimerFocusAction className={timerActionClassName} onOpen={props.onOpenFocus} />
 }
@@ -394,6 +468,7 @@ function TimerOverflowActions(
     notificationsEnabled: boolean
     canMove?: boolean
     onOpenMove?: () => void
+    onOpenEdit: () => void
     onToggleNotification: () => void
     onOpenShare: () => void
     onUnfollow: () => void
@@ -430,6 +505,20 @@ function TimerOverflowActions(
           event.stopPropagation()
         }}
       >
+        {props.isFollowed ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="block">
+                <DropdownMenuItem disabled>{formatMessage("common.edit")}</DropdownMenuItem>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="left" sideOffset={6} className="max-w-[220px]">
+              {formatMessage("timer.unfollowOrDuplicate")}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <DropdownMenuItem onSelect={() => props.onOpenEdit()}>{formatMessage("common.edit")}</DropdownMenuItem>
+        )}
         <DropdownMenuItem onSelect={() => props.onToggleNotification()}>
           {formatMessage(props.notificationsEnabled ? "notifications.disableMenu" : "notifications.enableMenu")}
         </DropdownMenuItem>
@@ -457,7 +546,6 @@ function TimerOverflowActions(
 
 export function TimerCardDesktopActions(
   props: Readonly<{
-    timer: Timer
     isArchived: boolean
     isPinned: boolean
     isFollowed: boolean
@@ -468,7 +556,7 @@ export function TimerCardDesktopActions(
     onOpenShare: () => void
     onOpenFocus: () => void
     onOpenMove?: () => void
-    onEditSubmit: (timer: TimerFormSubmitValue) => void
+    onOpenEdit: () => void
     onUnfollow: () => void
     onDuplicate: () => void
     onToggleArchive: () => void
@@ -478,11 +566,6 @@ export function TimerCardDesktopActions(
   return (
     <div className="hidden shrink-0 items-center gap-1 md:flex">
       <TimerPinAction isArchived={props.isArchived} isPinned={props.isPinned} onTogglePin={props.onTogglePin} />
-      {props.isFollowed ? (
-        <TimerLockedEditAction />
-      ) : (
-        <TimerEditAction timer={props.timer} onEditSubmit={props.onEditSubmit} />
-      )}
       <TimerFocusDesktopAction onOpenFocus={props.onOpenFocus} />
       <TimerOverflowActions
         isArchived={props.isArchived}
@@ -490,6 +573,7 @@ export function TimerCardDesktopActions(
         notificationsEnabled={props.notificationsEnabled}
         canMove={props.canMove}
         onOpenMove={props.onOpenMove}
+        onOpenEdit={props.onOpenEdit}
         onToggleNotification={props.onToggleNotification}
         onOpenShare={props.onOpenShare}
         onUnfollow={props.onUnfollow}

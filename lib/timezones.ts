@@ -75,3 +75,9 @@ export function getPinnedTimeZones(localTz: string) {
   const unique = new Set<string>([localTz, ...PINNED_TIMEZONES])
   return Array.from(unique)
 }
+
+// Turn an IANA id ("Europe/Warsaw", "America/New_York") into a readable label
+// ("Europe / Warsaw", "America / New York") so the slash/underscore aren't glued.
+export function formatTimeZoneLabel(timeZone: string): string {
+  return timeZone.replace(/_/g, " ").replace(/\//g, " / ")
+}

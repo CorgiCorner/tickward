@@ -15,6 +15,17 @@ describe("notification preferences", () => {
     })
   })
 
+  it("defaults omitted timer notification settings to enabled", () => {
+    expect(normalizeTimerNotificationSettings(undefined, undefined)).toEqual({
+      ...DEFAULT_RESOLVED_TIMER_NOTIFICATION_SETTINGS,
+      enabled: true,
+    })
+    expect(normalizeTimerNotificationSettings(undefined, false)).toEqual({
+      ...DEFAULT_RESOLVED_TIMER_NOTIFICATION_SETTINGS,
+      enabled: false,
+    })
+  })
+
   it("keeps timer-level settings to the enabled flag only", () => {
     expect(normalizeTimerNotificationSettings({ enabled: true }, false)).toEqual({
       enabled: true,

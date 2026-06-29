@@ -4,9 +4,10 @@
 
 import { ANONYMOUS_ENTITLEMENTS, timerLimitMessage as entitlementsTimerLimitMessage } from "@/lib/entitlements"
 import { formatMessage } from "@/lib/i18n/messages"
+import { LIMITS } from "@/lib/limits"
 
-export const MAX_TIMERS = ANONYMOUS_ENTITLEMENTS.maxTimers
-export const TIMER_WARN_THRESHOLD = Math.floor(ANONYMOUS_ENTITLEMENTS.maxTimers * 0.75)
+export const MAX_TIMERS = LIMITS.timersPerProject
+export const TIMER_WARN_THRESHOLD = Math.floor(LIMITS.timersPerProject * 0.75)
 
 export function timerWarnThreshold(maxTimers = MAX_TIMERS) {
   return Math.max(1, Math.floor(maxTimers * 0.75))

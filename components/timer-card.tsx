@@ -29,6 +29,7 @@ import { TimerForm, type TimerFormSubmitValue } from "@/components/timer-form"
 import { authClient } from "@/lib/auth/auth-client"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
 import { formatMessage } from "@/lib/i18n/messages"
+import { timerNotificationsEnabled } from "@/lib/notification-preferences"
 import { PublicClientError, publicClientErrorFromResponse } from "@/lib/public-errors"
 import { useTimerStore } from "@/lib/store"
 import { timerAlertReadiness } from "@/lib/timer-alert-readiness.client"
@@ -47,7 +48,7 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
   const isFollowed = Boolean(timer.sourceShareId)
   const isArchived = Boolean(timer.archivedAt)
   const isPinned = timer.pinned === true && !isArchived
-  const notificationsEnabled = timer.notify === true
+  const notificationsEnabled = timerNotificationsEnabled(timer.notification, timer.notify)
   const isPastTimer = new Date(effectiveTarget).getTime() <= nowMs
 
   const removeTimer = useTimerStore((s) => s.removeTimer)
@@ -60,11 +61,13 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
   const unfollowTimer = useTimerStore((s) => s.unfollowTimer)
   const restoreKey = useTimerStore((s) => s.restoreKey)
   const projects = useTimerStore((s) => s.projects)
+  const spaces = useTimerStore((s) => s.spaces)
   const activeProjectId = useTimerStore((s) => s.activeProjectId)
   const syncToCloud = useTimerStore((s) => s.syncToCloud)
   const moveTimerToProject = useTimerStore((s) => s.moveTimerToProject)
   const activeProject = projects.find((project) => project.id === activeProjectId)
   const otherProjects = projects.filter((project) => project.id !== activeProjectId)
+  const timerSpace = spaces.find((space) => space.id === timer.spaceId)
   const canMove = !isFollowed && otherProjects.length > 0
 
   const sub = `${formatTargetInTimeZone(effectiveTarget, timer.timezone)} · ${timer.timezone}`
@@ -86,7 +89,7 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: timer.id,
-    disabled: !sortable || isArchived,
+    disabled: !sortable,
   })
 
   const sortableStyle: CSSProperties = {
@@ -117,13 +120,8 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
 
   function togglePin() {
     if (isArchived) return
-    if (isPinned) {
-      setPinnedTimer(null)
-      toast.success(formatMessage("timer.unpinned"))
-      return
-    }
     setPinnedTimer(timer.id)
-    toast.success(formatMessage("timer.pinned"))
+    toast.success(formatMessage(isPinned ? "timer.unpinned" : "timer.pinned"))
   }
 
   async function toggleNotification() {
@@ -236,6 +234,7 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
           addTimer({
             label: snapshot.label,
             description: snapshot.description,
+            url: snapshot.url,
             targetDate: snapshot.targetDate,
             timezone: snapshot.timezone,
             color: snapshot.color,
@@ -314,17 +313,17 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
     </TrailingActions>
   )
 
-  const dragHandle =
-    sortable && !isArchived ? (
-      <button
-        type="button"
-        className="hidden -ml-3 mt-0.5 shrink-0 cursor-grab touch-none px-0.5 py-1 text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing md:block"
-        aria-label={formatMessage("timer.dragReorder")}
-        {...listeners}
-      >
-        <GripVerticalIcon className="size-3.5" />
-      </button>
-    ) : null
+  const dragHandle = sortable ? (
+    <button
+      type="button"
+      data-timer-card-action=""
+      className="absolute left-1 top-4 z-20 grid size-6 cursor-grab touch-none place-items-center rounded-md text-muted-foreground/45 opacity-100 transition hover:bg-muted hover:text-muted-foreground active:cursor-grabbing"
+      aria-label={formatMessage("timer.dragReorder")}
+      {...listeners}
+    >
+      <GripVerticalIcon className="size-3.5" />
+    </button>
+  ) : null
 
   const cardDiv = (
     <TimerCardContent
@@ -336,6 +335,7 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
       isPinned={isPinned}
       isRecurring={isRecurring}
       history={history}
+      space={timerSpace}
       dragHandle={dragHandle}
       mobileActions={
         <TimerCardMobileActions
@@ -358,7 +358,6 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
       }
       desktopActions={
         <TimerCardDesktopActions
-          timer={timer}
           isArchived={isArchived}
           isPinned={isPinned}
           isFollowed={isFollowed}
@@ -369,7 +368,7 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
           onOpenShare={openShareDialog}
           onOpenFocus={() => setFocusOpen(true)}
           onOpenMove={() => setMoveOpen(true)}
-          onEditSubmit={handleEditSubmit}
+          onOpenEdit={() => setEditOpen(true)}
           onUnfollow={handleUnfollow}
           onDuplicate={handleDuplicate}
           onToggleArchive={toggleArchive}
@@ -389,18 +388,12 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
             {cardDiv}
           </SwipeableListItem>
         </SwipeableList>
-        {/* Controlled edit form opened by tapping the card on mobile. */}
-        {isFollowed ? null : (
-          <TimerForm
-            mode="edit"
-            initial={timer}
-            open={editOpen}
-            onOpenChange={setEditOpen}
-            onSubmit={handleEditSubmit}
-          />
-        )}
       </div>
       <div className="hidden md:block">{cardDiv}</div>
+
+      {isFollowed ? null : (
+        <TimerForm mode="edit" initial={timer} open={editOpen} onOpenChange={setEditOpen} onSubmit={handleEditSubmit} />
+      )}
 
       <TimerShareDialog
         open={shareOpen}

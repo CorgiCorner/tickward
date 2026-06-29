@@ -2,8 +2,17 @@
 
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core"
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable"
-import { AlertTriangleIcon, ArrowDownIcon, ArrowUpIcon, KeyIcon, TimerIcon, XIcon } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import {
+  AlertTriangleIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CornerDownLeftIcon,
+  KeyIcon,
+  PinIcon,
+  TimerIcon,
+  XIcon,
+} from "lucide-react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 
 import { FooterStatusBar } from "@/components/footer"
@@ -25,7 +34,7 @@ import { useTimerStore } from "@/lib/store"
 import { timerMatchesFilters } from "@/lib/timer-filters"
 import type { Timer, TimerSortMode } from "@/lib/types"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
-import { effectiveTargetDate } from "@/lib/utils"
+import { cn, effectiveTargetDate } from "@/lib/utils"
 
 function DismissButton(props: Readonly<{ onClick: () => void }>) {
   return (
@@ -68,18 +77,31 @@ function OnboardingBanner(props: Readonly<{ timerCount: number; spaceCount: numb
 
 function EmptyState(props: Readonly<{ compact?: boolean; onSelectExample: (label: string) => void }>) {
   return (
-    <div className={[props.compact ? "mt-6" : "mt-0", "rounded-3xl border bg-background p-10 text-center"].join(" ")}>
-      <TimerIcon className="mx-auto size-10 text-muted-foreground" />
-      <div className="mt-4 text-base font-semibold">{formatMessage("home.empty.title")}</div>
-      <div className="mt-2 text-sm text-muted-foreground">{formatMessage("home.empty.description")}</div>
-      <div className="mt-4 flex flex-wrap justify-center gap-2 text-xs text-muted-foreground">
+    <div
+      className={[
+        props.compact ? "mt-6" : "mt-0",
+        "rounded-[16px] border border-dashed border-border bg-card px-6 py-16 text-center",
+      ].join(" ")}
+    >
+      <div className="mx-auto grid size-12 place-items-center rounded-full border border-border text-muted-foreground">
+        <TimerIcon className="size-[22px]" />
+      </div>
+      <div className="mt-4 text-base font-semibold tracking-normal">{formatMessage("home.empty.title")}</div>
+      <p className="mx-auto mt-1.5 max-w-[20rem] text-sm leading-6 text-muted-foreground">
+        {formatMessage("home.empty.description")} {formatMessage("home.empty.getStartedBeforeKey")}{" "}
+        <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border border-border px-1 text-muted-foreground">
+          <CornerDownLeftIcon className="size-3" strokeWidth={2.5} />
+        </kbd>{" "}
+        {formatMessage("home.empty.getStartedAfterKey")}
+      </p>
+      <div className="mt-5 flex flex-wrap justify-center gap-1.5">
         {HOME_EMPTY_TIMER_EXAMPLES.map((messageKey) => {
           const label = formatMessage(messageKey)
           return (
             <button
               key={messageKey}
               type="button"
-              className="rounded-full border px-2.5 py-1 transition-colors hover:border-foreground/30 hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+              className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px]"
               onClick={() => props.onSelectExample(label)}
             >
               {label}
@@ -87,14 +109,13 @@ function EmptyState(props: Readonly<{ compact?: boolean; onSelectExample: (label
           )
         })}
       </div>
-      <div className="mt-5 text-sm text-muted-foreground">{formatMessage("home.empty.getStarted")}</div>
     </div>
   )
 }
 
 function FilteredEmptyState() {
   return (
-    <div className="mt-6 rounded-2xl border border-dashed bg-background p-8 text-center">
+    <div className="mt-6 rounded-[16px] border border-dashed border-border bg-card p-8 text-center">
       <TimerIcon className="mx-auto size-8 text-muted-foreground" />
       <div className="mt-3 text-sm font-medium">{formatMessage("home.filteredEmpty.title")}</div>
       <div className="mt-1 text-xs text-muted-foreground">{formatMessage("home.filteredEmpty.description")}</div>
@@ -175,34 +196,88 @@ function matchesActiveSpace(timer: Timer, activeSpaceId: string | null, spaces: 
   return timer.spaceId === activeSpaceId
 }
 
-function ActiveTimerList(
+type TimerSectionKind = "pinned" | "upcoming" | "archived"
+
+function SortableTimerSection(
   props: Readonly<{
-    pinnedTimer: Timer | undefined
-    sortableTimers: Timer[]
+    kind: TimerSectionKind
+    headingId: string
+    title: string
+    timers: Timer[]
     nowMs: number
     sensors: ReturnType<typeof useSensors>
-    onDragEnd: (event: DragEndEvent) => void
+    onDragEnd: (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => void
+    icon?: ReactNode
+    id?: string
+    dataSlot?: string
+    className?: string
+    listClassName?: string
+    action?: ReactNode
   }>,
 ) {
-  if (!props.pinnedTimer && props.sortableTimers.length === 0) return null
+  if (props.timers.length === 0) return null
 
   return (
-    <div id="active-timers" data-slot="timer-list" className="-mx-4 grid gap-4 scroll-mt-20 md:mx-0">
-      {props.pinnedTimer ? (
-        <TimerCard key={props.pinnedTimer.id} timer={props.pinnedTimer} nowMs={props.nowMs} sortable={false} />
-      ) : null}
+    <section id={props.id} aria-labelledby={props.headingId} className={props.className}>
+      <div className="mb-2 flex items-center justify-between gap-2 px-1">
+        <div
+          id={props.headingId}
+          className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
+        >
+          {props.icon}
+          {props.title}
+        </div>
+        {props.action}
+      </div>
+      <DndContext
+        sensors={props.sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={(event) => props.onDragEnd(event, props.timers, props.kind)}
+      >
+        <SortableContext items={props.timers.map((timer) => timer.id)} strategy={verticalListSortingStrategy}>
+          <div data-slot={props.dataSlot} className={cn("grid gap-3", props.listClassName)}>
+            {props.timers.map((timer) => (
+              <TimerCard key={timer.id} timer={timer} nowMs={props.nowMs} />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+    </section>
+  )
+}
 
-      {props.sortableTimers.length > 0 ? (
-        <DndContext sensors={props.sensors} collisionDetection={closestCenter} onDragEnd={props.onDragEnd}>
-          <SortableContext items={props.sortableTimers.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-            <div className="grid gap-4">
-              {props.sortableTimers.map((t) => (
-                <TimerCard key={t.id} timer={t} nowMs={props.nowMs} />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
-      ) : null}
+function ActiveTimerList(
+  props: Readonly<{
+    pinnedTimers: Timer[]
+    upcomingTimers: Timer[]
+    nowMs: number
+    sensors: ReturnType<typeof useSensors>
+    onDragEnd: (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => void
+  }>,
+) {
+  if (props.pinnedTimers.length === 0 && props.upcomingTimers.length === 0) return null
+
+  return (
+    <div id="active-timers" data-slot="timer-list" className="grid gap-6 scroll-mt-20">
+      <SortableTimerSection
+        kind="pinned"
+        headingId="pinned-timers-heading"
+        title={formatMessage("timer.pinned.label")}
+        timers={props.pinnedTimers}
+        nowMs={props.nowMs}
+        sensors={props.sensors}
+        onDragEnd={props.onDragEnd}
+        icon={<PinIcon className="size-3" />}
+      />
+      <SortableTimerSection
+        kind="upcoming"
+        headingId="upcoming-timers-heading"
+        title={formatMessage("home.upcoming")}
+        timers={props.upcomingTimers}
+        nowMs={props.nowMs}
+        sensors={props.sensors}
+        onDragEnd={props.onDragEnd}
+      />
     </div>
   )
 }
@@ -223,26 +298,52 @@ function SectionJump(props: Readonly<{ direction: "toArchived" | "toActive" }>) 
       onClick={() => scrollToId(toArchived ? "archived-timers" : "active-timers")}
     >
       {toArchived ? <ArrowDownIcon className="size-3.5" /> : <ArrowUpIcon className="size-3.5" />}
-      {formatMessage(toArchived ? "home.jumpToArchived" : "home.jumpToActive")}
+      {formatMessage(toArchived ? "home.archived.showAll" : "home.jumpToActive")}
     </button>
   )
 }
 
-function ArchivedTimerList(props: Readonly<{ timers: Timer[]; nowMs: number; showJumpToActive: boolean }>) {
+function ArchivedTimerList(
+  props: Readonly<{
+    timers: Timer[]
+    nowMs: number
+    sensors: ReturnType<typeof useSensors>
+    onDragEnd: (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => void
+    showJumpToActive: boolean
+  }>,
+) {
   if (props.timers.length === 0) return null
 
   return (
-    <section id="archived-timers" className="mt-6 border-t border-dashed border-border pt-5 scroll-mt-20">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <span className="text-xs font-medium uppercase text-muted-foreground">{formatMessage("home.archived")}</span>
-        {props.showJumpToActive ? <SectionJump direction="toActive" /> : null}
-      </div>
-      <div data-slot="archived-timer-list" className="-mx-4 grid gap-4 md:mx-0">
-        {props.timers.map((t) => (
-          <TimerCard key={t.id} timer={t} nowMs={props.nowMs} sortable={false} />
-        ))}
-      </div>
-    </section>
+    <>
+      <SortableTimerSection
+        kind="archived"
+        id="archived-timers"
+        className="mt-6 scroll-mt-20"
+        headingId="archived-timers-heading"
+        title={formatMessage("home.archived")}
+        timers={props.timers}
+        nowMs={props.nowMs}
+        sensors={props.sensors}
+        onDragEnd={props.onDragEnd}
+        dataSlot="archived-timer-list"
+        listClassName="opacity-70"
+        action={
+          <button
+            type="button"
+            className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+            onClick={() => scrollToId("archived-timers")}
+          >
+            {formatMessage("home.archived.showAll")}
+          </button>
+        }
+      />
+      {props.showJumpToActive ? (
+        <div className="mt-3 flex justify-end">
+          <SectionJump direction="toActive" />
+        </div>
+      ) : null}
+    </>
   )
 }
 
@@ -252,11 +353,11 @@ function TimerCollection(
     timers: Timer[]
     activeTimers: Timer[]
     archivedTimers: Timer[]
-    pinnedTimer: Timer | undefined
-    sortableTimers: Timer[]
+    pinnedTimers: Timer[]
+    upcomingTimers: Timer[]
     nowMs: number
     sensors: ReturnType<typeof useSensors>
-    onDragEnd: (event: DragEndEvent) => void
+    onDragEnd: (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => void
     onSelectExample: (label: string) => void
   }>,
 ) {
@@ -276,21 +377,23 @@ function TimerCollection(
       <OrganizerBar />
       {props.activeTimers.length > 0 ? (
         <ActiveTimerList
-          pinnedTimer={props.pinnedTimer}
-          sortableTimers={props.sortableTimers}
+          pinnedTimers={props.pinnedTimers}
+          upcomingTimers={props.upcomingTimers}
           nowMs={props.nowMs}
           sensors={props.sensors}
           onDragEnd={props.onDragEnd}
         />
       ) : null}
       {showSectionJump ? (
-        <div className="mt-4 flex justify-center">
+        <div className="mt-3 flex justify-end px-1">
           <SectionJump direction="toArchived" />
         </div>
       ) : null}
       <ArchivedTimerList
         timers={props.archivedTimers}
         nowMs={props.nowMs}
+        sensors={props.sensors}
+        onDragEnd={props.onDragEnd}
         showJumpToActive={props.activeTimers.length > 0}
       />
       {props.activeTimers.length === 0 && props.archivedTimers.length === 0 ? <FilteredEmptyState /> : null}
@@ -314,6 +417,8 @@ export function HomeClient() {
   const refreshFollowedTimers = useTimerStore((s) => s.refreshFollowedTimers)
   const refreshActiveProjectFromCloud = useTimerStore((s) => s.refreshActiveProjectFromCloud)
   const reorderVisibleTimers = useTimerStore((s) => s.reorderVisibleTimers)
+  const reorderTimers = useTimerStore((s) => s.reorderTimers)
+  const setTimerSortMode = useTimerStore((s) => s.setTimerSortMode)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
   const activeProject = projects.find((project) => project.id === activeProjectId)
@@ -324,13 +429,13 @@ export function HomeClient() {
   const filteredTimers = useMemo(
     () =>
       timers.filter(
-        (timer) => matchesActiveSpace(timer, activeSpaceId, spaces) && timerMatchesFilters(timer, timerFilters),
+        (timer) => matchesActiveSpace(timer, activeSpaceId, spaces) && timerMatchesFilters(timer, timerFilters, nowMs),
       ),
-    [activeSpaceId, spaces, timerFilters, timers],
+    [activeSpaceId, nowMs, spaces, timerFilters, timers],
   )
   const activeTimers = useMemo(() => filteredTimers.filter((timer) => !timer.archivedAt), [filteredTimers])
-  const pinnedTimer = activeTimers.find((timer) => timer.pinned)
-  const sortableActiveTimers = useMemo(
+  const pinnedTimers = useMemo(() => activeTimers.filter((timer) => timer.pinned), [activeTimers])
+  const upcomingTimers = useMemo(
     () =>
       sortTimers(
         activeTimers.filter((timer) => !timer.pinned),
@@ -339,13 +444,11 @@ export function HomeClient() {
       ),
     [activeTimers, nowMs, sortMode],
   )
-  const archivedTimers = useMemo(
-    () =>
-      [...filteredTimers]
-        .filter((timer) => timer.archivedAt)
-        .sort((a, b) => new Date(b.archivedAt ?? 0).getTime() - new Date(a.archivedAt ?? 0).getTime()),
-    [filteredTimers],
-  )
+  const archivedTimers = useMemo(() => {
+    const archived = filteredTimers.filter((timer) => timer.archivedAt)
+    if (sortMode === "manual") return archived
+    return [...archived].sort((a, b) => new Date(b.archivedAt ?? 0).getTime() - new Date(a.archivedAt ?? 0).getTime())
+  }, [filteredTimers, sortMode])
 
   useEffect(() => {
     if (!hasHydrated) return
@@ -391,27 +494,37 @@ export function HomeClient() {
     }
   }, [hasHydrated, refreshActiveProjectFromCloud])
 
-  function handleTimerDragEnd(event: DragEndEvent) {
+  function handleTimerDragEnd(event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) {
     const { active, over } = event
     if (!over || active.id === over.id) return
-    const visibleIds = sortableActiveTimers.map((timer) => timer.id)
+    const visibleIds = sectionTimers.map((timer) => timer.id)
     const activeIdx = visibleIds.indexOf(String(active.id))
     const overIdx = visibleIds.indexOf(String(over.id))
     if (activeIdx === -1 || overIdx === -1) return
-    reorderVisibleTimers(arrayMove(visibleIds, activeIdx, overIdx))
+
+    if (kind === "upcoming") {
+      reorderVisibleTimers(arrayMove(visibleIds, activeIdx, overIdx))
+    } else {
+      const fromIndex = timers.findIndex((timer) => timer.id === active.id)
+      const toIndex = timers.findIndex((timer) => timer.id === over.id)
+      if (fromIndex === -1 || toIndex === -1) return
+      reorderTimers(fromIndex, toIndex)
+      if (sortMode !== "manual") setTimerSortMode("manual")
+    }
+
     if (sortMode !== "manual") {
       toast(formatMessage("timer.manualOrder"), { id: "manual-sort-after-drag" })
     }
   }
 
   return (
-    <div className="flex min-h-svh flex-col bg-zinc-50 dark:bg-black">
+    <div className="flex min-h-svh flex-col bg-background">
       <Header />
 
       {/* The section constrains the sticky status footer to the timer list area
           so it settles before the content below app/page.tsx scrolls into view. */}
       <section data-slot="timer-list-section" className="relative flex flex-1 flex-col">
-        <main className="mx-auto w-full max-w-[640px] flex-1 px-4 py-6">
+        <main className="mx-auto w-full max-w-[640px] flex-1 px-4 py-5">
           {hasHydrated ? (
             <>
               <ProjectConflictBanner />
@@ -429,8 +542,8 @@ export function HomeClient() {
                 timers={timers}
                 activeTimers={activeTimers}
                 archivedTimers={archivedTimers}
-                pinnedTimer={pinnedTimer}
-                sortableTimers={sortableActiveTimers}
+                pinnedTimers={pinnedTimers}
+                upcomingTimers={upcomingTimers}
                 nowMs={nowMs}
                 sensors={sensors}
                 onDragEnd={handleTimerDragEnd}

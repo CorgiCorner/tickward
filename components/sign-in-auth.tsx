@@ -1,16 +1,24 @@
 "use client"
 
-import { ArrowLeftIcon, MailIcon, UserIcon } from "lucide-react"
+import { ArrowLeftIcon, CheckIcon, CircleAlertIcon, MailIcon, TimerIcon, UserIcon, UserRoundIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { ReactNode } from "react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
+import { useLocale } from "@/components/locale-provider"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useLocale } from "@/components/locale-provider"
 import { OtpInput } from "@/components/ui/otp-input"
 import { authClient } from "@/lib/auth/auth-client"
 import { authErrorMessage, authErrorRetryAfter } from "@/lib/auth/auth-client-errors"
@@ -18,6 +26,7 @@ import { formatMessage, isSupportedLocale, localeHref, type Locale } from "@/lib
 
 const OTP_COOLDOWN_SECONDS = 60
 const DEFAULT_SIGN_IN_NEXT_PATH = "/"
+const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
 const emailInputProps = {
   autoCapitalize: "none",
@@ -35,6 +44,11 @@ const emailInputProps = {
   "data-np-ignore": "true",
 } as const
 
+type CooldownControls = {
+  remainingSeconds: number
+  start: (seconds?: number) => void
+}
+
 function cooldownKey(email: string) {
   return `tickward:otp-cooldown:${email}`
 }
@@ -51,6 +65,10 @@ function writeCooldownUntil(email: string, seconds: number) {
   const cooldownUntil = Date.now() + seconds * 1000
   window.localStorage.setItem(cooldownKey(email), String(cooldownUntil))
   return cooldownUntil
+}
+
+function isValidEmail(email: string) {
+  return EMAIL_PATTERN.test(email)
 }
 
 function hasLocalePrefix(path: string) {
@@ -80,7 +98,7 @@ function otpPath(locale: Locale, email: string, nextPath: string) {
   return `${localeHref(locale, "/sign-in/otp")}?${params.toString()}`
 }
 
-function useCooldown(email: string) {
+function useCooldown(email: string): CooldownControls {
   const [now, setNow] = useState(() => Date.now())
   const [cooldownUntil, setCooldownUntil] = useState(0)
 
@@ -121,19 +139,199 @@ function AuthShell(props: Readonly<{ centered?: boolean; children: ReactNode; de
   )
 }
 
+function AuthError(props: Readonly<{ className?: string; id: string; message: string }>) {
+  if (!props.message) return null
+
+  return (
+    <div
+      id={props.id}
+      role="alert"
+      className={["flex items-center gap-1.5 text-xs text-destructive", props.className ?? ""].join(" ")}
+    >
+      <CircleAlertIcon className="size-3.5 shrink-0" />
+      {props.message}
+    </div>
+  )
+}
+
+function AuthBrand() {
+  return (
+    <div className="flex items-center gap-1.5 text-sm font-semibold tracking-tight">
+      <TimerIcon className="size-4" strokeWidth={2.5} />
+      tickward
+    </div>
+  )
+}
+
+function EmailCodeForm(
+  props: Readonly<{
+    className?: string
+    cooldown: CooldownControls
+    email: string
+    emailInputId: string
+    error: string
+    loading: boolean
+    onEmailChange: (email: string) => void
+    onSubmit: () => void
+  }>,
+) {
+  const cooldownActive = props.cooldown.remainingSeconds > 0
+  const errorId = `${props.emailInputId}-error`
+
+  return (
+    <form
+      autoComplete="off"
+      noValidate
+      className={props.className ?? "grid gap-4 rounded-lg border p-4"}
+      onSubmit={(event) => {
+        event.preventDefault()
+        props.onSubmit()
+      }}
+    >
+      <div className="grid gap-2">
+        <Label htmlFor={props.emailInputId}>{formatMessage("auth.email")}</Label>
+        <Input
+          id={props.emailInputId}
+          type="email"
+          value={props.email}
+          disabled={props.loading}
+          aria-invalid={Boolean(props.error)}
+          aria-describedby={props.error ? errorId : undefined}
+          {...emailInputProps}
+          onChange={(event) => props.onEmailChange(event.target.value)}
+          placeholder={formatMessage("auth.email.placeholder")}
+        />
+      </div>
+
+      <AuthError id={errorId} message={props.error} />
+
+      <Button type="submit" loading={props.loading} disabled={cooldownActive}>
+        {!props.loading && <MailIcon className="size-4" />}
+        {cooldownActive
+          ? formatMessage("auth.otp.resendIn", { seconds: props.cooldown.remainingSeconds })
+          : formatMessage("auth.sendCode")}
+      </Button>
+    </form>
+  )
+}
+
+function OtpCodeForm(
+  props: Readonly<{
+    className?: string
+    code: string
+    codeInputId: string
+    cooldown: CooldownControls
+    error: string
+    loading: boolean
+    onChangeEmail: () => void
+    onCodeChange: (code: string) => void
+    onResendCode: () => void
+    onVerifyCode: () => void
+  }>,
+) {
+  const cooldownActive = props.cooldown.remainingSeconds > 0
+  const errorId = `${props.codeInputId}-error`
+
+  return (
+    <form
+      className={props.className ?? "grid gap-4 rounded-lg border p-3 sm:p-4"}
+      onSubmit={(event) => {
+        event.preventDefault()
+        props.onVerifyCode()
+      }}
+    >
+      <div className="grid gap-3">
+        <div className="grid gap-2">
+          <Label htmlFor={props.codeInputId}>{formatMessage("auth.code")}</Label>
+          <OtpInput
+            id={props.codeInputId}
+            label={formatMessage("auth.code")}
+            value={props.code}
+            disabled={props.loading}
+            ariaDescribedBy={props.error ? errorId : undefined}
+            ariaInvalid={Boolean(props.error)}
+            onChange={(value) => props.onCodeChange(value.slice(0, 6))}
+          />
+        </div>
+
+        <AuthError id={errorId} message={props.error} />
+
+        <Button type="submit" className="w-full" loading={props.loading}>
+          {formatMessage("auth.verifyCode")}
+        </Button>
+
+        <div className="grid justify-items-center gap-2">
+          <div className="text-center text-xs text-muted-foreground">
+            {formatMessage("auth.otp.noCode")}{" "}
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-xs font-medium text-foreground"
+              disabled={props.loading || cooldownActive}
+              onClick={() => props.onResendCode()}
+            >
+              {cooldownActive
+                ? formatMessage("auth.otp.resendIn", { seconds: props.cooldown.remainingSeconds })
+                : formatMessage("auth.otp.resend")}
+            </Button>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-auto gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+            disabled={props.loading}
+            onClick={() => props.onChangeEmail()}
+          >
+            <ArrowLeftIcon className="size-3.5" />
+            {formatMessage("auth.otp.changeEmail")}
+          </Button>
+        </div>
+      </div>
+    </form>
+  )
+}
+
+function SignInSuccess(props: Readonly<{ onDone: () => void }>) {
+  return (
+    <div className="mt-2 flex flex-col items-center text-center">
+      <div className="grid size-12 place-items-center rounded-full border border-border text-foreground">
+        <CheckIcon className="size-6" />
+      </div>
+      <DialogHeader className="mt-3 items-center gap-1 text-center">
+        <DialogTitle className="text-lg">{formatMessage("auth.otp.successTitle")}</DialogTitle>
+        <DialogDescription className="leading-6">{formatMessage("auth.otp.successDescription")}</DialogDescription>
+      </DialogHeader>
+      <Button type="button" className="mt-4 w-full" onClick={props.onDone}>
+        {formatMessage("common.done")}
+      </Button>
+    </div>
+  )
+}
+
+function normalizeAuthError(error: unknown) {
+  return authErrorMessage(error)
+}
+
 export function SignInPageClient(props: Readonly<{ nextPath?: string }>) {
   const router = useRouter()
   const locale = useLocale()
   const session = authClient.useSession()
   const [email, setEmail] = useState("")
+  const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const normalizedEmail = email.trim().toLowerCase()
   const nextPath = safeNextPath(props.nextPath, locale)
   const cooldown = useCooldown(normalizedEmail)
-  const cooldownActive = cooldown.remainingSeconds > 0
 
   async function sendCode() {
-    if (!normalizedEmail || cooldownActive) return
+    setError("")
+    if (!isValidEmail(normalizedEmail)) {
+      setError(formatMessage("auth.error.invalidEmail"))
+      return
+    }
+    if (cooldown.remainingSeconds > 0) return
+
     setLoading(true)
     try {
       const result = await authClient.emailOtp.sendVerificationOtp({
@@ -144,10 +342,12 @@ export function SignInPageClient(props: Readonly<{ nextPath?: string }>) {
       cooldown.start()
       toast.success(formatMessage("auth.otp.sent"))
       router.push(otpPath(locale, normalizedEmail, nextPath))
-    } catch (error) {
-      const retryAfter = authErrorRetryAfter(error)
+    } catch (requestError) {
+      const retryAfter = authErrorRetryAfter(requestError)
       if (retryAfter) cooldown.start(retryAfter)
-      toast.error(authErrorMessage(error))
+      const message = normalizeAuthError(requestError)
+      setError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
@@ -168,34 +368,15 @@ export function SignInPageClient(props: Readonly<{ nextPath?: string }>) {
 
   return (
     <AuthShell title={formatMessage("auth.signIn")} description={formatMessage("auth.description.signIn")}>
-      <form
-        autoComplete="off"
-        className="grid gap-4 rounded-lg border p-4"
-        onSubmit={(event) => {
-          event.preventDefault()
-          void sendCode()
-        }}
-      >
-        <div className="grid gap-2">
-          <Label htmlFor="auth-email">{formatMessage("auth.email")}</Label>
-          <Input
-            id="auth-email"
-            type="email"
-            value={email}
-            disabled={loading}
-            {...emailInputProps}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder={formatMessage("auth.email.placeholder")}
-          />
-        </div>
-
-        <Button type="submit" loading={loading} disabled={!normalizedEmail || cooldownActive}>
-          {!loading && <MailIcon className="size-4" />}
-          {cooldownActive
-            ? formatMessage("auth.otp.resendIn", { seconds: cooldown.remainingSeconds })
-            : formatMessage("auth.sendCode")}
-        </Button>
-      </form>
+      <EmailCodeForm
+        emailInputId="auth-email"
+        email={email}
+        error={error}
+        loading={loading}
+        cooldown={cooldown}
+        onEmailChange={setEmail}
+        onSubmit={() => void sendCode()}
+      />
     </AuthShell>
   )
 }
@@ -205,14 +386,16 @@ export function OtpSignInPageClient(props: Readonly<{ email: string; nextPath?: 
   const locale = useLocale()
   const session = authClient.useSession()
   const [code, setCode] = useState("")
+  const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const email = useMemo(() => props.email.trim().toLowerCase(), [props.email])
   const nextPath = safeNextPath(props.nextPath, locale)
   const cooldown = useCooldown(email)
-  const cooldownActive = cooldown.remainingSeconds > 0
 
   async function resendCode() {
-    if (!email || cooldownActive) return
+    setError("")
+    if (!email || cooldown.remainingSeconds > 0) return
+
     setLoading(true)
     try {
       const result = await authClient.emailOtp.sendVerificationOtp({
@@ -222,10 +405,12 @@ export function OtpSignInPageClient(props: Readonly<{ email: string; nextPath?: 
       if (result.error) throw result.error
       cooldown.start()
       toast.success(formatMessage("auth.otp.sent"))
-    } catch (error) {
-      const retryAfter = authErrorRetryAfter(error)
+    } catch (requestError) {
+      const retryAfter = authErrorRetryAfter(requestError)
       if (retryAfter) cooldown.start(retryAfter)
-      toast.error(authErrorMessage(error))
+      const message = normalizeAuthError(requestError)
+      setError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
@@ -233,7 +418,12 @@ export function OtpSignInPageClient(props: Readonly<{ email: string; nextPath?: 
 
   async function verifyCode() {
     const nextCode = code.trim()
-    if (!email || nextCode.length !== 6) return
+    setError("")
+    if (!email || nextCode.length !== 6) {
+      setError(formatMessage("auth.otp.incompleteCode"))
+      return
+    }
+
     setLoading(true)
     try {
       const result = await authClient.signIn.emailOtp({ email, otp: nextCode })
@@ -241,8 +431,10 @@ export function OtpSignInPageClient(props: Readonly<{ email: string; nextPath?: 
       await session.refetch()
       toast.success(formatMessage("auth.signedIn"))
       router.replace(nextPath)
-    } catch (error) {
-      toast.error(authErrorMessage(error))
+    } catch (requestError) {
+      const message = normalizeAuthError(requestError)
+      setError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
@@ -263,48 +455,216 @@ export function OtpSignInPageClient(props: Readonly<{ email: string; nextPath?: 
 
   return (
     <AuthShell title={formatMessage("auth.verifyCode")} description={formatMessage("auth.otp.description", { email })}>
-      <form
-        className="grid gap-4 rounded-lg border p-3 sm:p-4"
-        onSubmit={(event) => {
-          event.preventDefault()
-          void verifyCode()
-        }}
-      >
-        <div className="grid gap-3">
-          <div className="grid gap-2">
-            <Label htmlFor="auth-code">{formatMessage("auth.code")}</Label>
-            <OtpInput
-              id="auth-code"
-              label={formatMessage("auth.code")}
-              value={code}
-              disabled={loading}
-              onChange={(value) => setCode(value.slice(0, 6))}
-            />
-          </div>
-
-          <Button type="submit" className="w-full" loading={loading} disabled={code.length !== 6}>
-            {formatMessage("auth.verifyCode")}
-          </Button>
-
-          <div className="flex flex-wrap justify-center gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={loading || cooldownActive}
-              onClick={() => void resendCode()}
-            >
-              {cooldownActive
-                ? formatMessage("auth.otp.resendIn", { seconds: cooldown.remainingSeconds })
-                : formatMessage("auth.otp.resend")}
-            </Button>
-            <Button type="button" variant="ghost" asChild>
-              <Link href={signInPathWithNext(locale, "/sign-in", nextPath)}>
-                {formatMessage("auth.otp.changeEmail")}
-              </Link>
-            </Button>
-          </div>
-        </div>
-      </form>
+      <OtpCodeForm
+        codeInputId="auth-code"
+        code={code}
+        error={error}
+        loading={loading}
+        cooldown={cooldown}
+        onCodeChange={setCode}
+        onResendCode={() => void resendCode()}
+        onVerifyCode={() => void verifyCode()}
+        onChangeEmail={() => router.push(signInPathWithNext(locale, "/sign-in", nextPath))}
+      />
     </AuthShell>
+  )
+}
+
+function SignInDialogContent(
+  props: Readonly<{
+    onDone: () => void
+    onSignedIn: () => void
+  }>,
+) {
+  const [step, setStep] = useState<"code" | "email" | "success">("email")
+  const [email, setEmail] = useState("")
+  const [code, setCode] = useState("")
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
+  const normalizedEmail = email.trim().toLowerCase()
+  const cooldown = useCooldown(normalizedEmail)
+
+  async function sendCode() {
+    setError("")
+    if (!isValidEmail(normalizedEmail)) {
+      setError(formatMessage("auth.error.invalidEmail"))
+      return
+    }
+    if (cooldown.remainingSeconds > 0) return
+
+    setLoading(true)
+    try {
+      const result = await authClient.emailOtp.sendVerificationOtp({
+        email: normalizedEmail,
+        type: "sign-in",
+      })
+      if (result.error) throw result.error
+      cooldown.start()
+      setCode("")
+      setStep("code")
+      toast.success(formatMessage("auth.otp.sent"))
+    } catch (requestError) {
+      const retryAfter = authErrorRetryAfter(requestError)
+      if (retryAfter) cooldown.start(retryAfter)
+      const message = normalizeAuthError(requestError)
+      setError(message)
+      toast.error(message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function resendCode() {
+    setError("")
+    if (!normalizedEmail || cooldown.remainingSeconds > 0) return
+
+    setLoading(true)
+    try {
+      const result = await authClient.emailOtp.sendVerificationOtp({
+        email: normalizedEmail,
+        type: "sign-in",
+      })
+      if (result.error) throw result.error
+      cooldown.start()
+      toast.success(formatMessage("auth.otp.sent"))
+    } catch (requestError) {
+      const retryAfter = authErrorRetryAfter(requestError)
+      if (retryAfter) cooldown.start(retryAfter)
+      const message = normalizeAuthError(requestError)
+      setError(message)
+      toast.error(message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function verifyCode() {
+    const nextCode = code.trim()
+    setError("")
+    if (nextCode.length !== 6) {
+      setError(formatMessage("auth.otp.incompleteCode"))
+      return
+    }
+
+    setLoading(true)
+    try {
+      const result = await authClient.signIn.emailOtp({ email: normalizedEmail, otp: nextCode })
+      if (result.error) throw result.error
+      props.onSignedIn()
+      setStep("success")
+      toast.success(formatMessage("auth.signedIn"))
+    } catch (requestError) {
+      const message = normalizeAuthError(requestError)
+      setError(message)
+      toast.error(message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <>
+      <AuthBrand />
+
+      {step === "email" ? (
+        <>
+          <DialogHeader className="mt-0 gap-1 text-left">
+            <DialogTitle className="text-lg">{formatMessage("auth.signIn")}</DialogTitle>
+            <DialogDescription className="leading-6">{formatMessage("auth.description.signIn")}</DialogDescription>
+          </DialogHeader>
+          <EmailCodeForm
+            className="grid gap-2"
+            emailInputId="auth-dialog-email"
+            email={email}
+            error={error}
+            loading={loading}
+            cooldown={cooldown}
+            onEmailChange={setEmail}
+            onSubmit={() => void sendCode()}
+          />
+        </>
+      ) : null}
+
+      {step === "code" ? (
+        <>
+          <DialogHeader className="mt-0 gap-1 text-left">
+            <DialogTitle className="text-lg">{formatMessage("auth.otp.checkEmail")}</DialogTitle>
+            <DialogDescription className="leading-6">
+              {formatMessage("auth.otp.description", { email: normalizedEmail })}
+            </DialogDescription>
+          </DialogHeader>
+          <OtpCodeForm
+            className="grid gap-3"
+            codeInputId="auth-dialog-code"
+            code={code}
+            error={error}
+            loading={loading}
+            cooldown={cooldown}
+            onCodeChange={setCode}
+            onResendCode={() => void resendCode()}
+            onVerifyCode={() => void verifyCode()}
+            onChangeEmail={() => {
+              setStep("email")
+              setError("")
+            }}
+          />
+        </>
+      ) : null}
+
+      {step === "success" ? <SignInSuccess onDone={props.onDone} /> : null}
+    </>
+  )
+}
+
+export function SignInDialog(
+  props: Readonly<{
+    className?: string
+    onCompleted?: () => void
+  }>,
+) {
+  const [open, setOpen] = useState(false)
+  const completedRef = useRef(false)
+
+  function refetchAfterCompletion() {
+    if (!completedRef.current) return
+    completedRef.current = false
+    props.onCompleted?.()
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    setOpen(nextOpen)
+    if (!nextOpen) refetchAfterCompletion()
+  }
+
+  function closeAfterSuccess() {
+    refetchAfterCompletion()
+    setOpen(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={[
+            "h-8 border-border bg-background px-2.5 text-xs font-medium shadow-none hover:bg-muted",
+            props.className ?? "",
+          ].join(" ")}
+        >
+          <UserRoundIcon className="size-3.5" />
+          {formatMessage("auth.signIn")}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-sm rounded-2xl border-border bg-popover p-6 shadow-none sm:max-w-sm">
+        <SignInDialogContent
+          onDone={closeAfterSuccess}
+          onSignedIn={() => {
+            completedRef.current = true
+          }}
+        />
+      </DialogContent>
+    </Dialog>
   )
 }

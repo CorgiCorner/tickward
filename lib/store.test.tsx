@@ -61,7 +61,7 @@ describe("timer store", () => {
     expect(state.activeProjectId).toBe(state.projects[0].id)
     expect(state.restoreKey).toBe(state.projects[0].restoreKey)
     expect(state.projects[0].timerCount).toBe(1)
-    expect(readProjectPayload(state.projects[0].id)?.timers).toHaveLength(1)
+    expect(readProjectPayload(state.projects[0].id)?.timers).toEqual([expect.objectContaining({ notify: true })])
   })
 
   it("adds, updates, removes, and clears timers while updating project counts", () => {
@@ -78,6 +78,7 @@ describe("timer store", () => {
     expect(created).toEqual(
       expect.objectContaining({
         label: "Ship",
+        notify: true,
         createdAt: FIXED_NOW,
         updatedAt: FIXED_NOW,
       }),
@@ -246,7 +247,7 @@ describe("timer store", () => {
     expect(store.getState().timers[1].archivedAt).toBeUndefined()
   })
 
-  it("keeps only one active pinned timer and moves it to the top", () => {
+  it("pins a timer, moves it to the top, and toggles it off", () => {
     const store = createHydratedStore({
       timers: [
         makeTimer({ id: "timer-a", label: "A" }),
@@ -260,8 +261,30 @@ describe("timer store", () => {
     expect(store.getState().timers.map((timer) => timer.id)).toEqual(["timer-b", "timer-a", "timer-c"])
     expect(store.getState().timers.map((timer) => timer.pinned === true)).toEqual([true, false, false])
 
-    store.getState().setPinnedTimer(null)
+    store.getState().setPinnedTimer("timer-b")
     expect(store.getState().timers.every((timer) => timer.pinned !== true)).toBe(true)
+  })
+
+  it("allows pinning multiple timers, floating them to the top in order", () => {
+    const store = createHydratedStore({
+      timers: [
+        makeTimer({ id: "timer-a", label: "A" }),
+        makeTimer({ id: "timer-b", label: "B" }),
+        makeTimer({ id: "timer-c", label: "C" }),
+      ],
+    })
+
+    store.getState().setPinnedTimer("timer-b")
+    store.getState().setPinnedTimer("timer-c")
+
+    expect(
+      store
+        .getState()
+        .timers.filter((timer) => timer.pinned === true)
+        .map((timer) => timer.id),
+    ).toEqual(["timer-b", "timer-c"])
+    expect(store.getState().timers[0]?.id).toBe("timer-b")
+    expect(store.getState().timers[1]?.id).toBe("timer-c")
   })
 
   it("normalizes duplicate and archived pinned timers on hydrate", () => {
@@ -275,8 +298,8 @@ describe("timer store", () => {
 
     expect(store.getState().timers.map((timer) => [timer.id, timer.pinned])).toEqual([
       ["timer-b", true],
+      ["timer-c", true],
       ["timer-a", undefined],
-      ["timer-c", undefined],
     ])
   })
 
@@ -315,17 +338,30 @@ describe("timer store", () => {
 
     store.getState().setActiveSpace(UNASSIGNED_SPACE_ID)
     store.getState().setTimerSortMode("soonest")
-    store.getState().setTimerFilter("notifications", true)
+    store.getState().setTimerFilterType("countUp")
+    store.getState().setTimerFilter("muted", true)
 
     const payload = readProjectPayload(store.getState().activeProjectId ?? "")
     expect(store.getState().activeSpaceId).toBe(UNASSIGNED_SPACE_ID)
     expect(store.getState().sortMode).toBe("soonest")
-    expect(store.getState().timerFilters).toEqual({ notifications: true, shared: false })
+    expect(store.getState().timerFilters).toEqual({
+      type: "countUp",
+      pinned: false,
+      muted: true,
+      shared: false,
+      recurring: false,
+    })
     expect(payload).toEqual(
       expect.objectContaining({
         activeSpaceId: UNASSIGNED_SPACE_ID,
         sortMode: "soonest",
-        timerFilters: { notifications: true, shared: false },
+        timerFilters: {
+          type: "countUp",
+          pinned: false,
+          muted: true,
+          shared: false,
+          recurring: false,
+        },
       }),
     )
   })

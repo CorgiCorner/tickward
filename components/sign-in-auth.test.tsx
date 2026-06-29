@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { OtpSignInPageClient, SignInPageClient } from "@/components/sign-in-auth"
+import { OtpSignInPageClient, SignInDialog, SignInPageClient } from "@/components/sign-in-auth"
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -125,6 +125,88 @@ describe("SignInPageClient", () => {
 
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("Wait 42s before requesting another code."))
     expect(screen.getByRole("button", { name: /Resend in/ })).toBeDisabled()
+  })
+})
+
+describe("SignInDialog", () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    mocks.push.mockReset()
+    mocks.replace.mockReset()
+    mocks.useSession.mockReset()
+    mocks.useSession.mockReturnValue({ data: null, refetch: mocks.refetch })
+    mocks.sendVerificationOtp.mockReset()
+    mocks.sendVerificationOtp.mockResolvedValue({ data: { success: true }, error: null })
+    mocks.signInEmailOtp.mockReset()
+    mocks.signInEmailOtp.mockResolvedValue({ data: { user: { email: "ada@example.com" } }, error: null })
+    mocks.refetch.mockReset()
+    mocks.toastSuccess.mockReset()
+    mocks.toastError.mockReset()
+  })
+
+  it("opens a modal OTP flow from the trigger and completes without routing", async () => {
+    const user = userEvent.setup()
+    const onCompleted = vi.fn()
+    render(<SignInDialog onCompleted={onCompleted} />)
+
+    await user.click(screen.getByRole("button", { name: "Sign in" }))
+    expect(screen.getByRole("dialog")).toBeVisible()
+
+    await user.type(screen.getByLabelText("Email"), "Ada@Example.com")
+    await user.click(screen.getByRole("button", { name: "Send code" }))
+
+    await waitFor(() =>
+      expect(mocks.sendVerificationOtp).toHaveBeenCalledWith({
+        email: "ada@example.com",
+        type: "sign-in",
+      }),
+    )
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(screen.getByRole("heading", { name: "Check your email" })).toBeVisible()
+    expect(screen.getByText("We sent a 6-digit code to ada@example.com.")).toBeVisible()
+    expect(screen.getByRole("button", { name: /Resend in/ })).toBeDisabled()
+
+    await user.type(screen.getByLabelText("Code 1"), "123456")
+    await user.click(screen.getByRole("button", { name: "Verify code" }))
+
+    await waitFor(() =>
+      expect(mocks.signInEmailOtp).toHaveBeenCalledWith({
+        email: "ada@example.com",
+        otp: "123456",
+      }),
+    )
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(screen.getByRole("heading", { name: "You're signed in" })).toBeVisible()
+
+    await user.click(screen.getByRole("button", { name: "Done" }))
+    expect(onCompleted).toHaveBeenCalledTimes(1)
+  })
+
+  it("shows validation errors inside the modal", async () => {
+    const user = userEvent.setup()
+    render(<SignInDialog />)
+
+    await user.click(screen.getByRole("button", { name: "Sign in" }))
+    await user.type(screen.getByLabelText("Email"), "not-an-email")
+    await user.click(screen.getByRole("button", { name: "Send code" }))
+
+    expect(screen.getByText("Enter a valid email address.")).toBeVisible()
+    expect(mocks.sendVerificationOtp).not.toHaveBeenCalled()
+
+    await user.clear(screen.getByLabelText("Email"))
+    await user.type(screen.getByLabelText("Email"), "ada@example.com")
+    await user.click(screen.getByRole("button", { name: "Send code" }))
+    await screen.findByRole("heading", { name: "Check your email" })
+
+    await user.click(screen.getByRole("button", { name: "Verify code" }))
+    expect(screen.getByText("Enter all 6 digits.")).toBeVisible()
+    expect(mocks.signInEmailOtp).not.toHaveBeenCalled()
+
+    mocks.signInEmailOtp.mockResolvedValueOnce({ data: null, error: { message: "INVALID_OTP" } })
+    await user.type(screen.getByLabelText("Code 1"), "123456")
+    await user.click(screen.getByRole("button", { name: "Verify code" }))
+
+    await waitFor(() => expect(screen.getByText("Invalid or expired code.")).toBeVisible())
   })
 })
 

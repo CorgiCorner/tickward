@@ -33,6 +33,7 @@ import {
   safeActiveSpaceId,
   safeSortMode,
   safeSpaces,
+  safeTimerFilterType,
   safeTimerFilters,
   safeTimerSpaceId,
   safeTimersForSpaces,
@@ -455,6 +456,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             s.timers.unshift({
               ...timer,
               spaceId,
+              notify: timer.notify ?? true,
               pinned: pinned ? true : undefined,
               id: nanoid(8),
               createdAt: now,
@@ -551,30 +553,29 @@ export function createTimerStore(init?: TimerStoreInit) {
 
         setPinnedTimer: (id) => {
           set((s) => {
-            const targetIndex = id ? findTimerIndexById(s.timers, id, { activeOnly: true }) : -1
-            if (id && targetIndex === -1) return
-
             const now = new Date().toISOString()
             let changed = false
 
-            for (const t of s.timers) {
-              const shouldPin = id !== null && t.id === id && !t.archivedAt
-              if ((t.pinned === true) !== shouldPin) {
-                t.pinned = shouldPin ? true : undefined
-                t.updatedAt = now
-                changed = true
+            if (id === null) {
+              // Unpin every timer.
+              for (const t of s.timers) {
+                if (t.pinned === true) {
+                  t.pinned = undefined
+                  t.updatedAt = now
+                  changed = true
+                }
               }
-            }
-
-            if (targetIndex > 0) {
-              const [pinned] = s.timers.splice(targetIndex, 1)
-              if (pinned) {
-                s.timers.unshift(pinned)
-                changed = true
-              }
+            } else {
+              // Toggle just this timer; any number of timers may stay pinned.
+              const target = findTimerById(s.timers, id)
+              if (!target || target.archivedAt) return
+              target.pinned = target.pinned === true ? undefined : true
+              target.updatedAt = now
+              changed = true
             }
 
             if (!changed) return
+            normalizePinnedTimers(s.timers)
             markActiveProjectChanged(s, now)
           })
           persistAndSchedule()
@@ -741,9 +742,23 @@ export function createTimerStore(init?: TimerStoreInit) {
           writeBrowserState(get())
         },
 
+        setTimerFilterType: (type) => {
+          set((s) => {
+            s.timerFilters.type = safeTimerFilterType(type)
+          })
+          writeBrowserState(get())
+        },
+
         setTimerFilter: (filter, enabled) => {
           set((s) => {
             s.timerFilters[filter] = enabled
+          })
+          writeBrowserState(get())
+        },
+
+        clearTimerFilters: () => {
+          set((s) => {
+            s.timerFilters = { ...DEFAULT_TIMER_FILTERS }
           })
           writeBrowserState(get())
         },

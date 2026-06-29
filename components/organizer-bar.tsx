@@ -1,6 +1,21 @@
 "use client"
 
-import { ArrowUpDownIcon, CheckIcon, PlusIcon, Settings2Icon } from "lucide-react"
+import {
+  ArrowDownAZIcon,
+  ArrowDownWideNarrowIcon,
+  ArrowUpDownIcon,
+  ArrowUpNarrowWideIcon,
+  BellOffIcon,
+  CheckIcon,
+  ClockIcon,
+  GripVerticalIcon,
+  LinkIcon,
+  ListFilterIcon,
+  PinIcon,
+  PlusIcon,
+  RepeatIcon,
+  type LucideIcon,
+} from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
@@ -10,24 +25,33 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useNow } from "@/components/use-now"
 import { getEntitlements, spaceLimitMessage } from "@/lib/entitlements"
 import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
 import { useTimerStore } from "@/lib/store"
-import { activeTimerFilterCount, timerHasNotifications, timerIsShared } from "@/lib/timer-filters"
-import type { Space, Timer, TimerFilterKey, TimerSortMode } from "@/lib/types"
+import { activeTimerFilterCount, timerToggleFilterCount } from "@/lib/timer-filters"
+import type { Space, Timer, TimerFilterKey, TimerFilterType, TimerSortMode } from "@/lib/types"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
 
-const SORT_OPTIONS: Array<{ value: TimerSortMode; labelKey: MessageKey }> = [
-  { value: "manual", labelKey: "organizer.sort.label.manual" },
-  { value: "soonest", labelKey: "organizer.sort.label.soonest" },
-  { value: "latest", labelKey: "organizer.sort.label.latest" },
-  { value: "name_asc", labelKey: "organizer.sort.label.nameAsc" },
-  { value: "recently_added", labelKey: "organizer.sort.label.recentlyAdded" },
+const SORT_OPTIONS: Array<{ value: TimerSortMode; labelKey: MessageKey; icon: LucideIcon }> = [
+  { value: "manual", labelKey: "organizer.sort.label.manual", icon: GripVerticalIcon },
+  { value: "soonest", labelKey: "organizer.sort.label.soonest", icon: ArrowUpNarrowWideIcon },
+  { value: "latest", labelKey: "organizer.sort.label.latest", icon: ArrowDownWideNarrowIcon },
+  { value: "name_asc", labelKey: "organizer.sort.label.nameAsc", icon: ArrowDownAZIcon },
+  { value: "recently_added", labelKey: "organizer.sort.label.recentlyAdded", icon: ClockIcon },
 ]
 
-const FILTER_OPTIONS: Array<{ value: TimerFilterKey; labelKey: MessageKey }> = [
-  { value: "notifications", labelKey: "organizer.filters.notifications" },
-  { value: "shared", labelKey: "organizer.filters.shared" },
+const TYPE_OPTIONS: Array<{ value: TimerFilterType; labelKey: MessageKey }> = [
+  { value: "all", labelKey: "organizer.filters.type.all" },
+  { value: "countdown", labelKey: "organizer.filters.type.countdown" },
+  { value: "countUp", labelKey: "organizer.filters.type.countUp" },
+]
+
+const FILTER_OPTIONS: Array<{ value: TimerFilterKey; labelKey: MessageKey; icon: LucideIcon }> = [
+  { value: "pinned", labelKey: "organizer.filters.pinned", icon: PinIcon },
+  { value: "muted", labelKey: "organizer.filters.muted", icon: BellOffIcon },
+  { value: "shared", labelKey: "organizer.filters.shared", icon: LinkIcon },
+  { value: "recurring", labelKey: "organizer.filters.recurring", icon: RepeatIcon },
 ]
 
 function hasVisibleSpace(spaces: Pick<Space, "id">[], spaceId: string | undefined) {
@@ -53,25 +77,12 @@ function spaceTimerCount(
   return timers.filter((timer) => timerMatchesSpace(timer, spaceId, spaces)).length
 }
 
-function timerFilterCount(
-  filter: TimerFilterKey,
-  timers: Timer[],
-  activeSpaceId: string | null,
-  spaces: Pick<Space, "id">[],
-) {
-  return timers.filter((timer) => {
-    if (!timerMatchesSpace(timer, activeSpaceId, spaces)) return false
-    if (filter === "notifications") return timerHasNotifications(timer)
-    return timerIsShared(timer)
-  }).length
-}
-
 function chipClass(active: boolean) {
   return [
-    "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors",
+    "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition-colors",
     active
-      ? "border-primary bg-primary text-primary-foreground"
-      : "border-border bg-background text-muted-foreground hover:text-foreground",
+      ? "bg-foreground text-background"
+      : "border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
   ].join(" ")
 }
 
@@ -103,22 +114,28 @@ function SpacesControl() {
   }
 
   return (
-    <Popover open={addOpen} onOpenChange={setAddOpen}>
+    <Popover open={addOpen} onOpenChange={(nextOpen) => setAddOpen(atSpaceLimit ? false : nextOpen)}>
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
             <button
               type="button"
               aria-label={formatMessage("space.new")}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center gap-1 rounded-full border border-dashed border-muted-foreground/40 bg-background text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/50 hover:text-foreground sm:w-auto sm:px-3"
+              disabled={atSpaceLimit}
+              title={atSpaceLimit ? spaceLimitMessage(entitlements) : undefined}
+              className={[
+                "grid size-7 shrink-0 place-items-center rounded-full transition-colors",
+                atSpaceLimit
+                  ? "cursor-not-allowed text-muted-foreground/30"
+                  : "text-muted-foreground/60 hover:bg-muted hover:text-foreground",
+              ].join(" ")}
             >
-              <PlusIcon className="size-3.5" />
-              <span className="hidden sm:inline">{formatMessage("space.new")}</span>
+              <PlusIcon className="size-4" />
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent side="top" sideOffset={8}>
-          {formatMessage("space.new")}
+          {atSpaceLimit ? spaceLimitMessage(entitlements) : formatMessage("space.new")}
         </TooltipContent>
       </Tooltip>
       <PopoverContent align="end" className="w-72 p-3">
@@ -160,16 +177,21 @@ export function OrganizerBar() {
   const sortMode = useTimerStore((s) => s.sortMode)
   const setTimerSortMode = useTimerStore((s) => s.setTimerSortMode)
   const timerFilters = useTimerStore((s) => s.timerFilters)
+  const setTimerFilterType = useTimerStore((s) => s.setTimerFilterType)
   const setTimerFilter = useTimerStore((s) => s.setTimerFilter)
+  const clearTimerFilters = useTimerStore((s) => s.clearTimerFilters)
+  const nowMs = useNow()
+  const [sortOpen, setSortOpen] = useState(false)
 
   const allCount = spaceTimerCount(null, timers, spaces)
+  const activeSpaceTimers = timers.filter((timer) => timerMatchesSpace(timer, activeSpaceId, spaces))
   const activeFilterCount = activeTimerFilterCount(timerFilters)
 
   return (
-    <section className="mb-4 grid min-w-0 gap-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <div className="min-w-0 flex-1 self-center overflow-x-auto">
-          <div className="flex min-w-max items-center gap-2">
+    <section className="mb-4 flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="no-scrollbar min-w-0 flex-1 self-center overflow-x-auto">
+          <div className="flex min-w-max items-center gap-1.5">
             <button
               type="button"
               className={chipClass(activeSpaceId === null)}
@@ -219,11 +241,11 @@ export function OrganizerBar() {
                   size="icon-sm"
                   aria-label={formatMessage("organizer.filters.label")}
                   className={[
-                    "relative shrink-0",
+                    "relative size-8 shrink-0 border-border bg-background text-muted-foreground shadow-none hover:bg-muted hover:text-foreground",
                     activeFilterCount > 0 ? "border-primary/40 bg-primary/[0.04] text-primary hover:text-primary" : "",
                   ].join(" ")}
                 >
-                  <Settings2Icon className="size-4" />
+                  <ListFilterIcon className="size-4" />
                   {activeFilterCount > 0 ? (
                     <span className="absolute -right-1 -top-1 grid size-4 place-items-center rounded-full bg-primary text-[10px] leading-none text-primary-foreground">
                       {activeFilterCount}
@@ -236,40 +258,72 @@ export function OrganizerBar() {
               {formatMessage("organizer.filters.label")}
             </TooltipContent>
           </Tooltip>
-          <PopoverContent align="end" className="w-56 p-1">
+          <PopoverContent align="end" className="w-72 p-1.5">
+            <div className="px-1.5 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              {formatMessage("organizer.filters.type")}
+            </div>
+            <div className="mx-1.5 mb-1 grid grid-cols-3 gap-1 rounded-md bg-muted p-0.5">
+              {TYPE_OPTIONS.map((option) => {
+                const active = timerFilters.type === option.value
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={active}
+                    className={[
+                      "whitespace-nowrap rounded-[5px] px-1.5 py-1 text-center text-[11px] font-medium transition-colors",
+                      active ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground",
+                    ].join(" ")}
+                    onClick={() => setTimerFilterType(option.value)}
+                  >
+                    {formatMessage(option.labelKey)}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="my-1 h-px bg-border" />
+            <div className="px-1.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              {formatMessage("organizer.filters.showOnly")}
+            </div>
             {FILTER_OPTIONS.map((option) => {
               const active = timerFilters[option.value]
+              const Icon = option.icon
               return (
                 <button
                   key={option.value}
                   type="button"
                   aria-pressed={active}
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-muted"
+                  className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left text-sm hover:bg-muted"
                   onClick={() => setTimerFilter(option.value, !active)}
                 >
-                  <CheckIcon className={["size-4", active ? "opacity-100" : "opacity-0"].join(" ")} />
+                  <span
+                    className={[
+                      "grid size-4 shrink-0 place-items-center rounded border",
+                      active ? "border-primary bg-primary text-primary-foreground" : "border-border",
+                    ].join(" ")}
+                  >
+                    <CheckIcon className={["size-3", active ? "opacity-100" : "opacity-0"].join(" ")} />
+                  </span>
+                  <Icon className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1">{formatMessage(option.labelKey)}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {timerFilterCount(option.value, timers, activeSpaceId, spaces)}
+                  <span className="text-xs tabular-nums text-muted-foreground/70">
+                    {timerToggleFilterCount(activeSpaceTimers, option.value, timerFilters.type, nowMs)}
                   </span>
                 </button>
               )
             })}
-            {activeFilterCount > 0 ? (
-              <button
-                type="button"
-                className="mt-1 w-full rounded-md px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => {
-                  for (const option of FILTER_OPTIONS) setTimerFilter(option.value, false)
-                }}
-              >
-                {formatMessage("organizer.filters.clear")}
-              </button>
-            ) : null}
+            <div className="my-1 h-px bg-border" />
+            <button
+              type="button"
+              className="w-full rounded-md px-1.5 py-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={clearTimerFilters}
+            >
+              {formatMessage("organizer.filters.clear")}
+            </button>
           </PopoverContent>
         </Popover>
 
-        <Popover>
+        <Popover open={sortOpen} onOpenChange={setSortOpen}>
           <Tooltip>
             <TooltipTrigger asChild>
               <PopoverTrigger asChild>
@@ -277,7 +331,7 @@ export function OrganizerBar() {
                   variant="outline"
                   size="icon-sm"
                   aria-label={formatMessage("organizer.sort.action")}
-                  className="shrink-0"
+                  className="size-8 shrink-0 border-border bg-background text-muted-foreground shadow-none hover:bg-muted hover:text-foreground"
                 >
                   <ArrowUpDownIcon className="size-4" />
                 </Button>
@@ -287,18 +341,33 @@ export function OrganizerBar() {
               {formatMessage("organizer.sort.action")}
             </TooltipContent>
           </Tooltip>
-          <PopoverContent align="end" className="w-52 p-1">
-            {SORT_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-muted"
-                onClick={() => setTimerSortMode(option.value)}
-              >
-                <CheckIcon className={["size-4", option.value === sortMode ? "opacity-100" : "opacity-0"].join(" ")} />
-                <span>{formatMessage(option.labelKey)}</span>
-              </button>
-            ))}
+          <PopoverContent align="end" className="w-52 p-1.5">
+            <div className="px-1.5 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              {formatMessage("organizer.sort.heading")}
+            </div>
+            {SORT_OPTIONS.map((option) => {
+              const active = option.value === sortMode
+              const Icon = option.icon
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={active}
+                  className={[
+                    "flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-muted",
+                    active ? "bg-muted" : "",
+                  ].join(" ")}
+                  onClick={() => {
+                    setTimerSortMode(option.value)
+                    setSortOpen(false)
+                  }}
+                >
+                  <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">{formatMessage(option.labelKey)}</span>
+                  <CheckIcon className={["size-4", active ? "opacity-100" : "opacity-0"].join(" ")} />
+                </button>
+              )
+            })}
           </PopoverContent>
         </Popover>
       </div>

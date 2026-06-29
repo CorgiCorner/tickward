@@ -9,6 +9,7 @@ import { AccountPreferencesProvider, useAccountPreferences } from "@/components/
 import { ApiKeysSettingsPanel, type ApiKeyRecord } from "@/components/api-keys-settings"
 import { McpSettingsPanel } from "@/components/mcp-settings"
 import { NotificationSettingsPanel } from "@/components/notification-settings"
+import { SignInDialog } from "@/components/sign-in-auth"
 import { TimerDefaultsSettingsPanel } from "@/components/timer-defaults-settings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -122,14 +123,7 @@ export function AccountButton() {
   }
 
   if (!user) {
-    return (
-      <Button variant="outline" size="sm" asChild>
-        <Link href={localeHref(locale, "/sign-in")} aria-label={formatMessage("auth.signIn")}>
-          <UserIcon className="size-4" />
-          {formatMessage("auth.signIn")}
-        </Link>
-      </Button>
-    )
+    return <SignInDialog onCompleted={() => void session.refetch?.()} />
   }
 
   return (

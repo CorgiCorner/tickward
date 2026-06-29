@@ -70,6 +70,7 @@ describe("FooterFull", () => {
       "https://github.com/CorgiCorner/tickward",
     )
     expect(screen.getByRole("link", { name: "Press kit" })).toHaveAttribute("href", "/en/press")
+    expect(screen.getByRole("link", { name: "Status" })).toHaveAttribute("href", "https://status.tickward.com")
     expect(screen.queryByRole("link", { name: "Sitemap" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Robots" })).not.toBeInTheDocument()
   })
@@ -125,6 +126,6 @@ describe("FooterFull", () => {
       .map((node) => node.parentElement)
       .find((parent) => /^tickward © \d{4}$/.test(parent?.textContent ?? ""))
     expect(copyright).toBeTruthy()
-    expect(screen.getByText("v-test")).toHaveClass("rounded-full", "bg-muted", "font-mono")
+    expect(screen.getByText("v-test")).toHaveClass("rounded", "bg-muted", "font-mono")
   })
 })

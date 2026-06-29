@@ -7,6 +7,7 @@ const actor: Actor = { kind: "anonymous", restoreKey: "restoreKey_123" }
 const mocks = vi.hoisted(() => ({
   shareRepository: {
     publishTimer: vi.fn(),
+    findTimerForShare: vi.fn(),
     hasPublishedTimer: vi.fn(),
     findPublishedTimer: vi.fn(),
     load: vi.fn(),
@@ -32,6 +33,8 @@ vi.mock("@/lib/redis", () => ({
 describe("share service", () => {
   beforeEach(() => {
     mocks.shareRepository.publishTimer.mockReset()
+    // Default: timer has no link, so anonymous shares are allowed through.
+    mocks.shareRepository.findTimerForShare.mockReset().mockResolvedValue({ url: null })
     mocks.shareRepository.hasPublishedTimer.mockReset()
     mocks.shareRepository.findPublishedTimer.mockReset()
     mocks.shareRepository.resolve.mockReset()
@@ -73,6 +76,30 @@ describe("share service", () => {
       timerId: "timer-a",
     })
     expect(again?.shareId).toBe(result.shareId)
+  })
+
+  it("blocks an anonymous actor from sharing a timer that has a link", async () => {
+    const { createTimerShare, TimerShareLinkRequiresAuthError } = await import("./share-service.server")
+    mocks.shareRepository.findTimerForShare.mockResolvedValue({ url: "https://example.com/" })
+
+    await expect(createTimerShare({ actor, timerId: "timer-a" })).rejects.toBeInstanceOf(
+      TimerShareLinkRequiresAuthError,
+    )
+    expect(mocks.shareRepository.publishTimer).not.toHaveBeenCalled()
+  })
+
+  it("lets a signed-in user share a timer that has a link", async () => {
+    const { createTimerShare } = await import("./share-service.server")
+    const userActor: Actor = { kind: "user", user: { id: "user-1" } }
+    mocks.shareRepository.findTimerForShare.mockResolvedValue({ url: "https://example.com/" })
+    mocks.shareRepository.publishTimer.mockResolvedValue(true)
+
+    const result = await createTimerShare({ actor: userActor, timerId: "timer-a", projectId: "project-1" })
+
+    expect(result).not.toBeNull()
+    // The signed-in path never needs the link pre-check.
+    expect(mocks.shareRepository.findTimerForShare).not.toHaveBeenCalled()
+    expect(mocks.shareRepository.publishTimer).toHaveBeenCalled()
   })
 
   it("returns null when the repository cannot publish the live timer", async () => {

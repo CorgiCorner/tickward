@@ -25,8 +25,10 @@ import {
 import { authClient } from "@/lib/auth/auth-client"
 import { useBrowserTimeZone, useDefaultTimeZone } from "@/lib/default-timezone.client"
 import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
+import { timerNotificationsEnabled } from "@/lib/notification-preferences"
 import {
   isTimerFormStepValid,
+  normalizeTimerUrl,
   timerFormSchema,
   timerFormStepFields,
   type TimerFormStep,
@@ -91,10 +93,11 @@ function getDefaultValues(args: {
   return {
     label: args.initial?.label ?? "",
     description: args.initial?.description ?? "",
+    url: args.initial?.url ?? "",
     timezone,
     date: targetDate ? formatInTimeZone(targetDate, timezone, "yyyy-MM-dd") : "",
     time: targetDate ? formatInTimeZone(targetDate, timezone, "HH:mm") : "09:00",
-    notify: args.initial?.notification?.enabled ?? args.initial?.notify ?? false,
+    notify: args.initial ? timerNotificationsEnabled(args.initial.notification, args.initial.notify) : true,
     repeatEnabled: args.initial?.recurrence?.enabled ?? false,
     repeatType: args.initial?.recurrence?.type ?? "yearly",
     lastDay: args.initial?.recurrence?.lastDay ?? false,
@@ -365,6 +368,7 @@ function TimerFormContent(
     props.onSubmit({
       label: parsed.label,
       description: parsed.description || undefined,
+      url: parsed.url ? (normalizeTimerUrl(parsed.url) ?? undefined) : undefined,
       targetDate,
       timezone: parsed.timezone,
       notify: parsed.notify,

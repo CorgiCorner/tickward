@@ -38,7 +38,7 @@ export const ANONYMOUS_ENTITLEMENTS: Entitlements = {
   plan: "anonymous",
   maxTimers: 20,
   maxTimersPerSpace: 20,
-  maxProjects: 12,
+  maxProjects: 10,
   maxSpaces: 2,
   maxSnapshotTimers: 50,
 }
@@ -51,6 +51,7 @@ export function getAnonymousEntitlements(): Entitlements {
       process.env.NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE,
       ANONYMOUS_ENTITLEMENTS.maxTimersPerSpace,
     ),
+    maxProjects: readPositiveInt(process.env.NEXT_PUBLIC_TICKWARD_MAX_PROJECTS, ANONYMOUS_ENTITLEMENTS.maxProjects),
     maxSpaces: readPositiveInt(process.env.NEXT_PUBLIC_TICKWARD_MAX_SPACES, ANONYMOUS_ENTITLEMENTS.maxSpaces),
   }
 }

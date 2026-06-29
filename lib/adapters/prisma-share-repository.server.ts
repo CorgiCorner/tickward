@@ -116,6 +116,21 @@ async function findPublishedTimer(args: { timerId: string; access: TimerShareAcc
   return share && isShareRecord(share.data) ? { shareId: share.id, ...share.data } : null
 }
 
+async function findTimerForShare(args: { timerId: string; access: TimerShareAccess }) {
+  const prisma = requirePrismaClient()
+  const project = await projectForShareAccess(prisma, args.access)
+  if (!project) return null
+
+  const timer = await prisma.timer.findFirst({
+    where: { id: args.timerId, projectId: project.id },
+    select: { data: true },
+  })
+  if (!timer) return null
+
+  const parsed = timerSchema.safeParse((timer as { data?: unknown }).data)
+  return { url: parsed.success ? (parsed.data.url ?? null) : null }
+}
+
 export const prismaShareRepository: ShareRepository = {
   async publishTimer(args) {
     const prisma = requirePrismaClient()
@@ -195,6 +210,7 @@ export const prismaShareRepository: ShareRepository = {
     return true
   },
 
+  findTimerForShare,
   hasPublishedTimer,
   findPublishedTimer,
 

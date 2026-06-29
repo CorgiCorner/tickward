@@ -83,11 +83,16 @@ describe("AccountButton", () => {
     mocks.toastError.mockReset()
   })
 
-  it("links anonymous users to the sign-in route", () => {
+  it("opens the sign-in dialog for anonymous users", async () => {
+    const user = userEvent.setup()
     renderWithTooltips(<AccountButton />)
 
-    const link = screen.getByRole("link", { name: "Sign in" })
-    expect(link).toHaveAttribute("href", "/en/sign-in")
+    const trigger = screen.getByRole("button", { name: "Sign in" })
+    await user.click(trigger)
+
+    expect(screen.getByRole("dialog")).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Sign in" })).toBeVisible()
+    expect(screen.getByLabelText("Email")).toBeVisible()
   })
 
   it("opens an account popover for signed-in users", async () => {

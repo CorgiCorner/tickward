@@ -29,6 +29,8 @@ export interface ProjectRepository {
 
 export interface ShareRepository {
   publishTimer(args: { shareId: string; timerId: string; sharedAt: string; access: TimerShareAccess }): Promise<boolean>
+  // Lightweight read of a shareable timer's link, used to gate anonymous shares.
+  findTimerForShare(args: { timerId: string; access: TimerShareAccess }): Promise<{ url: string | null } | null>
   hasPublishedTimer(args: { shareId: string; timerId: string; access: TimerShareAccess }): Promise<boolean>
   findPublishedTimer(args: { timerId: string; access: TimerShareAccess }): Promise<ShareRecordWithId | null>
   load(shareId: string): Promise<ShareRecord | null>

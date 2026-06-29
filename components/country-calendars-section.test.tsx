@@ -22,11 +22,12 @@ vi.mock("@/lib/app-extensions", () => ({
 
 describe("CountryCalendarsSection", () => {
   it("renders each country group and the all-calendars link", () => {
-    render(<CountryCalendarsSection locale="en" />)
+    const { container } = render(<CountryCalendarsSection locale="en" />)
 
     const section = screen.getByRole("region", { name: "Calendars by country" })
     expect(within(section).getByText("United Kingdom")).toBeInTheDocument()
     expect(within(section).getByText("Poland")).toBeInTheDocument()
+    expect(container.querySelectorAll("svg")).toHaveLength(2)
     expect(screen.getByRole("link", { name: "UK A" })).toHaveAttribute("href", "/en/timers/uk-a")
     expect(screen.getByRole("link", { name: "PL A" })).toHaveAttribute("href", "/pl/timers/pl-a")
     expect(screen.getByRole("link", { name: "All calendars" })).toHaveAttribute("href", "/en/timers")

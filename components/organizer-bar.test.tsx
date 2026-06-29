@@ -31,17 +31,19 @@ describe("OrganizerBar", () => {
       spaces: [makeSpace({ id: "space-a" })],
       activeSpaceId: null,
       sortMode: "manual",
-      timerFilters: { notifications: false, shared: false },
+      timerFilters: { type: "all", pinned: false, muted: false, shared: false, recurring: false },
       setActiveSpace: vi.fn(),
       setTimerSortMode: vi.fn(),
+      setTimerFilterType: vi.fn(),
       setTimerFilter: vi.fn(),
+      clearTimerFilters: vi.fn(),
       createSpace: vi.fn(),
       updateSpace: vi.fn(),
       deleteSpace: vi.fn(),
     }
   })
 
-  it("opens timer filters and toggles notifications", async () => {
+  it("opens timer filters and toggles show-only options", async () => {
     const user = userEvent.setup()
     renderOrganizerBar()
 
@@ -50,9 +52,47 @@ describe("OrganizerBar", () => {
     expect(screen.queryByText("Filter timers")).not.toBeInTheDocument()
 
     await user.click(filterButton)
-    await user.click(screen.getByRole("button", { name: /Notifications enabled/ }))
+    await user.click(screen.getByRole("button", { name: /Muted/ }))
 
-    expect(storeState.setTimerFilter).toHaveBeenCalledWith("notifications", true)
+    expect(storeState.setTimerFilter).toHaveBeenCalledWith("muted", true)
+  })
+
+  it("sets timer filter type and clears filters", async () => {
+    const user = userEvent.setup()
+    renderOrganizerBar()
+
+    await user.click(screen.getByRole("button", { name: "Filters" }))
+    await user.click(screen.getByRole("button", { name: "Count-up" }))
+    await user.click(screen.getByRole("button", { name: "Clear filters" }))
+
+    expect(storeState.setTimerFilterType).toHaveBeenCalledWith("countUp")
+    expect(storeState.clearTimerFilters).toHaveBeenCalled()
+  })
+
+  it("opens sort options and sets the selected sort mode", async () => {
+    const user = userEvent.setup()
+    renderOrganizerBar()
+
+    const sortButton = screen.getByRole("button", { name: "Sort timers" })
+    const sortOptions = [
+      ["Manual order", "manual"],
+      ["Soonest first", "soonest"],
+      ["Latest first", "latest"],
+      ["Name A-Z", "name_asc"],
+      ["Recently added", "recently_added"],
+    ] as const
+
+    await user.click(sortButton)
+
+    expect(screen.getByText("Sort by")).toBeInTheDocument()
+    for (const [optionLabel] of sortOptions) {
+      expect(screen.getByRole("button", { name: optionLabel })).toBeInTheDocument()
+    }
+    expect(screen.getByRole("button", { name: "Manual order" })).toHaveAttribute("aria-pressed", "true")
+
+    await user.click(screen.getByRole("button", { name: "Recently added" }))
+
+    expect(storeState.setTimerSortMode).toHaveBeenLastCalledWith("recently_added")
   })
 
   it("adds a space inline from the bar without a management modal", async () => {
@@ -70,8 +110,23 @@ describe("OrganizerBar", () => {
     expect(storeState.createSpace).toHaveBeenCalledWith("Personal", undefined)
   })
 
+  it("disables the add-space affordance at the space limit", async () => {
+    const user = userEvent.setup()
+    storeState.spaces = [makeSpace({ id: "space-a" }), makeSpace({ id: "space-b", name: "Personal" })]
+
+    renderOrganizerBar()
+
+    const addSpaceButton = screen.getByRole("button", { name: "New space" })
+    expect(addSpaceButton).toBeDisabled()
+
+    await user.click(addSpaceButton)
+
+    expect(screen.queryByPlaceholderText("Work")).not.toBeInTheDocument()
+    expect(storeState.createSpace).not.toHaveBeenCalled()
+  })
+
   it("shows the active filter count", () => {
-    storeState.timerFilters = { notifications: true, shared: false }
+    storeState.timerFilters = { type: "countUp", pinned: false, muted: false, shared: false, recurring: false }
 
     renderOrganizerBar()
 

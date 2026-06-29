@@ -92,7 +92,9 @@ account and revokes the old restore-key access.
 Timer share links are separate read-only public links. They expose the linked
 timer view, not the full project or its restore key.
 
-Email-code sign-in is enabled when Better Auth and Resend are configured:
+Email-code (OTP) sign-in is the only way to create or access an account, and it
+requires **both** Better Auth and a configured email provider (Resend). Set all
+of these together:
 
 ```bash
 BETTER_AUTH_URL=http://localhost:3000
@@ -101,6 +103,20 @@ RESEND_API_KEY=placeholder
 RESEND_FROM="tickward <no-reply@example.com>"
 RESEND_REPLY_TO=contact@example.com
 ```
+
+Both halves are mandatory for accounts:
+
+- Without `BETTER_AUTH_URL` and `BETTER_AUTH_SECRET`, every `/api/auth/*` route
+  responds `501 auth_not_configured` and no sign-in is possible.
+- Without `RESEND_API_KEY` (and `RESEND_FROM`), Better Auth loads but the
+  verification code can never be delivered — OTP requests fail with "Email
+  sign-in is not configured", so **accounts cannot be created or accessed**.
+
+In other words, a working email provider is required to have an account. With
+neither configured — the default — tickward runs anonymous-only with projects
+and restore keys, and every other feature still works. These are runtime
+variables, so you can add them to an existing deployment without rebuilding the
+image.
 
 OTP send requests are rate limited with Redis: one request per minute per
 normalized email and three requests per minute per IP.

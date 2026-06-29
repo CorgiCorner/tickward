@@ -18,6 +18,9 @@ const eslintConfig = defineConfig([
     "**/worktrees/**",
     ".worktrees/**",
     "**/.worktrees/**",
+    // Private design prototypes + vendored Framer support script are not app
+    // source and must not gate lint/release.
+    "design/**",
   ]),
 ])
 

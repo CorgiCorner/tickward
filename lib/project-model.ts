@@ -1,12 +1,13 @@
-import { ANONYMOUS_ENTITLEMENTS, getEntitlements } from "@/lib/entitlements"
+import { getEntitlements } from "@/lib/entitlements"
 import { formatMessage } from "@/lib/i18n/messages"
+import { LIMITS } from "@/lib/limits"
 import { PUBLIC_ERROR_CODES, createPublicError, type PublicError } from "@/lib/public-errors"
 import type { Space, Timer, TimerFilters, TimerSortMode } from "@/lib/types"
 import { isSpaceArray, isTimerArray, validateSpacesPayload, validateTimersPayload } from "@/lib/validate"
 
 export const PROJECT_SNAPSHOT_VERSION = 2
 // Kept as a named export for back-compat; entitlements define current limits.
-export const MAX_PROJECTS = ANONYMOUS_ENTITLEMENTS.maxProjects
+export const MAX_PROJECTS = LIMITS.projects
 export const DEFAULT_PROJECT_NAME = formatMessage("project.defaultTimersName")
 
 export type ProjectMeta = {

@@ -69,10 +69,13 @@ describe("ProjectSwitcher", () => {
           createdAt: "2026-05-20T00:00:00.000Z",
           updatedAt: "2026-05-20T00:00:00.000Z",
           timerCount: 2,
+          spaceCount: 1,
         },
       ],
       activeProjectId: "project-a",
       restoreKey: "restoreKey_123",
+      timers: [],
+      spaces: [],
       hasHydrated: true,
       isSyncing: false,
       isCheckingCloud: false,
@@ -88,10 +91,28 @@ describe("ProjectSwitcher", () => {
 
     await user.click(screen.getByRole("button", { name: "Switch project" }))
 
-    expect(screen.getAllByText("Alpha")).toHaveLength(3)
+    expect(screen.getAllByText("Alpha")).toHaveLength(2)
+    expect(screen.getByText("Projects 1/10")).toBeVisible()
     expect(screen.getByText("Local")).toBeVisible()
-    expect(screen.getByText("rest..._123")).toBeInTheDocument()
+    expect(screen.getByLabelText("Timers 2 of 20")).toBeVisible()
+    expect(screen.getByLabelText("Spaces 1 of 2")).toBeVisible()
+    expect(screen.queryByText("rest..._123")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /new project/i })).toBeInTheDocument()
+    expect(screen.getByText("Restore from key")).toBeVisible()
+    expect(screen.getByPlaceholderText("Paste restore key")).toBeInTheDocument()
+    expect(screen.getByText("No account needed. Keep your key to sync this project on another device.")).toBeVisible()
+  })
+
+  it("does not apply row hover styling to the selected project", async () => {
+    const user = userEvent.setup()
+    render(<ProjectSwitcher />)
+
+    await user.click(screen.getByRole("button", { name: "Switch project" }))
+
+    const selectedRow = document.querySelector('[aria-current="true"]')
+    expect(selectedRow).not.toBeNull()
+    expect(selectedRow!).toHaveClass("bg-muted")
+    expect(selectedRow!.className).not.toContain("hover:bg-muted")
   })
 
   it("opens project settings from the active project header without switching projects", async () => {
@@ -210,7 +231,7 @@ describe("ProjectSwitcher", () => {
 
     render(<ProjectSwitcher />)
     await user.click(screen.getByRole("button", { name: "Switch project" }))
-    await user.type(screen.getByPlaceholderText("Restore key"), "restoreKey_456")
+    await user.type(screen.getByPlaceholderText("Paste restore key"), "restoreKey_456")
 
     const restoreButton = screen.getByRole("button", { name: "Restore project" })
     expect(restoreButton.querySelectorAll("svg")).toHaveLength(1)
@@ -229,7 +250,7 @@ describe("ProjectSwitcher", () => {
 
     render(<ProjectSwitcher />)
     await user.click(screen.getByRole("button", { name: "Switch project" }))
-    await user.type(screen.getByPlaceholderText("Restore key"), "restoreKey_456")
+    await user.type(screen.getByPlaceholderText("Paste restore key"), "restoreKey_456")
     await user.click(screen.getByRole("button", { name: "Restore project" }))
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Restore failed."))

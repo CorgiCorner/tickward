@@ -1,4 +1,5 @@
 import type { TimerNotificationSettings } from "@/lib/notification-preferences"
+import { LIMITS } from "@/lib/limits"
 
 export type Timer = {
   id: string
@@ -24,6 +25,7 @@ export type Timer = {
     lastDay?: boolean
   }
   description?: string
+  url?: string
   spaceId?: string
   image?: {
     unsplashId: string
@@ -41,9 +43,10 @@ export type Space = {
   createdAt: string
 }
 
-export const MAX_SPACES = 2
+export const MAX_SPACES = LIMITS.spacesPerProject
 export const UNASSIGNED_SPACE_ID = "__unassigned"
 
 export type TimerSortMode = "manual" | "soonest" | "latest" | "name_asc" | "recently_added"
-export type TimerFilterKey = "notifications" | "shared"
-export type TimerFilters = Record<TimerFilterKey, boolean>
+export type TimerFilterType = "all" | "countdown" | "countUp"
+export type TimerFilterKey = "pinned" | "muted" | "shared" | "recurring"
+export type TimerFilters = { type: TimerFilterType } & Record<TimerFilterKey, boolean>
