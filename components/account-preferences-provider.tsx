@@ -8,11 +8,13 @@ import {
   type AccountPreferencesPatch,
   type AccountPreferencesRecord,
 } from "@/lib/account-preferences"
+import { readApiJson } from "@/lib/client-api"
 import { resetDefaultTimeZonePreference, setDefaultTimeZonePreference } from "@/lib/default-timezone.client"
 import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
 import { setLocalFullPageAlarmEnabled, setLocalNotificationSound } from "@/lib/local-notification-preferences.client"
 
 type AccountPreferencesContextValue = {
+  dismissError: () => void
   error: string | null
   loading: boolean
   preferences: AccountPreferencesRecord
@@ -38,8 +40,7 @@ async function readAccountPreferencesResponse(
   res: Response,
   fallbackMessageKey: MessageKey,
 ): Promise<AccountPreferencesRecord> {
-  const data = await res.json().catch(() => null)
-  if (!res.ok) throw new Error(formatMessage(fallbackMessageKey))
+  const data = await readApiJson<unknown>(res, formatMessage(fallbackMessageKey))
 
   const parsed = accountPreferencesRecordSchema.safeParse(data)
   if (!parsed.success) throw new Error(formatMessage(fallbackMessageKey))
@@ -116,9 +117,11 @@ export function AccountPreferencesProvider(
     void refreshPreferences()
   }, [hasInitialPreferences, refreshPreferences])
 
+  const dismissError = useCallback(() => setError(null), [])
+
   const value = useMemo(
-    () => ({ error, loading, preferences, refreshPreferences, saving, updatePreferences }),
-    [error, loading, preferences, refreshPreferences, saving, updatePreferences],
+    () => ({ dismissError, error, loading, preferences, refreshPreferences, saving, updatePreferences }),
+    [dismissError, error, loading, preferences, refreshPreferences, saving, updatePreferences],
   )
 
   return <AccountPreferencesContext.Provider value={value}>{props.children}</AccountPreferencesContext.Provider>

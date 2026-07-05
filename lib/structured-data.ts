@@ -41,6 +41,36 @@ export function buildSoftwareApplicationJsonLd() {
   }
 }
 
+export function buildDatasetJsonLd(input: {
+  name: string
+  description: string
+  path: string
+  dates: readonly string[]
+}) {
+  const origin = getSiteOrigin()
+  const sortedDates = input.dates
+    .map((date) => new Date(date))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime())
+  const firstDate = sortedDates[0]?.toISOString().slice(0, 10)
+  const lastDate = sortedDates.at(-1)?.toISOString().slice(0, 10)
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "Dataset",
+    name: input.name,
+    description: input.description,
+    url: `${origin}${input.path}`,
+    ...(firstDate && lastDate ? { temporalCoverage: `${firstDate}/${lastDate}` } : {}),
+    publisher: {
+      "@type": "Organization",
+      name: "tickward",
+      url: origin,
+    },
+    isAccessibleForFree: true,
+  }
+}
+
 // Schema.org FAQPage markup. Takes plain question/answer pairs so callers own
 // the content and the markup always mirrors the visible FAQ copy.
 export function buildFaqPageJsonLd(faqs: readonly Readonly<{ question: string; answer: string }>[]) {

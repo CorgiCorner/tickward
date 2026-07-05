@@ -2,6 +2,7 @@ import { clsx, type ClassValue } from "clsx"
 import { fromZonedTime, formatInTimeZone } from "date-fns-tz"
 import { twMerge } from "tailwind-merge"
 
+import { isSupportedTimeZone, normalizeTimeZone } from "@/lib/timezones"
 import type { Timer } from "@/lib/types"
 
 type RecurrenceType = "daily" | "weekly" | "monthly" | "yearly"
@@ -34,8 +35,17 @@ export function getCountdownParts(targetDateIsoUtc: string, nowMs: number): Coun
   return { isCountUp, days, hours, minutes, seconds, totalMs }
 }
 
-export function formatTargetInTimeZone(targetDateIsoUtc: string, timezone: string) {
-  return formatInTimeZone(targetDateIsoUtc, timezone, "MMM d, yyyy · HH:mm")
+const TARGET_LINE_FORMAT = "MMM d, yyyy · HH:mm"
+
+// Rendering stored data must never crash: an unparseable date yields null
+// (callers skip the line), and a zone the current runtime's Intl rejects
+// (date-fns-tz silently produces an invalid date for those) is formatted in
+// UTC with an explicit marker instead.
+export function formatTargetInTimeZone(targetDateIsoUtc: string, timezone: string): string | null {
+  const target = new Date(targetDateIsoUtc)
+  if (!Number.isFinite(target.getTime())) return null
+  if (isSupportedTimeZone(timezone)) return formatInTimeZone(target, timezone, TARGET_LINE_FORMAT)
+  return `${formatInTimeZone(target, "UTC", TARGET_LINE_FORMAT)} UTC`
 }
 
 export function wallClockToUtcIso(args: {
@@ -160,11 +170,12 @@ function nextYearlyOccurrence(
 
 /** Read the recurrence slot from an anchor instant interpreted in `tz`. */
 export function recurrenceSlot(anchorIso: string, type: RecurrenceType, tz: string, lastDay = false): RecurrenceSlot {
+  const zone = normalizeTimeZone(tz)
   const anchorMs = new Date(anchorIso).getTime()
-  const { y, mo, d } = zonedYmd(anchorMs, tz)
+  const { y, mo, d } = zonedYmd(anchorMs, zone)
   return {
     type,
-    time: formatInTimeZone(anchorMs, tz, "HH:mm"),
+    time: formatInTimeZone(anchorMs, zone, "HH:mm"),
     weekday: weekdayOf(y, mo, d),
     dayOfMonth: d,
     month: mo - 1,
@@ -180,17 +191,21 @@ export function recurrenceSlot(anchorIso: string, type: RecurrenceType, tz: stri
  * month/year (Feb 31, Feb 29 in common years) are skipped, matching iCal RRULE.
  */
 export function nextSlotOccurrence(slot: RecurrenceSlot, tz: string, afterMs: number, cap = 800): string | null {
-  const start = zonedYmd(afterMs, tz)
+  // Zone support varies per runtime (see normalizeTimeZone): a browser that
+  // cannot resolve the stored zone gets UTC wall-clock slots instead of a
+  // crash. Servers run full ICU, so persisted schedules are unaffected.
+  const zone = normalizeTimeZone(tz)
+  const start = zonedYmd(afterMs, zone)
 
   if (slot.type === "daily" || slot.type === "weekly") {
-    return nextDailyOrWeeklyOccurrence(slot, tz, afterMs, start, cap)
+    return nextDailyOrWeeklyOccurrence(slot, zone, afterMs, start, cap)
   }
 
   if (slot.type === "monthly") {
-    return nextMonthlyOccurrence(slot, tz, afterMs, start, cap)
+    return nextMonthlyOccurrence(slot, zone, afterMs, start, cap)
   }
 
-  return nextYearlyOccurrence(slot, tz, afterMs, start.y, cap)
+  return nextYearlyOccurrence(slot, zone, afterMs, start.y, cap)
 }
 
 /**

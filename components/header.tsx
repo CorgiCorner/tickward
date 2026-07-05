@@ -5,8 +5,9 @@ import Link from "next/link"
 import { useTheme } from "next-themes"
 import { useSyncExternalStore } from "react"
 
-import { AccountButton } from "@/components/account-auth"
+import { AccountButton } from "@/components/account-button"
 import { GitHubRepoButton } from "@/components/github-repo-button"
+import { NotificationBell } from "@/components/notification-bell"
 import { ProjectSwitcher } from "@/components/project-switcher"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -66,6 +67,8 @@ export function Header() {
               {formatMessage("header.toggleTheme")}
             </TooltipContent>
           </Tooltip>
+
+          <NotificationBell />
 
           <AccountButton />
         </div>

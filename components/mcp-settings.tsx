@@ -9,39 +9,13 @@ import { ConfirmActionButton } from "@/components/confirm-action-button"
 import { SettingsDateMetadata } from "@/components/settings-metadata"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { apiUnavailableErrorMessage, readApiJson } from "@/lib/client-api"
 import { formatMessage } from "@/lib/i18n/messages"
 import { MCP_OAUTH_SCOPES, type McpConnectionPublicRecord, type McpOAuthScope } from "@/lib/mcp-oauth"
 
-class McpConnectionRequestError extends Error {
-  constructor(
-    message: string,
-    readonly type: string | null,
-    readonly status: number,
-  ) {
-    super(message)
-    this.name = "McpConnectionRequestError"
-  }
-}
-
-async function responseJson<T>(res: Response, fallback: string): Promise<T> {
-  const data = (await res.json().catch(() => null)) as unknown
-  if (!res.ok) {
-    const type =
-      data && typeof data === "object" && "error" in data
-        ? ((data as { error?: { type?: unknown } }).error?.type ?? null)
-        : null
-    const message =
-      data && typeof data === "object" && "error" in data
-        ? String((data as { error?: { message?: unknown } }).error?.message ?? fallback)
-        : fallback
-    throw new McpConnectionRequestError(message, typeof type === "string" ? type : null, res.status)
-  }
-  return data as T
-}
-
 async function fetchMcpConnections() {
   const res = await fetch("/api/account/mcp-connections", { cache: "no-store" })
-  const data = await responseJson<{ data?: McpConnectionPublicRecord[] }>(
+  const data = await readApiJson<{ data?: McpConnectionPublicRecord[] }>(
     res,
     formatMessage("mcp.connectionsLoadFailed"),
   )
@@ -50,7 +24,7 @@ async function fetchMcpConnections() {
 
 async function revokeMcpConnection(id: string) {
   const res = await fetch(`/api/account/mcp-connections/${encodeURIComponent(id)}`, { method: "DELETE" })
-  await responseJson<unknown>(res, formatMessage("mcp.connectionRevokeFailed"))
+  await readApiJson<unknown>(res, formatMessage("mcp.connectionRevokeFailed"))
 }
 
 async function copyToClipboard(value: string) {
@@ -63,13 +37,11 @@ async function copyToClipboard(value: string) {
 }
 
 function mcpConnectionsLoadErrorMessage(error: unknown) {
-  if (error instanceof McpConnectionRequestError) {
-    if (error.type === "storage_unavailable" || error.type === "rate_limit_unavailable" || error.status >= 500) {
-      return formatMessage("mcp.connectionsUnavailable")
-    }
-    return error.message
-  }
-  return formatMessage("mcp.connectionsLoadFailed")
+  return apiUnavailableErrorMessage(
+    error,
+    formatMessage("mcp.connectionsUnavailable"),
+    formatMessage("mcp.connectionsLoadFailed"),
+  )
 }
 
 function mcpConnectionAccessLabel(scopes: readonly McpOAuthScope[]) {

@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { makeProjectSnapshot } from "@/test/factories"
+import { makeProjectSnapshot, makeSpace, makeTimer } from "@/test/factories"
 
 const mocks = vi.hoisted(() => ({
   authenticateApiKey: vi.fn(),
   checkRateLimit: vi.fn(),
   requirePrismaClient: vi.fn(),
+  sendTestWebhookForUser: vi.fn(),
 }))
 
 vi.mock("@/lib/api-keys.server", async (importOriginal) => ({
@@ -19,6 +20,11 @@ vi.mock("@/lib/rate-limit.server", () => ({
 
 vi.mock("@/lib/db/prisma.server", () => ({
   requirePrismaClient: mocks.requirePrismaClient,
+}))
+
+vi.mock("@/lib/webhooks.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/webhooks.server")>()),
+  sendTestWebhookForUser: mocks.sendTestWebhookForUser,
 }))
 
 const readKey = {
@@ -52,6 +58,91 @@ function webhookEndpointRow(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function webhookDeliveryRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "wd_123",
+    endpointId: "wh_123",
+    eventId: "evt_123",
+    status: "delivered",
+    attemptCount: 1,
+    nextAttemptAt: new Date("2026-06-10T09:00:00.000Z"),
+    lastAttemptAt: new Date("2026-06-10T09:00:00.000Z"),
+    deliveredAt: new Date("2026-06-10T09:00:00.000Z"),
+    failedAt: null,
+    responseStatus: 200,
+    error: null,
+    createdAt: new Date("2026-06-10T08:59:00.000Z"),
+    updatedAt: new Date("2026-06-10T09:00:00.000Z"),
+    ...overrides,
+  }
+}
+
+function publicWebhookEndpoint(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "wh_123",
+    object: "webhook_endpoint",
+    name: "Production",
+    url: "http://localhost/webhook",
+    event_types: ["timer.ended"],
+    status: "active",
+    failure_count: 0,
+    created_at: "2026-06-09T09:00:00.000Z",
+    updated_at: "2026-06-09T09:00:00.000Z",
+    disabled_at: null,
+    last_delivered_at: null,
+    last_failed_at: null,
+    ...overrides,
+  }
+}
+
+function publicWebhookDelivery(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "wd_123",
+    object: "webhook_delivery",
+    endpoint_id: "wh_123",
+    event_id: "evt_123",
+    status: "delivered",
+    attempt_count: 1,
+    next_attempt_at: null,
+    last_attempt_at: "2026-06-10T09:00:00.000Z",
+    delivered_at: "2026-06-10T09:00:00.000Z",
+    failed_at: null,
+    response_status: 200,
+    error: null,
+    created_at: "2026-06-10T08:59:00.000Z",
+    updated_at: "2026-06-10T09:00:00.000Z",
+    ...overrides,
+  }
+}
+
+function projectRow(snapshot = makeProjectSnapshot(), overrides: Record<string, unknown> = {}) {
+  return {
+    id: "project_123",
+    ownerId: "user_123",
+    name: snapshot.name,
+    color: snapshot.color ?? null,
+    snapshot,
+    createdAt: new Date("2026-06-07T00:00:00.000Z"),
+    updatedAt: new Date(snapshot.updatedAt),
+    claimedAt: null,
+    ...overrides,
+  }
+}
+
+function publicApiRequest(method: string, path: string, body?: unknown) {
+  return new Request(`https://tickward.test/api/v1${path}`, {
+    method,
+    headers: { authorization: "Bearer tw_full", ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+}
+
+function mockTransaction<T extends object>(tx: T) {
+  const transaction = vi.fn(async (callback: (client: T) => unknown | Promise<unknown>) => callback(tx))
+  mocks.requirePrismaClient.mockReturnValue({ $transaction: transaction })
+  return transaction
+}
+
 function idempotencyCacheKey(data: { apiKeyId: string; keyHash: string }) {
   return `${data.apiKeyId}:${data.keyHash}`
 }
@@ -73,6 +164,8 @@ describe("public API v1", () => {
       headers: { "ratelimit-limit": "120", "ratelimit-remaining": "119", "ratelimit-reset": "60" },
     })
     mocks.requirePrismaClient.mockReset()
+    mocks.sendTestWebhookForUser.mockReset()
+    mocks.sendTestWebhookForUser.mockResolvedValue(null)
     mocks.requirePrismaClient.mockReturnValue({
       project: {
         create: vi.fn(),
@@ -121,6 +214,7 @@ describe("public API v1", () => {
         mcp: { remote_oauth: false },
         nested_project_create: true,
         project_preview: true,
+        timer_reminders: true,
       },
       limits: { page_size_max: 100 },
       object: "capabilities",
@@ -571,6 +665,9 @@ describe("public API v1", () => {
       },
       space: { create: vi.fn().mockResolvedValue({}) },
       timer: { create: vi.fn().mockResolvedValue({}) },
+      notificationOutboxItem: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
       webhookEvent: {
         create: vi.fn().mockResolvedValue({}),
         updateMany: vi.fn().mockResolvedValue({}),
@@ -1317,6 +1414,10 @@ describe("public API v1", () => {
         }),
         update: vi.fn().mockResolvedValue({}),
       },
+      notificationOutboxItem: {
+        createMany: vi.fn().mockResolvedValue({ count: 2 }),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
       timer: {
         create: vi.fn().mockResolvedValue({}),
       },
@@ -1331,6 +1432,7 @@ describe("public API v1", () => {
         headers: { authorization: "Bearer tw_full" },
         body: JSON.stringify({
           label: "Launch",
+          reminders: [{ offset_minutes: 10 }],
           target_date: "2026-12-01T10:00:00.000Z",
           timezone: "UTC",
         }),
@@ -1339,10 +1441,19 @@ describe("public API v1", () => {
     )
 
     expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({
+      reminders: [{ offset_minutes: 10 }],
+    })
     const queryText = Array.from(tx.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join("?")
     expect(queryText).toContain("FOR UPDATE")
     expect(tx.timer.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ projectId: "project_123", ownerId: "user_123" }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({
+          data: expect.objectContaining({ reminders: [{ offsetMinutes: 10 }] }),
+          ownerId: "user_123",
+          projectId: "project_123",
+        }),
+      }),
     )
     expect(tx.project.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1393,6 +1504,1053 @@ describe("public API v1", () => {
       },
     })
     expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  it("rejects duplicate reminder offsets in public timer writes", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      new Request("https://tickward.test/api/v1/projects/project_123/timers", {
+        method: "POST",
+        headers: { authorization: "Bearer tw_full" },
+        body: JSON.stringify({
+          label: "Launch",
+          reminders: [{ offset_minutes: 10 }, { offset_minutes: 10 }],
+          target_date: "2026-12-01T10:00:00.000Z",
+          timezone: "UTC",
+        }),
+      }),
+      ["projects", "project_123", "timers"],
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        details: [expect.objectContaining({ path: ["reminders", 1, "offset_minutes"] })],
+        type: "validation_error",
+      },
+    })
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  it("updates timers with webhook, timer-ended, reminder, and snapshot side effects", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-06-08T12:00:00.000Z"))
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({
+      name: "Main",
+      spaces: [makeSpace({ id: "space-a", name: "Work" })],
+      timers: [
+        makeTimer({
+          id: "timer-a",
+          label: "Launch",
+          targetDate: "2026-12-01T10:00:00.000Z",
+          timezone: "UTC",
+        }),
+      ],
+    })
+    const row = projectRow(snapshot)
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      notificationOutboxItem: {
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      project: {
+        findUnique: vi.fn().mockResolvedValue(row),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      timer: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      webhookEvent: {
+        create: vi.fn().mockResolvedValue({}),
+        updateMany: vi.fn().mockResolvedValue({}),
+        upsert: vi.fn().mockResolvedValue({}),
+      },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "PATCH",
+      publicApiRequest("PATCH", "/projects/project_123/timers/timer-a", {
+        label: "Updated launch",
+        reminders: [{ offset_minutes: 60 }],
+        target_date: "2026-12-10T10:00:00.000Z",
+      }),
+      ["projects", "project_123", "timers", "timer-a"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      id: "timer-a",
+      label: "Updated launch",
+      reminders: [{ offset_minutes: 60 }],
+      target_date: "2026-12-10T10:00:00.000Z",
+    })
+    expect(tx.timer.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          data: expect.objectContaining({
+            label: "Updated launch",
+            reminders: [{ offsetMinutes: 60 }],
+            targetDate: "2026-12-10T10:00:00.000Z",
+          }),
+        }),
+        where: { id: "timer-a", projectId: "project_123" },
+      }),
+    )
+    expect(tx.project.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          snapshot: expect.objectContaining({
+            timers: [expect.objectContaining({ id: "timer-a", label: "Updated launch" })],
+          }),
+        }),
+        where: { id: "project_123" },
+      }),
+    )
+    expect(tx.webhookEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        aggregateId: "timer-a",
+        aggregateType: "timer",
+        projectId: "project_123",
+        timerId: "timer-a",
+        type: "timer.updated",
+        userId: "user_123",
+      }),
+    })
+    expect(tx.webhookEvent.updateMany).toHaveBeenCalledWith({
+      data: { cancelledAt: expect.any(Date), status: "cancelled" },
+      where: {
+        projectId: "project_123",
+        status: "pending",
+        timerId: "timer-a",
+        type: "timer.ended",
+        userId: "user_123",
+      },
+    })
+    expect(tx.webhookEvent.upsert).toHaveBeenCalledWith({
+      create: expect.objectContaining({
+        aggregateId: "timer-a",
+        availableAt: new Date("2026-12-10T10:00:00.000Z"),
+        projectId: "project_123",
+        timerId: "timer-a",
+        type: "timer.ended",
+      }),
+      update: expect.objectContaining({ status: "pending" }),
+      where: {
+        dedupeKey: "timer.ended:user_123:project_123:timer-a:2026-12-10T10:00:00.000Z",
+      },
+    })
+    expect(tx.notificationOutboxItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { cancelledAt: expect.any(Date), status: "cancelled" },
+        where: expect.objectContaining({
+          status: "scheduled",
+          timerId: "timer-a",
+          workflowIdentifier: "timer.reminder",
+        }),
+      }),
+    )
+    expect(tx.notificationOutboxItem.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [
+          expect.objectContaining({
+            scheduledFor: new Date("2026-12-10T09:00:00.000Z"),
+            status: "scheduled",
+            timerId: "timer-a",
+            transactionId: "timer-reminder:timer-a:60m:2026-12-10T10:00:00.000Z",
+          }),
+        ],
+      }),
+    )
+  })
+
+  it("archives timers by cancelling timer-ended and reminder schedules", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-06-08T12:00:00.000Z"))
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({
+      name: "Main",
+      timers: [
+        makeTimer({
+          id: "timer-a",
+          label: "Launch",
+          reminders: [{ offsetMinutes: 30 }],
+          targetDate: "2026-12-01T10:00:00.000Z",
+          timezone: "UTC",
+        }),
+      ],
+    })
+    const row = projectRow(snapshot)
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      notificationOutboxItem: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      project: {
+        findUnique: vi.fn().mockResolvedValue(row),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      timer: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      webhookEvent: {
+        create: vi.fn().mockResolvedValue({}),
+        updateMany: vi.fn().mockResolvedValue({}),
+        upsert: vi.fn().mockResolvedValue({}),
+      },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "PATCH",
+      publicApiRequest("PATCH", "/projects/project_123/timers/timer-a", {
+        archived_at: "2026-06-08T12:00:00.000Z",
+      }),
+      ["projects", "project_123", "timers", "timer-a"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      archived_at: "2026-06-08T12:00:00.000Z",
+      id: "timer-a",
+    })
+    expect(tx.webhookEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: "timer.archived" }),
+    })
+    expect(tx.webhookEvent.updateMany).toHaveBeenCalledWith({
+      data: { cancelledAt: expect.any(Date), status: "cancelled" },
+      where: {
+        projectId: "project_123",
+        status: "pending",
+        timerId: "timer-a",
+        type: "timer.ended",
+        userId: "user_123",
+      },
+    })
+    expect(tx.webhookEvent.upsert).not.toHaveBeenCalled()
+    expect(tx.notificationOutboxItem.updateMany).toHaveBeenCalledWith({
+      data: { cancelledAt: expect.any(Date), status: "cancelled" },
+      where: {
+        status: "scheduled",
+        timerId: "timer-a",
+        workflowIdentifier: "timer.reminder",
+      },
+    })
+  })
+
+  it("returns storage_unavailable when timer updates cannot sync the timer row", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({ name: "Main", timers: [makeTimer({ id: "timer-a" })] })
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      project: {
+        findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
+        update: vi.fn(),
+      },
+      timer: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      webhookEvent: {
+        create: vi.fn(),
+      },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "PATCH",
+      publicApiRequest("PATCH", "/projects/project_123/timers/timer-a", { label: "Updated launch" }),
+      ["projects", "project_123", "timers", "timer-a"],
+    )
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "storage_unavailable" } })
+    expect(tx.project.update).not.toHaveBeenCalled()
+    expect(tx.webhookEvent.create).not.toHaveBeenCalled()
+  })
+
+  it("deletes timers with schedule cancellation, reminder cleanup, share cleanup, and snapshot sync", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({
+      name: "Main",
+      timers: [makeTimer({ id: "timer-a", label: "Launch", reminders: [{ offsetMinutes: 10 }] })],
+    })
+    const row = projectRow(snapshot)
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      notificationDeliveryLog: { deleteMany: vi.fn().mockResolvedValue({}) },
+      notificationOutboxItem: {
+        deleteMany: vi.fn().mockResolvedValue({}),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      project: {
+        findUnique: vi.fn().mockResolvedValue(row),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      share: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      timer: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      webhookEvent: {
+        create: vi.fn().mockResolvedValue({}),
+        updateMany: vi.fn().mockResolvedValue({}),
+      },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "DELETE",
+      publicApiRequest("DELETE", "/projects/project_123/timers/timer-a"),
+      ["projects", "project_123", "timers", "timer-a"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      deleted: true,
+      id: "timer-a",
+      label: "Launch",
+      object: "timer",
+    })
+    expect(tx.webhookEvent.updateMany).toHaveBeenCalledWith({
+      data: { cancelledAt: expect.any(Date), status: "cancelled" },
+      where: {
+        projectId: "project_123",
+        status: "pending",
+        timerId: "timer-a",
+        type: "timer.ended",
+        userId: "user_123",
+      },
+    })
+    expect(tx.notificationOutboxItem.updateMany).toHaveBeenCalledWith({
+      data: { cancelledAt: expect.any(Date), status: "cancelled" },
+      where: {
+        status: "scheduled",
+        timerId: "timer-a",
+        workflowIdentifier: "timer.reminder",
+      },
+    })
+    expect(tx.notificationOutboxItem.deleteMany).toHaveBeenCalledWith({ where: { timerId: "timer-a" } })
+    expect(tx.notificationDeliveryLog.deleteMany).toHaveBeenCalledWith({ where: { timerId: "timer-a" } })
+    expect(tx.share.deleteMany).toHaveBeenCalledWith({
+      where: { data: { equals: "timer-a", path: ["timerId"] }, kind: "timer", projectId: "project_123" },
+    })
+    expect(tx.timer.deleteMany).toHaveBeenCalledWith({ where: { id: "timer-a", projectId: "project_123" } })
+    expect(tx.project.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ snapshot: expect.objectContaining({ timers: [] }) }),
+        where: { id: "project_123" },
+      }),
+    )
+    expect(tx.webhookEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        aggregateId: "timer-a",
+        aggregateType: "timer",
+        projectId: "project_123",
+        timerId: "timer-a",
+        type: "timer.deleted",
+      }),
+    })
+  })
+
+  it("returns storage_unavailable when timer deletes cannot sync the timer row", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({ name: "Main", timers: [makeTimer({ id: "timer-a" })] })
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      notificationDeliveryLog: { deleteMany: vi.fn() },
+      notificationOutboxItem: { deleteMany: vi.fn(), updateMany: vi.fn() },
+      project: {
+        findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
+        update: vi.fn(),
+      },
+      share: { deleteMany: vi.fn() },
+      timer: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      webhookEvent: { create: vi.fn(), updateMany: vi.fn() },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "DELETE",
+      publicApiRequest("DELETE", "/projects/project_123/timers/timer-a"),
+      ["projects", "project_123", "timers", "timer-a"],
+    )
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "storage_unavailable" } })
+    expect(tx.project.update).not.toHaveBeenCalled()
+    expect(tx.webhookEvent.create).not.toHaveBeenCalled()
+  })
+
+  it("creates spaces and syncs the project snapshot", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-06-08T12:00:00.000Z"))
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({ name: "Main", spaces: [], timers: [] })
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      project: {
+        findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      space: { create: vi.fn().mockResolvedValue({}) },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/projects/project_123/spaces", {
+        color: "#123456",
+        id: "space-b",
+        name: "Personal",
+      }),
+      ["projects", "project_123", "spaces"],
+    )
+
+    expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({ id: "space-b", name: "Personal", object: "space" })
+    expect(tx.space.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        data: expect.objectContaining({ color: "#123456", id: "space-b", name: "Personal" }),
+        id: "space-b",
+        ownerId: "user_123",
+        projectId: "project_123",
+      }),
+    })
+    expect(tx.project.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          snapshot: expect.objectContaining({
+            spaces: [expect.objectContaining({ id: "space-b", name: "Personal" })],
+          }),
+        }),
+        where: { id: "project_123" },
+      }),
+    )
+  })
+
+  it("rejects duplicate space ids before writing rows", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({
+      name: "Main",
+      spaces: [makeSpace({ id: "space-a", name: "Work" })],
+      timers: [],
+    })
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      project: {
+        findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
+        update: vi.fn(),
+      },
+      space: { create: vi.fn() },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/projects/project_123/spaces", { id: "space-a", name: "Duplicate" }),
+      ["projects", "project_123", "spaces"],
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "validation_error" } })
+    expect(tx.space.create).not.toHaveBeenCalled()
+    expect(tx.project.update).not.toHaveBeenCalled()
+  })
+
+  it("updates spaces and syncs the project snapshot", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({
+      name: "Main",
+      spaces: [makeSpace({ color: "#111111", id: "space-a", name: "Work" })],
+      timers: [],
+    })
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      project: {
+        findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      space: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "PATCH",
+      publicApiRequest("PATCH", "/projects/project_123/spaces/space-a", { color: null, name: "Personal" }),
+      ["projects", "project_123", "spaces", "space-a"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ color: null, id: "space-a", name: "Personal" })
+    expect(tx.space.updateMany).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        data: expect.objectContaining({ id: "space-a", name: "Personal" }),
+        updatedAt: expect.any(Date),
+      }),
+      where: { id: "space-a", projectId: "project_123" },
+    })
+    expect(tx.space.updateMany.mock.calls[0][0].data.data).not.toHaveProperty("color")
+    expect(tx.project.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          snapshot: expect.objectContaining({
+            spaces: [expect.objectContaining({ id: "space-a", name: "Personal" })],
+          }),
+        }),
+        where: { id: "project_123" },
+      }),
+    )
+  })
+
+  it("returns storage_unavailable when space updates cannot sync the space row", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({ spaces: [makeSpace({ id: "space-a" })], timers: [] })
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      project: {
+        findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
+        update: vi.fn(),
+      },
+      space: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "PATCH",
+      publicApiRequest("PATCH", "/projects/project_123/spaces/space-a", { name: "Personal" }),
+      ["projects", "project_123", "spaces", "space-a"],
+    )
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "storage_unavailable" } })
+    expect(tx.project.update).not.toHaveBeenCalled()
+  })
+
+  it("deletes spaces, clears affected timer space ids, and syncs the snapshot", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({
+      name: "Main",
+      spaces: [makeSpace({ id: "space-a", name: "Work" })],
+      timers: [
+        makeTimer({ id: "timer-a", label: "Launch", spaceId: "space-a" }),
+        makeTimer({ id: "timer-b", label: "Renewal" }),
+      ],
+    })
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      project: {
+        findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      space: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      timer: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "DELETE",
+      publicApiRequest("DELETE", "/projects/project_123/spaces/space-a"),
+      ["projects", "project_123", "spaces", "space-a"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ deleted: true, id: "space-a", name: "Work" })
+    expect(tx.space.deleteMany).toHaveBeenCalledWith({ where: { id: "space-a", projectId: "project_123" } })
+    expect(tx.timer.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          data: expect.objectContaining({ id: "timer-a", label: "Launch" }),
+        }),
+        where: { id: "timer-a", projectId: "project_123" },
+      }),
+    )
+    expect(tx.timer.updateMany.mock.calls[0][0].data.data).not.toHaveProperty("spaceId")
+    expect(tx.project.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          snapshot: expect.objectContaining({
+            spaces: [],
+            timers: [expect.not.objectContaining({ spaceId: "space-a" }), expect.objectContaining({ id: "timer-b" })],
+          }),
+        }),
+        where: { id: "project_123" },
+      }),
+    )
+  })
+
+  it("returns storage_unavailable when space deletes cannot sync the space row", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({ spaces: [makeSpace({ id: "space-a" })], timers: [] })
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      project: {
+        findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
+        update: vi.fn(),
+      },
+      space: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      timer: { updateMany: vi.fn() },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "DELETE",
+      publicApiRequest("DELETE", "/projects/project_123/spaces/space-a"),
+      ["projects", "project_123", "spaces", "space-a"],
+    )
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "storage_unavailable" } })
+    expect(tx.timer.updateMany).not.toHaveBeenCalled()
+    expect(tx.project.update).not.toHaveBeenCalled()
+  })
+
+  it("returns storage_unavailable when space deletes cannot sync affected timer rows", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({
+      spaces: [makeSpace({ id: "space-a" })],
+      timers: [makeTimer({ id: "timer-a", spaceId: "space-a" })],
+    })
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      project: {
+        findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
+        update: vi.fn(),
+      },
+      space: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      timer: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "DELETE",
+      publicApiRequest("DELETE", "/projects/project_123/spaces/space-a"),
+      ["projects", "project_123", "spaces", "space-a"],
+    )
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "storage_unavailable" } })
+    expect(tx.project.update).not.toHaveBeenCalled()
+  })
+
+  it("deletes shares, emits share.deleted, clears timer sharing, and syncs the snapshot", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const sharedAt = "2026-06-07T12:10:00.000Z"
+    const snapshot = makeProjectSnapshot({
+      name: "Main",
+      timers: [makeTimer({ id: "timer-a", label: "Launch", sharedAt })],
+    })
+    const share = {
+      id: "share_123",
+      data: { sharedAt, timerId: "timer-a" },
+      createdAt: new Date(sharedAt),
+      updatedAt: new Date(sharedAt),
+    }
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      project: {
+        findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      share: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findFirst: vi.fn().mockResolvedValue(share),
+      },
+      timer: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      webhookEvent: { create: vi.fn().mockResolvedValue({}) },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "DELETE",
+      publicApiRequest("DELETE", "/projects/project_123/shares/share_123"),
+      ["projects", "project_123", "shares", "share_123"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      deleted: true,
+      id: "share_123",
+      timer_id: "timer-a",
+      timer_label: "Launch",
+    })
+    expect(tx.share.deleteMany).toHaveBeenCalledWith({
+      where: { id: "share_123", kind: "timer", projectId: "project_123" },
+    })
+    expect(tx.webhookEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        aggregateId: "share_123",
+        aggregateType: "share",
+        projectId: "project_123",
+        shareId: "share_123",
+        timerId: "timer-a",
+        type: "share.deleted",
+      }),
+    })
+    expect(tx.timer.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          data: expect.objectContaining({ id: "timer-a", label: "Launch" }),
+        }),
+        where: { id: "timer-a", projectId: "project_123" },
+      }),
+    )
+    expect(tx.timer.updateMany.mock.calls[0][0].data.data).not.toHaveProperty("sharedAt")
+    expect(tx.project.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          snapshot: expect.objectContaining({
+            timers: [expect.not.objectContaining({ sharedAt })],
+          }),
+        }),
+        where: { id: "project_123" },
+      }),
+    )
+  })
+
+  it("returns storage_unavailable when share deletes cannot sync the share row", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const sharedAt = "2026-06-07T12:10:00.000Z"
+    const snapshot = makeProjectSnapshot({ timers: [makeTimer({ id: "timer-a", sharedAt })] })
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      project: {
+        findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
+        update: vi.fn(),
+      },
+      share: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        findFirst: vi.fn().mockResolvedValue({
+          id: "share_123",
+          data: { sharedAt, timerId: "timer-a" },
+          createdAt: new Date(sharedAt),
+          updatedAt: new Date(sharedAt),
+        }),
+      },
+      timer: { updateMany: vi.fn() },
+      webhookEvent: { create: vi.fn() },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "DELETE",
+      publicApiRequest("DELETE", "/projects/project_123/shares/share_123"),
+      ["projects", "project_123", "shares", "share_123"],
+    )
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "storage_unavailable" } })
+    expect(tx.webhookEvent.create).not.toHaveBeenCalled()
+    expect(tx.timer.updateMany).not.toHaveBeenCalled()
+    expect(tx.project.update).not.toHaveBeenCalled()
+  })
+
+  it("returns storage_unavailable when share deletes cannot sync the timer row", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const sharedAt = "2026-06-07T12:10:00.000Z"
+    const snapshot = makeProjectSnapshot({ timers: [makeTimer({ id: "timer-a", sharedAt })] })
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      project: {
+        findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
+        update: vi.fn(),
+      },
+      share: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findFirst: vi.fn().mockResolvedValue({
+          id: "share_123",
+          data: { sharedAt, timerId: "timer-a" },
+          createdAt: new Date(sharedAt),
+          updatedAt: new Date(sharedAt),
+        }),
+      },
+      timer: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      webhookEvent: { create: vi.fn().mockResolvedValue({}) },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "DELETE",
+      publicApiRequest("DELETE", "/projects/project_123/shares/share_123"),
+      ["projects", "project_123", "shares", "share_123"],
+    )
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "storage_unavailable" } })
+    expect(tx.webhookEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: "share.deleted" }),
+    })
+    expect(tx.project.update).not.toHaveBeenCalled()
+  })
+
+  it("creates webhook endpoints through the public API", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const count = vi.fn().mockResolvedValue(0)
+    const create = vi.fn().mockImplementation(({ data }) =>
+      webhookEndpointRow({
+        eventTypes: data.eventTypes,
+        name: data.name,
+        secret: data.secret,
+        url: data.url,
+      }),
+    )
+    mocks.requirePrismaClient.mockReturnValue({ webhookEndpoint: { count, create } })
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/webhooks", {
+        event_types: ["timer.ended"],
+        name: "Production",
+        url: "http://localhost/webhook",
+      }),
+      ["webhooks"],
+    )
+
+    expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({
+      event_types: ["timer.ended"],
+      id: "wh_123",
+      object: "webhook_endpoint",
+      signing_secret: expect.stringMatching(/^whsec_/),
+    })
+    expect(count).toHaveBeenCalledWith({ where: { status: "active", userId: "user_123" } })
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventTypes: ["timer.ended"],
+        name: "Production",
+        secret: expect.stringMatching(/^whsec_/),
+        url: "http://localhost/webhook",
+        userId: "user_123",
+      }),
+    })
+  })
+
+  it("rejects invalid webhook create payloads before storage", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/webhooks", { name: "", url: "http://example.com/webhook" }),
+      ["webhooks"],
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "validation_error" } })
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  it("returns limit_exceeded when webhook endpoint creation reaches the active endpoint cap", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const create = vi.fn()
+    mocks.requirePrismaClient.mockReturnValue({ webhookEndpoint: { count: vi.fn().mockResolvedValue(3), create } })
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/webhooks", { name: "Production", url: "http://localhost/webhook" }),
+      ["webhooks"],
+    )
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "limit_exceeded" } })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("removes webhook endpoints through the public API", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const deleteMany = vi.fn().mockResolvedValue({ count: 1 })
+    mocks.requirePrismaClient.mockReturnValue({ webhookEndpoint: { deleteMany } })
+
+    const res = await handlePublicApiV1Request("DELETE", publicApiRequest("DELETE", "/webhooks/wh_123"), [
+      "webhooks",
+      "wh_123",
+    ])
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ deleted: true, id: "wh_123", object: "webhook_endpoint" })
+    expect(deleteMany).toHaveBeenCalledWith({ where: { id: "wh_123", userId: "user_123" } })
+  })
+
+  it("returns not_found when removing a missing webhook endpoint", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    mocks.requirePrismaClient.mockReturnValue({
+      webhookEndpoint: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    })
+
+    const res = await handlePublicApiV1Request("DELETE", publicApiRequest("DELETE", "/webhooks/wh_123"), [
+      "webhooks",
+      "wh_123",
+    ])
+
+    expect(res.status).toBe(404)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "not_found" } })
+  })
+
+  it("sends typed webhook test deliveries through the public API", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const result = {
+      object: "webhook_test",
+      delivery: publicWebhookDelivery(),
+      endpoint: publicWebhookEndpoint(),
+    }
+    mocks.sendTestWebhookForUser.mockResolvedValueOnce(result)
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/webhooks/wh_123/test", { event_type: "timer.ended" }),
+      ["webhooks", "wh_123", "test"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual(result)
+    expect(mocks.checkRateLimit).toHaveBeenCalledWith("webhook-test", "user:user_123:webhook:wh_123")
+    expect(mocks.sendTestWebhookForUser).toHaveBeenCalledWith({
+      eventType: "timer.ended",
+      id: "wh_123",
+      user: fullKey.user,
+    })
+  })
+
+  it("rejects invalid webhook test payloads before sending", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/webhooks/wh_123/test", { event_type: "nope.nope" }),
+      ["webhooks", "wh_123", "test"],
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "validation_error" } })
+    expect(mocks.sendTestWebhookForUser).not.toHaveBeenCalled()
+  })
+
+  it("returns not_found when a webhook test cannot find the endpoint", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    mocks.sendTestWebhookForUser.mockResolvedValueOnce(null)
+
+    const res = await handlePublicApiV1Request("POST", publicApiRequest("POST", "/webhooks/wh_123/test"), [
+      "webhooks",
+      "wh_123",
+      "test",
+    ])
+
+    expect(res.status).toBe(404)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "not_found" } })
+  })
+
+  it("lists webhook deliveries for an owned endpoint", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const endpointFindMany = vi.fn().mockResolvedValue([webhookEndpointRow()])
+    const deliveryFindMany = vi.fn().mockResolvedValue([webhookDeliveryRow()])
+    mocks.requirePrismaClient.mockReturnValue({
+      webhookDelivery: { findMany: deliveryFindMany },
+      webhookEndpoint: { findMany: endpointFindMany },
+    })
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/webhooks/wh_123/deliveries?limit=25", {
+        headers: { authorization: "Bearer tw_read" },
+      }),
+      ["webhooks", "wh_123", "deliveries"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      data: [{ id: "wd_123", object: "webhook_delivery", status: "delivered" }],
+      has_more: false,
+      object: "list",
+    })
+    expect(endpointFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { createdAt: "desc" }, where: { userId: "user_123" } }),
+    )
+    expect(deliveryFindMany).toHaveBeenCalledWith({
+      orderBy: { createdAt: "desc" },
+      take: 25,
+      where: { endpointId: "wh_123", userId: "user_123" },
+    })
+  })
+
+  it("rejects invalid webhook delivery list limits before storage", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/webhooks/wh_123/deliveries?limit=101", {
+        headers: { authorization: "Bearer tw_read" },
+      }),
+      ["webhooks", "wh_123", "deliveries"],
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "validation_error" } })
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  it("returns not_found when listing deliveries for a missing webhook endpoint", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const deliveryFindMany = vi.fn()
+    mocks.requirePrismaClient.mockReturnValue({
+      webhookDelivery: { findMany: deliveryFindMany },
+      webhookEndpoint: { findMany: vi.fn().mockResolvedValue([]) },
+    })
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/webhooks/wh_123/deliveries", {
+        headers: { authorization: "Bearer tw_read" },
+      }),
+      ["webhooks", "wh_123", "deliveries"],
+    )
+
+    expect(res.status).toBe(404)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "not_found" } })
+    expect(deliveryFindMany).not.toHaveBeenCalled()
+  })
+
+  it("returns storage_unavailable when webhook delivery listing fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.requirePrismaClient.mockReturnValue({
+      webhookDelivery: { findMany: vi.fn().mockRejectedValue(new Error("storage unavailable")) },
+      webhookEndpoint: { findMany: vi.fn().mockResolvedValue([webhookEndpointRow()]) },
+    })
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/webhooks/wh_123/deliveries", {
+        headers: { authorization: "Bearer tw_read" },
+      }),
+      ["webhooks", "wh_123", "deliveries"],
+    )
+
+    expect(res.status).toBe(503)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "storage_unavailable" } })
+    consoleError.mockRestore()
   })
 
   it("returns rate limit errors before hitting storage", async () => {

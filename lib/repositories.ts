@@ -56,6 +56,7 @@ export type RateLimitBucket =
   | "auth-otp-ip"
   | "public-api"
   | "public-api-ip"
+  | "inbox"
   | "api-key-management"
   | "webhook-management"
   | "webhook-test"

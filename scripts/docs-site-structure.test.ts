@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
 
+import { getDocsSitemapPaths } from "@/lib/docs-config"
+
 const rootDir = path.resolve(import.meta.dirname, "..")
 const docsSiteDir = path.join(rootDir, "docs/site")
 
@@ -79,6 +81,26 @@ describe("docs site structure", () => {
     }
 
     expect(offenders).toEqual([])
+  })
+
+  it("keeps the app sitemap docs paths aligned with docs navigation", () => {
+    const originalDocsOrigin = process.env.TICKWARD_DOCS_ORIGIN
+    process.env.TICKWARD_DOCS_ORIGIN = "https://docs.example.test"
+
+    try {
+      const docsJson = JSON.parse(readDocsSiteFile("docs.json"))
+      const expectedPaths = collectStringValues(docsJson, "pages")
+        .map((page) => (page === "index" ? "/docs" : `/docs/${page}`))
+        .sort()
+
+      expect(getDocsSitemapPaths().sort()).toEqual(expectedPaths)
+    } finally {
+      if (originalDocsOrigin === undefined) {
+        delete process.env.TICKWARD_DOCS_ORIGIN
+      } else {
+        process.env.TICKWARD_DOCS_ORIGIN = originalDocsOrigin
+      }
+    }
   })
 
   it("keeps the documented public API response contract agent-friendly", () => {

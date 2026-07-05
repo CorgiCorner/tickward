@@ -17,6 +17,12 @@ export type TimerFinishedEmailCommand = {
   timezone: string
 }
 
+export type TimerReminderEmailCommand = TimerFinishedEmailCommand & {
+  offsetMinutes: number
+  occurrenceAt: string
+  transactionId: string
+}
+
 export type EmailOtpType = "sign-in" | "email-verification" | "forget-password" | "change-email"
 
 export type EmailOtpCommand = {
@@ -37,6 +43,7 @@ export interface MailProvider {
   id: string
   isConfigured(): boolean
   sendTimerFinishedEmail(command: TimerFinishedEmailCommand): Promise<void>
+  sendTimerReminderEmail(command: TimerReminderEmailCommand): Promise<void>
   sendEmailOtp(command: EmailOtpCommand): Promise<void>
   sendWebhookEndpointDisabledEmail(command: WebhookEndpointDisabledEmailCommand): Promise<void>
 }
@@ -51,6 +58,7 @@ export const nullMailProvider: MailProvider = {
     return false
   },
   async sendTimerFinishedEmail(): Promise<void> {},
+  async sendTimerReminderEmail(): Promise<void> {},
   async sendEmailOtp(): Promise<void> {},
   async sendWebhookEndpointDisabledEmail(): Promise<void> {},
 }

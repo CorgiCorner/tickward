@@ -7,11 +7,11 @@ import {
 } from "@/lib/account-preferences"
 import type { UserRef } from "@/lib/contracts"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
-import type { Prisma } from "@/lib/generated/prisma/client"
 import { notificationSoundSchema } from "@/lib/schemas/timer"
 
 type UserPreferenceRow = {
   defaultTimezone: string | null
+  emailReminders: boolean
   fullPageAlarm: boolean
   notificationSound: string
 }
@@ -20,8 +20,8 @@ type UserPreferenceDelegate = {
   findUnique(args: { where: { userId: string } }): Promise<UserPreferenceRow | null>
   upsert(args: {
     where: { userId: string }
-    create: Prisma.UserPreferenceUncheckedCreateInput
-    update: Prisma.UserPreferenceUncheckedUpdateInput
+    create: Record<string, unknown>
+    update: Record<string, unknown>
   }): Promise<UserPreferenceRow>
 }
 
@@ -68,6 +68,7 @@ function publicAccountPreferences(row: UserPreferenceRow | null | undefined): Ac
   return {
     object: "account_preferences",
     default_timezone: row.defaultTimezone,
+    email_reminders: row.emailReminders,
     full_page_alarm: row.fullPageAlarm,
     notification_sound: sound.success ? sound.data : "none",
   }
@@ -85,14 +86,17 @@ export async function updateAccountPreferencesForUser(
   user: UserRef,
   patch: AccountPreferencesPatch,
 ): Promise<AccountPreferencesRecord> {
-  const data: Prisma.UserPreferenceUncheckedUpdateInput = {}
+  const data: Record<string, unknown> = {}
   if (patch.default_timezone !== undefined) data.defaultTimezone = patch.default_timezone
+  if (patch.email_reminders !== undefined) data.emailReminders = patch.email_reminders
   if (patch.full_page_alarm !== undefined) data.fullPageAlarm = patch.full_page_alarm
   if (patch.notification_sound !== undefined) data.notificationSound = patch.notification_sound
 
-  const create: Prisma.UserPreferenceUncheckedCreateInput = {
+  const create = {
     userId: user.id,
     defaultTimezone: typeof data.defaultTimezone === "string" ? data.defaultTimezone : null,
+    emailReminders:
+      typeof data.emailReminders === "boolean" ? data.emailReminders : DEFAULT_ACCOUNT_PREFERENCES.email_reminders,
     fullPageAlarm:
       typeof data.fullPageAlarm === "boolean" ? data.fullPageAlarm : DEFAULT_ACCOUNT_PREFERENCES.full_page_alarm,
     notificationSound:

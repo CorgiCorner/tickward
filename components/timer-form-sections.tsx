@@ -1,16 +1,17 @@
 import { formatInTimeZone } from "date-fns-tz"
 import { BellIcon, BellRingIcon, ClockIcon, ImageIcon, PencilIcon } from "lucide-react"
 import type { ComponentType } from "react"
-import type { Control, UseFormRegister } from "react-hook-form"
-import { Controller } from "react-hook-form"
+import { Controller, useController, type Control, type UseFormRegister } from "react-hook-form"
 
+import { TimerRemindersField } from "@/components/timer-reminders-field"
 import { TimezoneSelect } from "@/components/timezone-select"
 import { UnsplashPicker } from "@/components/unsplash-picker"
 import { DatePicker } from "@/components/ui/date-picker"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { TimePicker } from "@/components/ui/time-picker"
+import { DurationPicker, ScheduleModeToggle, TimePicker, type DurationPickerValue } from "@/components/ui/time-picker"
+import { authClient } from "@/lib/auth/auth-client"
 import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
 import type { TimerFormRecurrenceType, TimerFormValues } from "@/lib/schemas/timer"
 import type { Space } from "@/lib/types"
@@ -86,6 +87,7 @@ export function TimerBasicsSection(
     spaces: Space[]
     labelLength: number
     descriptionLength: number
+    labelPlaceholder: string
   }>,
 ) {
   const { control, register, spaces } = props
@@ -94,13 +96,7 @@ export function TimerBasicsSection(
     <>
       <div className="grid gap-2">
         <Label htmlFor="label">{formatMessage("timer.form.label")}</Label>
-        <Input
-          id="label"
-          maxLength={60}
-          placeholder={formatMessage("timer.form.labelPlaceholder")}
-          autoFocus
-          {...register("label")}
-        />
+        <Input id="label" maxLength={60} placeholder={props.labelPlaceholder} autoFocus {...register("label")} />
         <div className="text-xs text-muted-foreground">{props.labelLength}/60</div>
       </div>
 
@@ -188,11 +184,38 @@ export function TimerBasicsSection(
   )
 }
 
+function TimerDurationField(props: Readonly<{ control: Control<TimerFormValues> }>) {
+  const days = useController({ control: props.control, name: "durationDays" })
+  const hours = useController({ control: props.control, name: "durationHours" })
+  const minutes = useController({ control: props.control, name: "durationMinutes" })
+  const seconds = useController({ control: props.control, name: "durationSeconds" })
+  const value: DurationPickerValue = {
+    durationDays: days.field.value,
+    durationHours: hours.field.value,
+    durationMinutes: minutes.field.value,
+    durationSeconds: seconds.field.value,
+  }
+
+  return (
+    <DurationPicker
+      value={value}
+      onChange={(next) => {
+        days.field.onChange(next.durationDays)
+        hours.field.onChange(next.durationHours)
+        minutes.field.onChange(next.durationMinutes)
+        seconds.field.onChange(next.durationSeconds)
+      }}
+    />
+  )
+}
+
 export function TimerScheduleSection(
   props: Readonly<{
     control: Control<TimerFormValues>
+    allowScheduleMode?: boolean
     localTz: string
     timezone: string
+    scheduleMode: TimerFormValues["scheduleMode"]
     repeatEnabled: boolean
     repeatType: TimerFormRecurrenceType
     repeatPreview: string[]
@@ -201,158 +224,189 @@ export function TimerScheduleSection(
   }>,
 ) {
   const { control } = props
+  const session = authClient.useSession()
+  const signedIn = Boolean(session.data?.user)
+  const durationMode = props.allowScheduleMode === true && props.scheduleMode === "in"
 
   return (
     <>
-      <div className="grid min-w-0 grid-cols-2 gap-3">
+      {props.allowScheduleMode ? (
         <Controller
           control={control}
-          name="date"
-          render={({ field }) => (
-            <div className="grid min-w-0 gap-2">
-              <Label>{formatMessage("timer.form.date")}</Label>
-              <DatePicker value={field.value} onChange={field.onChange} />
-            </div>
-          )}
+          name="scheduleMode"
+          render={({ field }) => <ScheduleModeToggle value={field.value ?? "at"} onChange={field.onChange} />}
         />
-        <Controller
-          control={control}
-          name="time"
-          render={({ field }) => (
-            <div className="grid min-w-0 gap-2">
-              <Label>{formatMessage("timer.form.time")}</Label>
-              <TimePicker value={field.value} onChange={field.onChange} />
-            </div>
-          )}
-        />
-      </div>
+      ) : null}
 
-      <Controller
-        control={control}
-        name="timezone"
-        render={({ field }) => (
-          <div className="grid gap-2">
-            <Label>{formatMessage("timer.form.timezone")}</Label>
-            <TimezoneSelect value={field.value} onChange={field.onChange} localTz={props.localTz} />
-          </div>
-        )}
-      />
-
-      <Controller
-        control={control}
-        name="notify"
-        render={({ field }) => (
-          <div
-            className={[
-              "rounded-xl border p-3 transition-colors",
-              field.value ? "border-primary/30 bg-primary/[0.03]" : "border-border",
-            ].join(" ")}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 gap-3">
-                <div
-                  className={[
-                    "mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border",
-                    field.value ? "border-primary/30 text-primary" : "text-muted-foreground",
-                  ].join(" ")}
-                >
-                  {field.value ? <BellRingIcon className="size-4" /> : <BellIcon className="size-4" />}
-                </div>
-                <div className="min-w-0">
-                  <Label htmlFor="notify" className="text-sm font-medium">
-                    {formatMessage("timer.form.notifyMe")}
-                  </Label>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {formatMessage(
-                      field.value && !props.isPastDate
-                        ? "notifications.timerAlarm.ready"
-                        : "notifications.timerAlarm.description",
-                    )}
-                  </p>
-                </div>
-              </div>
-              <Switch id="notify" checked={field.value} onCheckedChange={(checked) => props.onNotifyChange(checked)} />
-            </div>
-            {field.value && props.isPastDate ? (
-              <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
-                {formatMessage("notifications.futureOnly.inline")}
-              </p>
-            ) : null}
-          </div>
-        )}
-      />
-
-      <div className="grid gap-2">
-        <Controller
-          control={control}
-          name="repeatEnabled"
-          render={({ field }) => (
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                id="repeat"
-                checked={field.value}
-                onChange={(e) => field.onChange(e.target.checked)}
-                className="size-4 rounded border accent-primary"
-              />
-              <Label htmlFor="repeat" className="text-sm font-normal">
-                {formatMessage("timer.form.repeat")}
-              </Label>
-            </div>
-          )}
-        />
-        {props.repeatEnabled ? (
-          <>
-            <div className="text-xs text-muted-foreground">{formatMessage("timer.form.repeatDescription")}</div>
+      {durationMode ? (
+        <TimerDurationField control={control} />
+      ) : (
+        <>
+          <div className="grid min-w-0 grid-cols-2 gap-3">
             <Controller
               control={control}
-              name="repeatType"
+              name="date"
               render={({ field }) => (
-                <div className="flex flex-wrap gap-2">
-                  {RECURRENCE_TYPES.map((type) => (
-                    <button
-                      key={type}
-                      type="button"
-                      className={[
-                        "rounded-full border px-3 py-1 text-xs transition-colors",
-                        field.value === type
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border text-muted-foreground hover:text-foreground",
-                      ].join(" ")}
-                      onClick={() => field.onChange(type)}
-                    >
-                      {formatMessage(RECURRENCE_TYPE_LABEL_KEYS[type])}
-                    </button>
-                  ))}
+                <div className="grid min-w-0 gap-2">
+                  <Label>{formatMessage("timer.form.date")}</Label>
+                  <DatePicker value={field.value} onChange={field.onChange} />
                 </div>
               )}
             />
-            {props.repeatType === "monthly" ? (
+            <Controller
+              control={control}
+              name="time"
+              render={({ field }) => (
+                <div className="grid min-w-0 gap-2">
+                  <Label>{formatMessage("timer.form.time")}</Label>
+                  <TimePicker value={field.value} onChange={field.onChange} />
+                </div>
+              )}
+            />
+          </div>
+
+          <Controller
+            control={control}
+            name="timezone"
+            render={({ field }) => (
+              <div className="grid gap-2">
+                <Label>{formatMessage("timer.form.timezone")}</Label>
+                <TimezoneSelect value={field.value} onChange={field.onChange} localTz={props.localTz} />
+              </div>
+            )}
+          />
+        </>
+      )}
+
+      <div className="grid gap-3 rounded-xl border border-border p-3">
+        <div className="text-sm font-medium">{formatMessage("timer.form.alertsReminders")}</div>
+        <Controller
+          control={control}
+          name="notify"
+          render={({ field }) => (
+            <div
+              className={["rounded-lg p-3 transition-colors", field.value ? "bg-primary/[0.03]" : "bg-muted/30"].join(
+                " ",
+              )}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 gap-3">
+                  <div
+                    className={[
+                      "mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border",
+                      field.value ? "border-primary/30 text-primary" : "text-muted-foreground",
+                    ].join(" ")}
+                  >
+                    {field.value ? <BellRingIcon className="size-4" /> : <BellIcon className="size-4" />}
+                  </div>
+                  <div className="min-w-0">
+                    <Label htmlFor="notify" className="text-sm font-medium">
+                      {formatMessage("timer.form.notifyMe")}
+                    </Label>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatMessage(
+                        field.value && !props.isPastDate
+                          ? "notifications.timerAlarm.ready"
+                          : "notifications.timerAlarm.description",
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  id="notify"
+                  checked={field.value}
+                  onCheckedChange={(checked) => props.onNotifyChange(checked)}
+                />
+              </div>
+              {field.value && props.isPastDate ? (
+                <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                  {formatMessage("notifications.futureOnly.inline")}
+                </p>
+              ) : null}
+            </div>
+          )}
+        />
+        <div className="border-t pt-3">
+          <TimerRemindersField control={control} />
+          {!signedIn ? (
+            <p className="mt-2 text-xs text-muted-foreground">{formatMessage("timer.form.reminders.signInHint")}</p>
+          ) : null}
+        </div>
+      </div>
+
+      {!durationMode ? (
+        <div className="grid gap-2">
+          <Controller
+            control={control}
+            name="repeatEnabled"
+            render={({ field }) => (
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="repeat"
+                  checked={field.value}
+                  onChange={(e) => field.onChange(e.target.checked)}
+                  className="size-4 rounded border accent-primary"
+                />
+                <Label htmlFor="repeat" className="text-sm font-normal">
+                  {formatMessage("timer.form.repeat")}
+                </Label>
+              </div>
+            )}
+          />
+          {props.repeatEnabled ? (
+            <>
+              <div className="text-xs text-muted-foreground">{formatMessage("timer.form.repeatDescription")}</div>
               <Controller
                 control={control}
-                name="lastDay"
+                name="repeatType"
                 render={({ field }) => (
-                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={field.value}
-                      onChange={(e) => field.onChange(e.target.checked)}
-                      className="size-3.5 rounded border accent-primary"
-                    />
-                    <span>{formatMessage("timer.form.lastDayOfMonth")}</span>
-                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {RECURRENCE_TYPES.map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        className={[
+                          "rounded-full border px-3 py-1 text-xs transition-colors",
+                          field.value === type
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border text-muted-foreground hover:text-foreground",
+                        ].join(" ")}
+                        onClick={() => field.onChange(type)}
+                      >
+                        {formatMessage(RECURRENCE_TYPE_LABEL_KEYS[type])}
+                      </button>
+                    ))}
+                  </div>
                 )}
               />
-            ) : null}
-            {props.repeatPreview.length > 0 ? (
-              <div className="text-xs text-muted-foreground">
-                {formatMessage("timer.form.nextPreview")}{" "}
-                <span className="text-foreground">{repeatPreviewLabel(props.repeatPreview, props.timezone)}</span>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-      </div>
+              {props.repeatType === "monthly" ? (
+                <Controller
+                  control={control}
+                  name="lastDay"
+                  render={({ field }) => (
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={field.value}
+                        onChange={(e) => field.onChange(e.target.checked)}
+                        className="size-3.5 rounded border accent-primary"
+                      />
+                      <span>{formatMessage("timer.form.lastDayOfMonth")}</span>
+                    </label>
+                  )}
+                />
+              ) : null}
+              {props.repeatPreview.length > 0 ? (
+                <div className="text-xs text-muted-foreground">
+                  {formatMessage("timer.form.nextPreview")}{" "}
+                  <span className="text-foreground">{repeatPreviewLabel(props.repeatPreview, props.timezone)}</span>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
     </>
   )
 }

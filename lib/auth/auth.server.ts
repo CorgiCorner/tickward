@@ -33,10 +33,6 @@ function createTickwardAuth(args: {
         allowedAttempts: 3,
         storeOTP: "hashed",
         overrideDefaultEmailVerification: true,
-        rateLimit: {
-          window: 60,
-          max: 1,
-        },
         async sendVerificationOTP(data) {
           sendEmailOtpWithoutTimingSignal(data)
         },

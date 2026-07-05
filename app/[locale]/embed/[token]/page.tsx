@@ -34,6 +34,10 @@ export default async function EmbedPage(props: PageProps) {
   const { token } = await props.params
   const embed = parseEmbedParams(await props.searchParams)
   const resolved = isRoutableShareId(token) ? await resolveTimerShare(token) : null
+  // A stored target that does not parse to a real instant gets the neutral
+  // card too: a NaN countdown inside someone's site is worse than
+  // "unavailable" (the stored-shape check is format-only, not calendar-aware).
+  const displayable = resolved && Number.isFinite(new Date(resolved.timer.targetDate).getTime()) ? resolved : null
   const attribution = getEmbedAttribution()
 
   const themeClass = embed.theme === "auto" ? undefined : embed.theme
@@ -58,19 +62,19 @@ export default async function EmbedPage(props: PageProps) {
     >
       <style>{"html, body { background: transparent !important; }"}</style>
       {isRoutableShareId(token) ? <EmbedBeacon token={token} /> : null}
-      {resolved ? (
+      {displayable ? (
         <EmbedTimer
-          label={resolved.timer.label}
-          targetDateIsoUtc={resolved.timer.targetDate}
-          timezone={resolved.timer.timezone}
+          label={displayable.timer.label}
+          targetDateIsoUtc={displayable.timer.targetDate}
+          timezone={displayable.timer.timezone}
           layout={embed.layout}
           // Timer color acts as the default accent (contract open question 5).
-          accent={embed.accent ?? parseHexColor(resolved.timer.color)}
+          accent={embed.accent ?? parseHexColor(displayable.timer.color)}
           background={cardBackground}
           doneText={embed.doneText}
           endMode={embed.endMode}
           labels={embed.labels}
-          restartOnFinish={resolved.timer.refreshOnFinish}
+          restartOnFinish={displayable.timer.refreshOnFinish}
           showTarget={embed.showTarget}
           transparent={transparent}
           attribution={attribution}

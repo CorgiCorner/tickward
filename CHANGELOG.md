@@ -2,7 +2,25 @@
 
 ## Unreleased
 
-No unreleased public changes.
+## 0.8.0 - 2026-07-05
+
+### Added
+
+- Added calendar-style timer reminders with in-app inbox, Web Push, and opt-in email delivery.
+- Added duration-based timer creation, optional labels, and native mobile date/time pickers.
+- Added `llms.txt`, `llms-full.txt`, and a plans-and-limits docs page for self-hosted limits.
+
+### Changed
+
+- Refreshed the demo project and press screenshots with recurring and completed timers.
+- Improved timer-list and account-surface responsiveness with lazy loading and boundary-based updates.
+
+### Fixed
+
+- Prevented iOS Safari from zooming while using Quick Add.
+- Stopped expired embeds from reload-looping and kept timer rendering resilient to unsupported time zones.
+- Corrected public copy and docs around timer/project limits and self-hosted limit variables.
+- Stopped duplicate inbox polling and kept recurring reminders active.
 
 ## 0.7.1 - 2026-06-30
 

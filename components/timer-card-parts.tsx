@@ -1,26 +1,10 @@
-import {
-  BellOffIcon,
-  EllipsisVerticalIcon,
-  ExternalLinkIcon,
-  FolderIcon,
-  PinIcon,
-  PinOffIcon,
-  RepeatIcon,
-} from "lucide-react"
+import { BellOffIcon, EllipsisVerticalIcon, ExternalLinkIcon, PinIcon, PinOffIcon, RepeatIcon } from "lucide-react"
 import Image from "next/image"
-import { useState, type MouseEvent, type ReactNode } from "react"
+import type { MouseEvent, ReactNode } from "react"
 
-import { EmbedSnippetControls, parseShareUrl } from "@/components/embed-snippet"
-import { TimerFocusAction } from "@/components/timer-focus-mode"
+import { TimerFocusAction } from "@/components/timer-focus-action"
+import { useNow } from "@/components/use-now"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,7 +12,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatMessage, formatPluralMessage } from "@/lib/i18n/messages"
 import { timerNotificationsEnabled } from "@/lib/notification-preferences"
@@ -93,7 +76,7 @@ function TimerRecurrenceBadge(props: Readonly<{ timer: Timer; history: Recurrenc
         {props.history.count > 0 && props.history.last
           ? formatMessage("timer.recurrence.history", {
               count: props.history.count,
-              last: formatTargetInTimeZone(props.history.last, props.timer.timezone),
+              last: formatTargetInTimeZone(props.history.last, props.timer.timezone) ?? props.history.last,
             })
           : formatMessage("timer.recurrence.nextShown")}
       </TooltipContent>
@@ -194,8 +177,9 @@ function TimerProgressBar(
 
   const rawProgress = ((props.nowMs - startedAt) / (targetAt - startedAt)) * 100
   const progress = Math.max(0, Math.min(100, rawProgress))
-  const startDate = formatTargetInTimeZone(new Date(startedAt).toISOString(), props.timer.timezone)
-  const targetDate = formatTargetInTimeZone(props.effectiveTarget, props.timer.timezone)
+  const startIso = new Date(startedAt).toISOString()
+  const startDate = formatTargetInTimeZone(startIso, props.timer.timezone) ?? startIso
+  const targetDate = formatTargetInTimeZone(props.effectiveTarget, props.timer.timezone) ?? props.effectiveTarget
 
   const startMessage = formatMessage("timer.progress.start", { date: startDate })
   const targetMessage = formatMessage("timer.progress.target", { date: targetDate })
@@ -218,6 +202,31 @@ function TimerProgressBar(
         {startMessage} → {targetMessage}
       </TooltipContent>
     </Tooltip>
+  )
+}
+
+function TimerLiveCountdown(
+  props: Readonly<{
+    timer: Timer
+    effectiveTarget: string
+    history: RecurrenceHistory
+    hasDragHandle: boolean
+  }>,
+) {
+  const nowMs = useNow()
+
+  return (
+    <>
+      <div className={cn("mt-5 min-w-0 overflow-x-auto pb-1", props.hasDragHandle ? "pl-5" : "")}>
+        <HeroCountdown targetDateIsoUtc={props.effectiveTarget} nowMs={nowMs} />
+      </div>
+      <TimerProgressBar
+        timer={props.timer}
+        effectiveTarget={props.effectiveTarget}
+        nowMs={nowMs}
+        history={props.history}
+      />
+    </>
   )
 }
 
@@ -274,17 +283,11 @@ export function TimerCardContent(
         </div>
       </div>
 
-      {/* Match the title block's left inset so the countdown lines up with the
-          title, not with the drag handle gutter. */}
-      <div className={cn("mt-5 min-w-0 overflow-x-auto pb-1", props.dragHandle ? "pl-5" : "")}>
-        <HeroCountdown targetDateIsoUtc={props.effectiveTarget} nowMs={props.nowMs} />
-      </div>
-
-      <TimerProgressBar
+      <TimerLiveCountdown
         timer={props.timer}
         effectiveTarget={props.effectiveTarget}
-        nowMs={props.nowMs}
         history={props.history}
+        hasDragHandle={Boolean(props.dragHandle)}
       />
     </article>
   )
@@ -582,115 +585,6 @@ export function TimerCardDesktopActions(
         onDelete={props.onDelete}
       />
     </div>
-  )
-}
-
-export function MoveToProjectDialog(
-  props: Readonly<{
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    projects: { id: string; name: string }[]
-    onMove: (projectId: string) => void
-  }>,
-) {
-  return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{formatMessage("timer.move.title")}</DialogTitle>
-          <DialogDescription>{formatMessage("timer.move.description")}</DialogDescription>
-        </DialogHeader>
-        {props.projects.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{formatMessage("timer.move.empty")}</p>
-        ) : (
-          <div className="grid gap-1">
-            {props.projects.map((project) => (
-              <button
-                key={project.id}
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm outline-none transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-                onClick={() => props.onMove(project.id)}
-              >
-                <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">{project.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-export function TimerShareDialog(
-  props: Readonly<{
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    shareUrl: string
-    shareLoading: boolean
-    hasSharedMarker: boolean
-    timerLabel: string
-    onCreateAndCopy: () => void
-  }>,
-) {
-  const [tab, setTab] = useState<"link" | "embed">("link")
-  let actionLabel = formatMessage("share.createLink")
-  if (props.shareUrl) actionLabel = formatMessage("share.copyLinkAction")
-  else if (props.hasSharedMarker) actionLabel = formatMessage("share.restoreLink")
-
-  const parsed = props.shareUrl ? parseShareUrl(props.shareUrl) : null
-  const showTabs = Boolean(parsed)
-  const activeTab = showTabs ? tab : "link"
-
-  function handleOpenChange(open: boolean) {
-    if (open) setTab("link")
-    props.onOpenChange(open)
-  }
-
-  return (
-    <Dialog open={props.open} onOpenChange={handleOpenChange}>
-      <DialogContent className={cn(activeTab === "embed" && "sm:max-w-2xl")}>
-        <DialogHeader>
-          <DialogTitle>{formatMessage("share.timerDialog.title")}</DialogTitle>
-          <DialogDescription>
-            {formatMessage(activeTab === "embed" ? "share.embed.description" : "share.timerDialog.description")}
-          </DialogDescription>
-        </DialogHeader>
-
-        {showTabs && (
-          <div role="tablist" className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
-            {(["link", "embed"] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === value}
-                onClick={() => setTab(value)}
-                className={cn(
-                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                  activeTab === value ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {formatMessage(value === "link" ? "share.timerDialog.linkTab" : "share.embed.tab")}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {activeTab === "embed" && parsed ? (
-          <EmbedSnippetControls origin={parsed.origin} shareId={parsed.shareId} timerLabel={props.timerLabel} />
-        ) : (
-          <>
-            <div className="grid gap-3">{props.shareUrl ? <Input value={props.shareUrl} readOnly /> : null}</div>
-            <DialogFooter>
-              <Button type="button" loading={props.shareLoading} onClick={props.onCreateAndCopy}>
-                {actionLabel}
-              </Button>
-            </DialogFooter>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
   )
 }
 

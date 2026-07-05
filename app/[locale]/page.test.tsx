@@ -3,7 +3,10 @@ import { Suspense } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import Home from "@/app/[locale]/page"
+import { FaqSection } from "@/components/faq-section"
+import { GitHubStarCta } from "@/components/github-star-cta"
 import { HomeContentSection } from "@/components/home-content-section"
+import { HomeUseCasesSection } from "@/components/home-use-cases-section"
 import { SiteFooter } from "@/components/site-footer"
 
 vi.mock("next/headers", () => ({
@@ -28,7 +31,10 @@ vi.mock("@/components/home-client", () => ({
   HomeClient: () => null,
 }))
 
-type PageChild = ReactElement<{ dangerouslySetInnerHTML?: { __html: string } }>
+type PageChild = ReactElement<{
+  children?: PageChild | PageChild[]
+  dangerouslySetInnerHTML?: { __html: string }
+}>
 
 // Only the Suspense-wrapped personalized child awaits cookies/headers; the
 // page itself just resolves its locale param. Inspecting the returned element
@@ -46,13 +52,32 @@ describe("Home page shell", () => {
     expect(script?.props.dangerouslySetInnerHTML?.__html).toContain('"@type":"SoftwareApplication"')
   })
 
-  it("renders the hero content section and site footer outside the Suspense boundary", async () => {
-    const types = (await pageChildren()).map((child) => child.type)
+  it("keeps the FAQPage JSON-LD script", async () => {
+    const scripts = (await pageChildren()).filter((child) => child.type === "script")
+
+    expect(scripts.some((script) => script.props.dangerouslySetInnerHTML?.__html.includes('"@type":"FAQPage"'))).toBe(
+      true,
+    )
+  })
+
+  it("renders the hero, star CTA, FAQ, use cases, and site footer outside the Suspense boundary", async () => {
+    const children = await pageChildren()
+    const types = children.map((child) => child.type)
     const suspenseIndex = types.indexOf(Suspense)
+    const contentIndex = types.indexOf(HomeContentSection)
+    const starCtaIndex = types.indexOf(GitHubStarCta)
+    const faqIndex = children.findIndex((child) => {
+      const nested = child.props.children
+      return !Array.isArray(nested) && nested?.type === FaqSection
+    })
+    const useCasesIndex = types.indexOf(HomeUseCasesSection)
 
     expect(suspenseIndex).toBeGreaterThanOrEqual(0)
-    expect(types.indexOf(HomeContentSection)).toBeGreaterThan(suspenseIndex)
-    expect(types.indexOf(SiteFooter)).toBeGreaterThan(types.indexOf(HomeContentSection))
+    expect(contentIndex).toBeGreaterThan(suspenseIndex)
+    expect(starCtaIndex).toBe(contentIndex + 1)
+    expect(faqIndex).toBeGreaterThan(starCtaIndex)
+    expect(useCasesIndex).toBeGreaterThan(faqIndex)
+    expect(types.indexOf(SiteFooter)).toBeGreaterThan(useCasesIndex)
   })
 
   it("renders the Polish home page from the same component", async () => {

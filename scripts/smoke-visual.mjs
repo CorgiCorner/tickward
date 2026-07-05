@@ -12,7 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(__dirname, "..")
 const host = "127.0.0.1"
 const externalBaseUrl = process.env.SMOKE_BASE_URL?.replace(/\/$/, "")
-const timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS ?? 60_000)
+const timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS ?? 180_000)
 const screenshotDir = process.env.SMOKE_VISUAL_DIR ?? "/tmp/tickward-visual-smoke"
 // Docs stay locale-neutral at the bare /docs path (see lib/docs-config).
 const expectedDocsHref = process.env.SMOKE_EXPECT_DOCS_HREF ?? "/docs"
@@ -304,11 +304,11 @@ async function assertNoHorizontalOverflow(page, label) {
 }
 
 async function assertMobileInputs(page, label) {
-  // The redesigned quick-add is a flat bar: a single inline "Add a timer…" text
-  // input (h-9) plus a date/time/timezone popover trigger. There are no longer
-  // inline native date/time inputs, so we assert the inline input stays h-9.
+  // The quick-add is a flat bar: a single inline timer label input (h-9) plus a
+  // schedule popover trigger. There are no longer inline native date/time
+  // inputs, so we assert the inline input stays h-9.
   const metrics = await page.evaluate(() => {
-    const name = document.querySelector('input[placeholder="Add a timer…"]')
+    const name = document.querySelector('input[aria-label="Label"]')
     if (!(name instanceof HTMLElement)) {
       return null
     }
@@ -356,7 +356,7 @@ async function openSeededHome(browserType, baseUrl, projectName) {
   const browserErrors = collectBrowserErrors(page)
   await installRoutes(page)
   await page.goto("/", { waitUntil: "domcontentloaded" })
-  await page.getByPlaceholder("Add a timer…").waitFor({ state: "visible", timeout: 10_000 })
+  await page.getByRole("textbox", { name: "Label" }).first().waitFor({ state: "visible", timeout: 10_000 })
   return { browser, browserErrors, page }
 }
 
@@ -512,6 +512,7 @@ async function runUnsplashSpacingSmoke(baseUrl) {
 
     const dialog = page.getByRole("dialog", { name: "Edit timer" })
     await dialog.waitFor({ state: "visible", timeout: 10_000 })
+    await dialog.getByRole("button", { name: "Customize" }).click()
     await dialog.getByRole("button", { name: "Add photo" }).click()
 
     const emptySpacing = await page.evaluate(() => {

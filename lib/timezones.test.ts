@@ -1,10 +1,20 @@
-import { beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { DEFAULT_TIMEZONE_STORAGE_KEY, getDefaultTimeZone, isSupportedTimeZone } from "@/lib/timezones"
+import {
+  DEFAULT_TIMEZONE_STORAGE_KEY,
+  getBrowserTimeZone,
+  getDefaultTimeZone,
+  isSupportedTimeZone,
+  normalizeTimeZone,
+} from "@/lib/timezones"
 
 describe("timezones", () => {
   beforeEach(() => {
     localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it("uses a valid stored default timezone", () => {
@@ -22,5 +32,31 @@ describe("timezones", () => {
   it("validates IANA timezone values through Intl", () => {
     expect(isSupportedTimeZone("Europe/Warsaw")).toBe(true)
     expect(isSupportedTimeZone("not/a-zone")).toBe(false)
+  })
+
+  it("normalizes zones the runtime cannot resolve to UTC", () => {
+    expect(normalizeTimeZone("Europe/Warsaw")).toBe("Europe/Warsaw")
+    expect(normalizeTimeZone("not/a-zone")).toBe("UTC")
+  })
+
+  it("falls back to UTC when the browser reports a zone Intl rejects as input", () => {
+    const resolved = Intl.DateTimeFormat().resolvedOptions()
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      ...resolved,
+      timeZone: "Etc/Unknown",
+    })
+
+    expect(getBrowserTimeZone()).toBe("UTC")
+    expect(getDefaultTimeZone()).toBe("UTC")
+  })
+
+  it("keeps a browser-reported zone that Intl accepts", () => {
+    const resolved = Intl.DateTimeFormat().resolvedOptions()
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      ...resolved,
+      timeZone: "Europe/Warsaw",
+    })
+
+    expect(getBrowserTimeZone()).toBe("Europe/Warsaw")
   })
 })

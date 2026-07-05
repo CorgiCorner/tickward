@@ -2,11 +2,18 @@ import "server-only"
 
 import { createHash } from "node:crypto"
 
-import type { DeliveryResult, NotificationRecipient, TimerFinishedDeliveryCommand } from "@/lib/notification-delivery"
+import type {
+  DeliveryResult,
+  NotificationRecipient,
+  TimerFinishedDeliveryCommand,
+  TimerReminderDeliveryCommand,
+} from "@/lib/notification-delivery"
+
+type NotificationDeliveryCommand = TimerFinishedDeliveryCommand | TimerReminderDeliveryCommand
 
 export type NotificationDeliveryEvent = {
   transactionId: string
-  workflowIdentifier: TimerFinishedDeliveryCommand["workflowIdentifier"]
+  workflowIdentifier: NotificationDeliveryCommand["workflowIdentifier"]
   subscriberId?: string
   timerId: string
   channel: DeliveryResult["channel"]
@@ -60,7 +67,7 @@ export function notificationRecipientFingerprint(channel: DeliveryResult["channe
 }
 
 export function notificationDeliveryEventFromResult(
-  command: TimerFinishedDeliveryCommand,
+  command: NotificationDeliveryCommand,
   result: DeliveryResult,
   occurredAt = new Date().toISOString(),
 ): NotificationDeliveryEvent {

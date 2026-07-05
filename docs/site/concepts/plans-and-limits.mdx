@@ -1,0 +1,51 @@
+---
+title: "Plans and Limits"
+description: "What the free plan includes, the default limits, and how self-hosted deployments configure their own."
+---
+
+tickward has one plan. It is free and it includes every feature: timers with
+timezones and recurrence, projects and spaces, share links, embeds, device
+notifications, the REST API, webhooks, and MCP. There is no paid tier, no
+feature gating, and no trial clock.
+
+## Default limits
+
+The same limits apply to every project, signed in or not:
+
+| Limit | Default |
+|-|-|
+| Active timers per project | 20 |
+| Active timers per space | 20 |
+| Projects in a browser's registry | 10 |
+| Spaces per project | 2 |
+| Timers per saved snapshot | 50 |
+
+Archived timers do not count toward the active-timer caps. The snapshot cap
+is intentionally looser than the creation cap so a project written through
+the public API — which may hold up to 50 timers — still saves and restores;
+the lower cap only blocks creating new timers in the client. See
+[Where Timers Live](/concepts/where-timers-live#limits) for how each limit is
+enforced.
+
+## Self-hosted deployments choose their own
+
+A self-hosted tickward sets most limits at build time:
+
+| Limit | Environment variable |
+|-|-|
+| Active timers per project | `NEXT_PUBLIC_TICKWARD_MAX_TIMERS` |
+| Active timers per space | `NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE` |
+| Projects | `NEXT_PUBLIC_TICKWARD_MAX_PROJECTS` |
+| Spaces per project | `NEXT_PUBLIC_TICKWARD_MAX_SPACES` |
+
+Values are validated as integers from 1 to 1000; invalid values fall back to
+the defaults. The snapshot cap has no override. See
+[Self-Hosting](/guides/self-hosting) for the full deployment configuration.
+
+## Why limits at all?
+
+The hosted app is free and works without an account, so the limits are what
+keep it fast and abuse-resistant for everyone. If a limit is in your way,
+self-host with your own values, or open a GitHub issue describing the use
+case — limits are plan attributes in the code, not hard-wired constants, and
+real usage reports shape where the defaults go next.

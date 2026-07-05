@@ -21,7 +21,7 @@ vi.mock("@/components/project-switcher", () => ({
   ProjectSwitcher: () => <div data-testid="project-switcher" />,
 }))
 
-vi.mock("@/components/account-auth", () => ({
+vi.mock("@/components/account-button", () => ({
   AccountButton: () => <span>Sign in</span>,
 }))
 
@@ -31,6 +31,10 @@ vi.mock("@/components/github-repo-button", () => ({
       GitHub stars
     </a>
   ),
+}))
+
+vi.mock("@/components/notification-bell", () => ({
+  NotificationBell: () => <button type="button">Notifications</button>,
 }))
 
 vi.mock("@/components/settings-sheet", () => ({
@@ -92,6 +96,7 @@ describe("Header", () => {
 
     const header = screen.getByRole("banner")
     expect(within(header).getByText("GitHub stars")).toHaveAttribute("data-variant", "compact")
+    expect(within(header).getByRole("button", { name: "Notifications" })).toBeVisible()
     expect(within(header).getByText("Sign in")).toBeVisible()
     expect(within(header).getByRole("button", { name: "Toggle theme" })).toBeVisible()
   })

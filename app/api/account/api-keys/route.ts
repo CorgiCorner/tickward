@@ -1,52 +1,33 @@
-import { getCurrentActor } from "@/lib/actor.server"
 import { apiError, apiJson, apiList, isResponse } from "@/lib/api-response"
+import {
+  accountRouteStorageUnavailable,
+  enforceAccountRateLimit,
+  readAccountRouteJson,
+  requireSignedInUser,
+} from "@/lib/account-api-route.server"
 import {
   createApiKeyForUser,
   listApiKeysForUser,
   normalizeApiKeyName,
   normalizeApiKeyPermission,
 } from "@/lib/api-keys.server"
-import type { UserActor } from "@/lib/contracts"
-import { checkRateLimit } from "@/lib/rate-limit.server"
 
 export const runtime = "nodejs"
 
-async function signedInUser(req: Request): Promise<UserActor | Response> {
-  try {
-    const actor = await getCurrentActor({ request: req })
-    if (actor.kind === "user") return actor
-  } catch {}
-  return apiError("unauthorized", "Sign in to manage API keys.", { status: 401 })
-}
-
-async function enforceManagementRateLimit(userId: string) {
-  try {
-    const rateLimit = await checkRateLimit("api-key-management", `user:${userId}`)
-    if (rateLimit.allowed) return null
-    return apiError("rate_limited", "Too many requests.", { headers: rateLimit.headers, status: 429 })
-  } catch {
-    return apiError("rate_limit_unavailable", "Rate limit unavailable.", { status: 503 })
-  }
-}
-
-async function readJson(req: Request) {
-  try {
-    return await req.json()
-  } catch {
-    return apiError("validation_error", "Request body must be valid JSON.", { status: 400 })
-  }
-}
-
 function apiKeyStorageUnavailable(operation: string, error: unknown) {
-  console.error(`[tickward] apiKeys.${operation}`, error)
-  return apiError("storage_unavailable", "API key storage is unavailable.", { status: 503 })
+  return accountRouteStorageUnavailable({
+    error,
+    logName: "apiKeys",
+    message: "API key storage is unavailable.",
+    operation,
+  })
 }
 
 export async function GET(req: Request) {
-  const actor = await signedInUser(req)
+  const actor = await requireSignedInUser(req, "Sign in to manage API keys.")
   if (isResponse(actor)) return actor
 
-  const rateLimit = await enforceManagementRateLimit(actor.user.id)
+  const rateLimit = await enforceAccountRateLimit({ bucket: "api-key-management", key: `user:${actor.user.id}` })
   if (rateLimit) return rateLimit
 
   try {
@@ -58,13 +39,13 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const actor = await signedInUser(req)
+  const actor = await requireSignedInUser(req, "Sign in to manage API keys.")
   if (isResponse(actor)) return actor
 
-  const rateLimit = await enforceManagementRateLimit(actor.user.id)
+  const rateLimit = await enforceAccountRateLimit({ bucket: "api-key-management", key: `user:${actor.user.id}` })
   if (rateLimit) return rateLimit
 
-  const body = await readJson(req)
+  const body = await readAccountRouteJson(req)
   if (isResponse(body)) return body
 
   const objectBody = body && typeof body === "object" ? (body as Record<string, unknown>) : {}

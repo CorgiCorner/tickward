@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     error: null as string | null,
     loading: false,
     preferences: {
+      email_reminders: false,
       full_page_alarm: false,
       notification_sound: "none" as NotificationSound,
     },
@@ -45,6 +46,7 @@ describe("NotificationSettingsPanel", () => {
       error: null,
       loading: false,
       preferences: {
+        email_reminders: false,
         full_page_alarm: false,
         notification_sound: "none",
       },
@@ -54,6 +56,7 @@ describe("NotificationSettingsPanel", () => {
     mocks.updatePreferences.mockResolvedValue({
       object: "account_preferences",
       default_timezone: null,
+      email_reminders: false,
       full_page_alarm: false,
       notification_sound: "none",
     })
@@ -76,6 +79,7 @@ describe("NotificationSettingsPanel", () => {
 
     expect(screen.getByRole("heading", { name: "Device notifications" })).toBeVisible()
     expect(screen.getByRole("heading", { name: "Alarm defaults" })).toBeVisible()
+    expect(screen.getByLabelText("Email reminders")).toBeVisible()
 
     await user.click(screen.getByRole("button", { name: "Enable on this device" }))
 
@@ -91,6 +95,16 @@ describe("NotificationSettingsPanel", () => {
     expect(mocks.updatePreferences).toHaveBeenCalledWith({ notification_sound: "polite" })
     const audio = await import("@/lib/notification-audio.client")
     expect(audio.playNotificationSound).not.toHaveBeenCalled()
+  })
+
+  it("updates the email reminders account preference", async () => {
+    const user = userEvent.setup()
+
+    render(<NotificationSettingsPanel />)
+
+    await user.click(screen.getByLabelText("Email reminders"))
+
+    expect(mocks.updatePreferences).toHaveBeenCalledWith({ email_reminders: true })
   })
 
   it("disables device notifications without changing account defaults", async () => {

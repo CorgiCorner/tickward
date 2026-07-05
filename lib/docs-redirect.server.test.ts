@@ -45,10 +45,10 @@ describe("redirectToDocs", () => {
     })
   })
 
-  it("redirects root LLM files to the docs subpath", () => {
-    const res = redirectToDocsSubpath(new Request("https://app.example.test/llms.txt?ref=agent"), "/llms.txt")
+  it("redirects root subpath files to the docs subpath", () => {
+    const res = redirectToDocsSubpath(new Request("https://app.example.test/llms-full.txt?ref=agent"), "/llms-full.txt")
 
     expect(res.status).toBe(308)
-    expect(res.headers.get("location")).toBe("https://app.example.test/docs/llms.txt?ref=agent")
+    expect(res.headers.get("location")).toBe("https://app.example.test/docs/llms-full.txt?ref=agent")
   })
 })

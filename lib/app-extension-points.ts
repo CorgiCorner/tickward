@@ -30,5 +30,8 @@ export type AppExtensions = {
   marketingFooterLinks?: () => MarketingFooterLink[]
   marketingFooterSections?: (locale: string) => MarketingFooterSection[]
   marketingCountryCalendars?: (locale: string) => MarketingCountryCalendarGroup[]
+  marketingHomeEmbedHref?: () => string
+  marketingHomeUseCases?: (locale: string) => MarketingFooterLink[]
   marketingSitemapEntries?: () => MarketingSitemapEntry[]
+  llmsMarketingLinks?: () => MarketingFooterLink[]
 }

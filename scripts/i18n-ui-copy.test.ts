@@ -7,7 +7,7 @@ const scanRoots = ["app", "components", "lib"].map((root) => path.join(process.c
 const skippedDirs = [".next", "components/storybook", "lib/generated", "lib/i18n", "node_modules", "storybook-static"]
 
 const skippedFilePatterns = [/\.stories\.[cm]?[tj]sx?$/, /\.test\.[cm]?[tj]sx?$/, /\.d\.ts$/]
-const contentDirs = ["lib/use-cases/content"]
+const contentDirs = ["lib/marketing-content", "lib/use-cases/content"]
 
 const checkedExtensions = new Set([".ts", ".tsx"])
 

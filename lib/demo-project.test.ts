@@ -27,11 +27,12 @@ describe("demo project", () => {
     expect(demo.payload.sortMode).toBe("soonest")
     expect(demo.payload.updatedAt).toBe(demo.project.updatedAt)
     expect(demo.payload.spaces).toHaveLength(2)
+    expect(demo.payload.spaces.map((space) => space.name)).toEqual(["Coming up", "Done"])
     for (const space of demo.payload.spaces) {
       expect(space.name.length).toBeGreaterThan(0)
       expect(space.name.length).toBeLessThanOrEqual(30)
     }
-    expect(demo.payload.timers).toHaveLength(6)
+    expect(demo.payload.timers).toHaveLength(7)
     for (const timer of demo.payload.timers) {
       const description = timer.description ?? ""
       const targetDate = new Date(timer.targetDate)
@@ -39,11 +40,12 @@ describe("demo project", () => {
       expect(timer.label.length).toBeGreaterThan(0)
       expect(description.length).toBeGreaterThan(0)
       expect(targetDate.toISOString()).toBe(timer.targetDate)
-      expect(targetDate.getTime()).toBeGreaterThan(baseDate.getTime())
       expect(timer.spaceId ? spaceIds.has(timer.spaceId) : false).toBe(true)
-      expect(timer.notification?.enabled).toBe(true)
+      expect(timer.notification?.enabled).toBe(timer.notify ?? true)
     }
     expect(demo.payload.timers.filter((timer) => timer.pinned)).toHaveLength(1)
+    expect(demo.payload.timers.filter((timer) => timer.recurrence?.enabled)).toHaveLength(2)
+    expect(demo.payload.timers.some((timer) => new Date(timer.targetDate).getTime() < baseDate.getTime())).toBe(true)
     expect(sharedTimers).toHaveLength(1)
     expect(sharedTimers[0]?.id).toBe(DEMO_SHARED_TIMER_ID)
     expect(sharedTimers[0]?.sourceShareId).toBe(DEMO_SHARE_ID)

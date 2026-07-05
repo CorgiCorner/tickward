@@ -39,15 +39,43 @@ function DialogOverlay({ className, ...props }: Readonly<React.ComponentProps<ty
 
 // Centered card on every breakpoint (default dialog behavior).
 const dialogCardClassName =
-  "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-lg"
+  "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 flex w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)] translate-x-[-50%] translate-y-[-50%] flex-col overflow-hidden rounded-lg border shadow-lg duration-200 outline-none sm:max-w-lg"
 
 // Bottom-anchored sheet on phones, centered card from `sm` up. The mobile values
 // are the unprefixed base; `sm:` reverts each one to the centered-card layout.
 const dialogSheetClassName = cn(
-  "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed z-50 grid gap-4 overflow-y-auto border shadow-lg duration-200 outline-none",
-  "inset-x-0 bottom-0 top-auto w-full max-w-full max-h-[88dvh] translate-x-0 translate-y-0 rounded-t-2xl border-x-0 border-b-0 p-6 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]",
-  "sm:inset-x-auto sm:bottom-auto sm:top-1/2 sm:left-1/2 sm:max-w-lg sm:max-h-[calc(100dvh-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border-x sm:border-b sm:pt-6 sm:pb-6 sm:data-[state=open]:zoom-in-95 sm:data-[state=closed]:zoom-out-95",
+  "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed z-50 flex flex-col overflow-hidden border shadow-lg duration-200 outline-none",
+  "inset-x-0 bottom-0 top-auto w-full max-w-full max-h-[88dvh] translate-x-0 translate-y-0 rounded-t-2xl border-x-0 border-b-0",
+  "sm:inset-x-auto sm:bottom-auto sm:top-1/2 sm:left-1/2 sm:max-w-lg sm:max-h-[calc(100dvh-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border-x sm:border-b sm:data-[state=open]:zoom-in-95 sm:data-[state=closed]:zoom-out-95",
 )
+
+function dialogChildSlot(child: React.ReactNode) {
+  if (!React.isValidElement(child)) return "body"
+  if (child.type === DialogHeader) return "header"
+  if (child.type === DialogFooter) return "footer"
+  return "body"
+}
+
+function splitDialogChildren(children: React.ReactNode) {
+  const header: React.ReactNode[] = []
+  const body: React.ReactNode[] = []
+  const footer: React.ReactNode[] = []
+
+  function pushChild(child: React.ReactNode) {
+    if (React.isValidElement<{ children?: React.ReactNode }>(child) && child.type === React.Fragment) {
+      React.Children.forEach(child.props.children, pushChild)
+      return
+    }
+    const slot = dialogChildSlot(child)
+    if (slot === "header") header.push(child)
+    else if (slot === "footer") footer.push(child)
+    else body.push(child)
+  }
+
+  React.Children.forEach(children, pushChild)
+
+  return { body, footer, header }
+}
 
 function DialogContent({
   className,
@@ -88,8 +116,9 @@ function DialogContent({
 
   const sheetStyle =
     sheetOnMobile && dragY > 0
-      ? { transform: `translateY(${dragY}px)`, transition: dragging ? "none" : undefined }
+      ? { ...style, transform: `translateY(${dragY}px)`, transition: dragging ? "none" : undefined }
       : style
+  const slots = splitDialogChildren(children)
 
   return (
     <DialogPortal data-slot="dialog-portal">
@@ -114,7 +143,33 @@ function DialogContent({
             <span className="h-1.5 w-10 rounded-full bg-muted-foreground/30" />
           </div>
         ) : null}
-        {children}
+        {slots.header.length > 0 ? (
+          <div data-slot="dialog-header-region" className="shrink-0 bg-background px-6 pt-6 sm:pt-6">
+            {slots.header}
+          </div>
+        ) : null}
+        <div
+          data-slot="dialog-body"
+          className={cn(
+            "grid min-h-0 flex-1 gap-4 overflow-y-auto px-6",
+            slots.header.length > 0 ? "pt-4" : "pt-6",
+            slots.footer.length > 0 ? "pb-4" : "pb-6",
+            sheetOnMobile && !slots.footer.length && "pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:pb-6",
+          )}
+        >
+          {slots.body}
+        </div>
+        {slots.footer.length > 0 ? (
+          <div
+            data-slot="dialog-footer-region"
+            className={cn(
+              "shrink-0 bg-background px-6 pb-6 pt-2",
+              sheetOnMobile && "pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:pb-6",
+            )}
+          >
+            {slots.footer}
+          </div>
+        ) : null}
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"

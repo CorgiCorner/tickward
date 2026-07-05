@@ -20,6 +20,7 @@ const actor = { kind: "user" as const, user: { id: "user_123", email: "ada@examp
 const preferences = {
   object: "account_preferences",
   default_timezone: "Europe/Warsaw",
+  email_reminders: false,
   full_page_alarm: true,
   notification_sound: "polite",
 }
@@ -50,6 +51,7 @@ describe("/api/account/preferences", () => {
     const { PATCH } = await import("./route")
     const patch = {
       default_timezone: null,
+      email_reminders: true,
       full_page_alarm: false,
       notification_sound: "glass",
     }

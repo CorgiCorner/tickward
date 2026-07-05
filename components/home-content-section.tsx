@@ -11,7 +11,9 @@ import {
   TimerIcon,
   ZapIcon,
 } from "lucide-react"
+import Link from "next/link"
 
+import { appExtensions } from "@/lib/app-extensions"
 import { formatMessage } from "@/lib/i18n/messages"
 
 const FEATURES = [
@@ -49,6 +51,11 @@ const FEATURES = [
 
 const PATTERN_ICONS = [TimerIcon, CalendarDaysIcon, Clock3Icon, BellIcon, Repeat2Icon, HourglassIcon] as const
 const PATTERN_ICON_COUNT = 42
+const INTRO_KEYS = [
+  "home.content.intro.timezones",
+  "home.content.intro.sharing",
+  "home.content.intro.everyday",
+] as const
 
 function HomeIconPattern() {
   return (
@@ -85,6 +92,8 @@ function HomeIconPattern() {
 // page's single h1 and stays outside the Suspense-wrapped client tree so the
 // copy survives hydration and is always present in the streamed HTML.
 export function HomeContentSection() {
+  const embedHref = appExtensions.marketingHomeEmbedHref?.()
+
   return (
     <section aria-labelledby="home-hero-title" className="border-t border-border bg-background">
       <div className="mx-auto w-full max-w-[640px] px-4 py-16">
@@ -100,6 +109,12 @@ export function HomeContentSection() {
           </div>
         </div>
 
+        <div className="mx-auto mt-8 grid max-w-[560px] gap-4 text-sm leading-6 text-muted-foreground">
+          {INTRO_KEYS.map((key) => (
+            <p key={key}>{formatMessage(key)}</p>
+          ))}
+        </div>
+
         <ul className="mt-14 grid gap-x-10 gap-y-8 sm:grid-cols-2">
           {FEATURES.map((feature) => {
             const Icon = feature.icon
@@ -113,6 +128,14 @@ export function HomeContentSection() {
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">
                     {formatMessage(feature.descriptionKey)}
                   </p>
+                  {feature.id === "embedding" && embedHref ? (
+                    <Link
+                      className="mt-2 inline-flex text-sm font-medium text-foreground hover:underline"
+                      href={embedHref}
+                    >
+                      {formatMessage("home.content.feature.embedding.link")}
+                    </Link>
+                  ) : null}
                 </div>
               </li>
             )

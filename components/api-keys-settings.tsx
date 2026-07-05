@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { apiUnavailableErrorMessage, readApiJson } from "@/lib/client-api"
 import { formatMessage } from "@/lib/i18n/messages"
 
 type ApiKeyPermission = "full_access" | "read"
@@ -41,17 +42,6 @@ type CreatedApiKey = ApiKeyRecord & {
   token: string
 }
 
-class ApiKeyRequestError extends Error {
-  constructor(
-    message: string,
-    readonly type: string | null,
-    readonly status: number,
-  ) {
-    super(message)
-    this.name = "ApiKeyRequestError"
-  }
-}
-
 function apiKeyLabel(record: ApiKeyRecord) {
   return `${record.key_prefix}...${record.key_last4}`
 }
@@ -71,25 +61,9 @@ function withoutRawToken(record: CreatedApiKey): ApiKeyRecord {
   }
 }
 
-async function responseJson<T>(res: Response, fallback: string): Promise<T> {
-  const data = (await res.json().catch(() => null)) as unknown
-  if (!res.ok) {
-    const type =
-      data && typeof data === "object" && "error" in data
-        ? ((data as { error?: { type?: unknown } }).error?.type ?? null)
-        : null
-    const message =
-      data && typeof data === "object" && "error" in data
-        ? String((data as { error?: { message?: unknown } }).error?.message ?? fallback)
-        : fallback
-    throw new ApiKeyRequestError(message, typeof type === "string" ? type : null, res.status)
-  }
-  return data as T
-}
-
 async function fetchApiKeys() {
   const res = await fetch("/api/account/api-keys", { cache: "no-store" })
-  const data = await responseJson<{ data?: ApiKeyRecord[] }>(res, formatMessage("apiKeys.loadFailed"))
+  const data = await readApiJson<{ data?: ApiKeyRecord[] }>(res, formatMessage("apiKeys.loadFailed"))
   return Array.isArray(data.data) ? data.data : []
 }
 
@@ -99,22 +73,16 @@ async function createApiKey(input: { name: string; permission: ApiKeyPermission 
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   })
-  return responseJson<CreatedApiKey>(res, formatMessage("apiKeys.createFailed"))
+  return readApiJson<CreatedApiKey>(res, formatMessage("apiKeys.createFailed"))
 }
 
 async function revokeApiKey(id: string) {
   const res = await fetch(`/api/account/api-keys/${encodeURIComponent(id)}`, { method: "DELETE" })
-  await responseJson<unknown>(res, formatMessage("apiKeys.revokeFailed"))
+  await readApiJson<unknown>(res, formatMessage("apiKeys.revokeFailed"))
 }
 
 function apiKeysLoadErrorMessage(error: unknown) {
-  if (error instanceof ApiKeyRequestError) {
-    if (error.type === "storage_unavailable" || error.type === "rate_limit_unavailable" || error.status >= 500) {
-      return formatMessage("apiKeys.unavailable")
-    }
-    return error.message
-  }
-  return formatMessage("apiKeys.loadFailed")
+  return apiUnavailableErrorMessage(error, formatMessage("apiKeys.unavailable"), formatMessage("apiKeys.loadFailed"))
 }
 
 function PermissionChoice(

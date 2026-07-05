@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   effectiveTargetDate,
+  formatTargetInTimeZone,
   getCountdownParts,
   pad2,
   recurrenceHistory,
@@ -43,6 +44,24 @@ describe("date and countdown helpers", () => {
   })
 })
 
+describe("formatTargetInTimeZone", () => {
+  it("formats the target in the requested zone", () => {
+    expect(formatTargetInTimeZone("2026-07-09T16:00:00.000Z", "Europe/Warsaw")).toBe("Jul 9, 2026 · 18:00")
+  })
+
+  it("falls back to marked UTC when the runtime cannot resolve the zone", () => {
+    // date-fns-tz maps an Intl-rejected zone to an invalid date instead of
+    // throwing a zone error; this is the embed "Invalid time value" crash.
+    expect(formatTargetInTimeZone("2026-07-09T16:00:00.000Z", "Not/A_Zone")).toBe("Jul 9, 2026 · 16:00 UTC")
+  })
+
+  it("returns null instead of throwing for unparseable targets", () => {
+    expect(formatTargetInTimeZone("not-a-date", "Europe/Warsaw")).toBeNull()
+    // Passes the stored-shape regex but is not a real calendar instant.
+    expect(formatTargetInTimeZone("2026-13-45T25:99:99", "Europe/Warsaw")).toBeNull()
+  })
+})
+
 describe("recurring timer derivation (no mutation)", () => {
   const nowMs = Date.parse("2026-05-24T00:00:00.000Z")
 
@@ -66,6 +85,16 @@ describe("recurring timer derivation (no mutation)", () => {
     })
     expect(effectiveTargetDate(timer, nowMs)).toBe("2026-05-31T00:00:00.000Z")
     expect(timer.targetDate).toBe("2026-05-03T00:00:00.000Z")
+  })
+
+  it("degrades to UTC slots instead of throwing when the runtime cannot resolve the zone", () => {
+    const timer = makeTimer({
+      targetDate: "2026-05-03T00:00:00.000Z",
+      timezone: "Not/A_Zone",
+      recurrence: { type: "weekly", enabled: true },
+    })
+    expect(effectiveTargetDate(timer, nowMs)).toBe("2026-05-31T00:00:00.000Z")
+    expect(recurrenceHistory(timer, nowMs)).toEqual({ count: 4, last: "2026-05-24T00:00:00.000Z" })
   })
 
   it("reports no history for non-recurring or not-yet-started timers", () => {

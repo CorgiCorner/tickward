@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { apiUnavailableErrorMessage, readApiJson } from "@/lib/client-api"
 import { formatMessage } from "@/lib/i18n/messages"
 import {
   WEBHOOK_EVENT_TYPES,
@@ -72,36 +73,9 @@ type TestWebhookResult = {
   }
 }
 
-class WebhookRequestError extends Error {
-  constructor(
-    message: string,
-    readonly type: string | null,
-    readonly status: number,
-  ) {
-    super(message)
-    this.name = "WebhookRequestError"
-  }
-}
-
-async function responseJson<T>(res: Response, fallback: string): Promise<T> {
-  const data = (await res.json().catch(() => null)) as unknown
-  if (!res.ok) {
-    const type =
-      data && typeof data === "object" && "error" in data
-        ? ((data as { error?: { type?: unknown } }).error?.type ?? null)
-        : null
-    const message =
-      data && typeof data === "object" && "error" in data
-        ? String((data as { error?: { message?: unknown } }).error?.message ?? fallback)
-        : fallback
-    throw new WebhookRequestError(message, typeof type === "string" ? type : null, res.status)
-  }
-  return data as T
-}
-
 async function fetchWebhooks() {
   const res = await fetch("/api/account/webhooks", { cache: "no-store" })
-  const data = await responseJson<{ data?: WebhookEndpointPublicRecord[] }>(res, formatMessage("webhooks.loadFailed"))
+  const data = await readApiJson<{ data?: WebhookEndpointPublicRecord[] }>(res, formatMessage("webhooks.loadFailed"))
   return Array.isArray(data.data) ? data.data : []
 }
 
@@ -111,7 +85,7 @@ async function createWebhook(input: { event_types: WebhookEventType[]; name: str
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   })
-  return responseJson<CreatedWebhookEndpoint>(res, formatMessage("webhooks.createFailed"))
+  return readApiJson<CreatedWebhookEndpoint>(res, formatMessage("webhooks.createFailed"))
 }
 
 async function disableWebhook(id: string) {
@@ -120,7 +94,7 @@ async function disableWebhook(id: string) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ status: "disabled" }),
   })
-  return responseJson<WebhookEndpointPublicRecord>(res, formatMessage("webhooks.disableFailed"))
+  return readApiJson<WebhookEndpointPublicRecord>(res, formatMessage("webhooks.disableFailed"))
 }
 
 async function updateWebhookEvents(id: string, eventTypes: WebhookEventType[]) {
@@ -129,12 +103,12 @@ async function updateWebhookEvents(id: string, eventTypes: WebhookEventType[]) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ event_types: eventTypes }),
   })
-  return responseJson<WebhookEndpointPublicRecord>(res, formatMessage("webhooks.eventsUpdateFailed"))
+  return readApiJson<WebhookEndpointPublicRecord>(res, formatMessage("webhooks.eventsUpdateFailed"))
 }
 
 async function removeWebhook(id: string) {
   const res = await fetch(`/api/account/webhooks/${encodeURIComponent(id)}`, { method: "DELETE" })
-  await responseJson<unknown>(res, formatMessage("webhooks.removeFailed"))
+  await readApiJson<unknown>(res, formatMessage("webhooks.removeFailed"))
 }
 
 async function sendTestWebhook(id: string, eventType?: WebhookEventType) {
@@ -144,12 +118,12 @@ async function sendTestWebhook(id: string, eventType?: WebhookEventType) {
       ? { headers: { "content-type": "application/json" }, body: JSON.stringify({ event_type: eventType }) }
       : {}),
   })
-  return responseJson<TestWebhookResult>(res, formatMessage("webhooks.testFailed"))
+  return readApiJson<TestWebhookResult>(res, formatMessage("webhooks.testFailed"))
 }
 
 async function fetchWebhookDeliveries(id: string) {
   const res = await fetch(`/api/account/webhooks/${encodeURIComponent(id)}/deliveries`, { cache: "no-store" })
-  const data = await responseJson<{ data?: WebhookDeliveryPublicRecord[] }>(
+  const data = await readApiJson<{ data?: WebhookDeliveryPublicRecord[] }>(
     res,
     formatMessage("webhooks.deliveriesLoadFailed"),
   )
@@ -162,17 +136,11 @@ async function reenableWebhook(id: string) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ status: "active" }),
   })
-  return responseJson<WebhookEndpointPublicRecord>(res, formatMessage("webhooks.reenableFailed"))
+  return readApiJson<WebhookEndpointPublicRecord>(res, formatMessage("webhooks.reenableFailed"))
 }
 
 function webhookLoadErrorMessage(error: unknown) {
-  if (error instanceof WebhookRequestError) {
-    if (error.type === "storage_unavailable" || error.type === "rate_limit_unavailable" || error.status >= 500) {
-      return formatMessage("webhooks.unavailable")
-    }
-    return error.message
-  }
-  return formatMessage("webhooks.loadFailed")
+  return apiUnavailableErrorMessage(error, formatMessage("webhooks.unavailable"), formatMessage("webhooks.loadFailed"))
 }
 
 function withoutSigningSecret(record: CreatedWebhookEndpoint): WebhookEndpointPublicRecord {
@@ -494,7 +462,7 @@ function WebhookEndpointRow(
                 {formatMessage("webhooks.editEvents")}
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-h-[min(680px,90dvh)] overflow-y-auto sm:max-w-2xl">
+            <DialogContent className="max-h-[min(680px,90dvh)] sm:max-w-2xl">
               <DialogHeader>
                 <DialogTitle>{formatMessage("webhooks.editEventsTitle")}</DialogTitle>
                 <DialogDescription>{formatMessage("webhooks.editEventsDescription")}</DialogDescription>
@@ -806,12 +774,16 @@ export function WebhooksSettingsPanel(
                 {formatMessage("webhooks.create")}
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-h-[min(720px,90dvh)] overflow-y-auto sm:max-w-2xl">
+            <DialogContent className="max-h-[min(720px,90dvh)] sm:max-w-2xl">
               <DialogHeader>
                 <DialogTitle>{formatMessage("webhooks.createTitle")}</DialogTitle>
                 <DialogDescription>{formatMessage("webhooks.createDescription")}</DialogDescription>
               </DialogHeader>
-              <form className="grid gap-4" onSubmit={(event) => void form.handleSubmit(submitCreate)(event)}>
+              <form
+                id="webhook-create-form"
+                className="grid gap-4"
+                onSubmit={(event) => void form.handleSubmit(submitCreate)(event)}
+              >
                 {created ? <CreatedWebhookPanel created={created} /> : null}
                 <div className="grid gap-2">
                   <Label htmlFor="webhook-name">{formatMessage("apiKeys.name")}</Label>
@@ -846,19 +818,20 @@ export function WebhooksSettingsPanel(
                   name="event_types"
                   render={({ field }) => <EventTypeChoice selected={field.value} setSelected={field.onChange} />}
                 />
-                <DialogFooter>
-                  <Button type="button" variant="outline" onClick={() => handleCreateOpenChange(false)}>
-                    {formatMessage("common.done")}
-                  </Button>
-                  <Button
-                    type="submit"
-                    loading={createLoading}
-                    disabled={!formValues.name.trim() || !formValues.url.trim() || formValues.event_types.length === 0}
-                  >
-                    {formatMessage("webhooks.create")}
-                  </Button>
-                </DialogFooter>
               </form>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => handleCreateOpenChange(false)}>
+                  {formatMessage("common.done")}
+                </Button>
+                <Button
+                  form="webhook-create-form"
+                  type="submit"
+                  loading={createLoading}
+                  disabled={!formValues.name.trim() || !formValues.url.trim() || formValues.event_types.length === 0}
+                >
+                  {formatMessage("webhooks.create")}
+                </Button>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
         </div>

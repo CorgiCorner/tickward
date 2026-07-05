@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  deliverDueTimerReminders: vi.fn(),
   runWebhookSchedulerTick: vi.fn(),
   verifySchedulerSecret: vi.fn(),
+}))
+
+vi.mock("@/lib/timer-reminders.server", () => ({
+  deliverDueTimerReminders: mocks.deliverDueTimerReminders,
 }))
 
 vi.mock("@/lib/webhooks.server", () => ({
@@ -12,6 +17,13 @@ vi.mock("@/lib/webhooks.server", () => ({
 
 describe("/api/internal/scheduler/tick", () => {
   beforeEach(() => {
+    mocks.deliverDueTimerReminders.mockReset()
+    mocks.deliverDueTimerReminders.mockResolvedValue({
+      delivered: 0,
+      failed: 0,
+      picked: 0,
+      skipped: 0,
+    })
     mocks.runWebhookSchedulerTick.mockReset()
     mocks.runWebhookSchedulerTick.mockResolvedValue({
       delivered: 0,
@@ -45,9 +57,17 @@ describe("/api/internal/scheduler/tick", () => {
       }),
     )
 
-    await expect(res.json()).resolves.toMatchObject({ ok: true, events_picked: 0 })
+    await expect(res.json()).resolves.toMatchObject({
+      ok: true,
+      events_picked: 0,
+      timer_reminders_delivered: 0,
+      timer_reminders_failed: 0,
+      timer_reminders_picked: 0,
+      timer_reminders_skipped: 0,
+    })
     expect(mocks.verifySchedulerSecret).toHaveBeenCalledWith("Bearer secret")
     expect(mocks.runWebhookSchedulerTick).toHaveBeenCalledTimes(1)
+    expect(mocks.deliverDueTimerReminders).toHaveBeenCalledTimes(1)
   })
 
   it("returns an unavailable state when the scheduler tick fails", async () => {

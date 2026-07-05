@@ -10,7 +10,7 @@ import { formatMessage } from "@/lib/i18n/messages"
  *
  * Webhook delivery is optional for self-hosted installs. Configure
  * TICKWARD_SCHEDULER_SECRET when exposing /api/internal/scheduler/tick to a
- * cron runner.
+ * cron runner. Timer reminder email caps are optional operational guardrails.
  */
 export type ServerEnvVar =
   | "UPSTASH_REDIS_REST_URL"
@@ -32,6 +32,8 @@ export type ServerEnvVar =
   | "TICKWARD_WEBHOOK_ALLOW_PRIVATE_NETWORKS"
   | "TICKWARD_WEBHOOK_MAX_ENDPOINTS"
   | "TICKWARD_WEBHOOK_AUTO_DISABLE_FAILURES"
+  | "TICKWARD_REMINDER_EMAIL_DAILY_CAP"
+  | "TICKWARD_REMINDER_EMAIL_DAILY_CAP_PER_USER"
 
 /**
  * Read a required environment variable, trimmed. Throws when it is absent or

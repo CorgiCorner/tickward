@@ -169,7 +169,7 @@ function SpacesControl() {
   )
 }
 
-export function OrganizerBar() {
+function OrganizerBarContent(props: Readonly<{ nowMs: number }>) {
   const timers = useTimerStore((s) => s.timers)
   const spaces = useTimerStore((s) => s.spaces)
   const activeSpaceId = useTimerStore((s) => s.activeSpaceId)
@@ -180,7 +180,6 @@ export function OrganizerBar() {
   const setTimerFilterType = useTimerStore((s) => s.setTimerFilterType)
   const setTimerFilter = useTimerStore((s) => s.setTimerFilter)
   const clearTimerFilters = useTimerStore((s) => s.clearTimerFilters)
-  const nowMs = useNow()
   const [sortOpen, setSortOpen] = useState(false)
 
   const allCount = spaceTimerCount(null, timers, spaces)
@@ -307,7 +306,7 @@ export function OrganizerBar() {
                   <Icon className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1">{formatMessage(option.labelKey)}</span>
                   <span className="text-xs tabular-nums text-muted-foreground/70">
-                    {timerToggleFilterCount(activeSpaceTimers, option.value, timerFilters.type, nowMs)}
+                    {timerToggleFilterCount(activeSpaceTimers, option.value, timerFilters.type, props.nowMs)}
                   </span>
                 </button>
               )
@@ -373,4 +372,14 @@ export function OrganizerBar() {
       </div>
     </section>
   )
+}
+
+function LiveOrganizerBar() {
+  const nowMs = useNow()
+  return <OrganizerBarContent nowMs={nowMs} />
+}
+
+export function OrganizerBar(props: Readonly<{ nowMs?: number }>) {
+  if (props.nowMs !== undefined) return <OrganizerBarContent nowMs={props.nowMs} />
+  return <LiveOrganizerBar />
 }

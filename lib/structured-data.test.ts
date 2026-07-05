@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   buildBreadcrumbListJsonLd,
+  buildDatasetJsonLd,
   buildFaqPageJsonLd,
   buildOrganizationJsonLd,
   buildSoftwareApplicationJsonLd,
@@ -62,6 +63,33 @@ describe("structured data", () => {
           },
         },
       ],
+    })
+  })
+
+  it("builds Dataset markup with date coverage and publisher", () => {
+    vi.stubEnv("SITE_URL", "https://example.test")
+    vi.stubEnv("NODE_ENV", "production")
+
+    const jsonLd = buildDatasetJsonLd({
+      name: "US federal holidays 2027",
+      description: "Visible calendar copy for the holidays.",
+      path: "/en/timers/us-federal-holidays-2027",
+      dates: ["2027-12-25T05:00:00.000Z", "2027-01-01T05:00:00.000Z"],
+    })
+
+    expect(jsonLd).toEqual({
+      "@context": "https://schema.org",
+      "@type": "Dataset",
+      name: "US federal holidays 2027",
+      description: "Visible calendar copy for the holidays.",
+      url: "https://example.test/en/timers/us-federal-holidays-2027",
+      temporalCoverage: "2027-01-01/2027-12-25",
+      publisher: {
+        "@type": "Organization",
+        name: "tickward",
+        url: "https://example.test",
+      },
+      isAccessibleForFree: true,
     })
   })
 

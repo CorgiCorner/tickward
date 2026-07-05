@@ -28,6 +28,7 @@ model User {
   ownedShares              Share[]                   @relation("ShareOwner")
   notificationPreferences  NotificationPreference[]
   notificationOutboxItems  NotificationOutboxItem[]
+  inAppNotifications       InAppNotification[]
   pushSubscriptions        WebPushSubscription[]
   apiKeys                  ApiKey[]
   mcpAuthorizationGrants   McpAuthorizationGrant[]
@@ -44,6 +45,7 @@ model UserPreference {
   id                          String   @id @default(cuid())
   userId                      String   @unique
   defaultTimezone             String?
+  emailReminders              Boolean  @default(false)
   fullPageAlarm               Boolean  @default(true)
   notificationSound           String   @default("polite")
   createdAt                   DateTime @default(now())
@@ -223,6 +225,25 @@ model Timer {
   @@index([projectId])
   @@index([ownerId])
   @@map("timer")
+}
+
+model InAppNotification {
+  id            String    @id @default(cuid())
+  userId        String
+  transactionId String
+  type          String
+  timerId       String?
+  projectId     String?
+  payload       Json
+  readAt        DateTime?
+  createdAt     DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, transactionId])
+  @@index([userId, readAt, createdAt])
+  @@index([createdAt])
+  @@map("in_app_notification")
 }
 
 model Space {
@@ -410,6 +431,8 @@ model NotificationOutboxItem {
   @@index([subscriberId])
   @@index([workflowIdentifier, status, createdAt])
   @@index([status, scheduledFor])
+  @@index([timerId, status])
+  @@index([workflowIdentifier, status, scheduledFor], map: "notification_outbox_item_workflow_status_scheduled_for_idx")
   @@map("notification_outbox_item")
 }
 

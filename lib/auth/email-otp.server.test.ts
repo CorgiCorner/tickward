@@ -11,6 +11,7 @@ vi.mock("@/lib/server-adapters.server", () => ({
       id: "test-mail",
       isConfigured: mocks.isConfigured,
       sendTimerFinishedEmail: vi.fn(),
+      sendTimerReminderEmail: vi.fn(),
       sendEmailOtp: mocks.sendEmailOtp,
     },
   }),

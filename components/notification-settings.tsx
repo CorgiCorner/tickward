@@ -1,6 +1,6 @@
 "use client"
 
-import { BellIcon, BellOffIcon, Volume2Icon } from "lucide-react"
+import { BellIcon, BellOffIcon, MailIcon, Volume2Icon } from "lucide-react"
 import { toast } from "sonner"
 
 import { useAccountPreferences } from "@/components/account-preferences-provider"
@@ -178,6 +178,37 @@ function LocalAlarmsSection(
   )
 }
 
+function EmailRemindersSection(
+  props: Readonly<{
+    disabled: boolean
+    emailReminders: boolean
+    onEmailRemindersChange: (enabled: boolean) => void
+  }>,
+) {
+  return (
+    <section className="grid gap-3 rounded-lg bg-muted/30 p-3">
+      <div className="flex items-start justify-between gap-3 rounded-lg border p-3 text-sm">
+        <div className="flex min-w-0 gap-3">
+          <MailIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <div className="grid gap-1">
+            <Label htmlFor="emailReminders">{formatMessage("settings.alerts.emailReminders.title")}</Label>
+            <div className="text-xs text-muted-foreground">
+              {formatMessage("settings.alerts.emailReminders.description")}
+            </div>
+          </div>
+        </div>
+        <Switch
+          id="emailReminders"
+          aria-label={formatMessage("settings.alerts.emailReminders.title")}
+          checked={props.emailReminders}
+          disabled={props.disabled}
+          onCheckedChange={props.onEmailRemindersChange}
+        />
+      </div>
+    </section>
+  )
+}
+
 export function NotificationSettingsPanel() {
   const { loading, preferences, saving, updatePreferences } = useAccountPreferences()
   const localPreferences = useLocalNotificationPreferences()
@@ -205,6 +236,13 @@ export function NotificationSettingsPanel() {
         }
         onPreviewSound={(sound) => void previewNotificationSound(sound)}
         onSoundChange={(sound) => void saveAccountAlertPreferences({ notification_sound: sound }, updatePreferences)}
+      />
+      <EmailRemindersSection
+        disabled={accountControlsDisabled}
+        emailReminders={preferences.email_reminders}
+        onEmailRemindersChange={(enabled) =>
+          void saveAccountAlertPreferences({ email_reminders: enabled }, updatePreferences)
+        }
       />
     </section>
   )

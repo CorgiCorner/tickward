@@ -42,13 +42,16 @@ async function resolveLocale(params: Promise<{ locale: string }>): Promise<Local
 
 export async function generateMetadata(props: Readonly<{ params: Promise<{ locale: string }> }>): Promise<Metadata> {
   const locale = await resolveLocale(props.params)
+  const titleTemplate = formatMessage("app.title.template", {}, locale)
+  const brandedDefaultTitle = titleTemplate.replace("%s", formatMessage("app.title.default", {}, locale))
 
   return {
     metadataBase: getSiteUrl(),
     applicationName: "tickward",
+    // title.template does not apply to title.default, so compose the homepage default here.
     title: {
-      default: formatMessage("app.title.default", {}, locale),
-      template: formatMessage("app.title.template", {}, locale),
+      default: brandedDefaultTitle,
+      template: titleTemplate,
     },
     description: formatMessage("app.description", {}, locale),
     manifest: "/manifest.webmanifest",

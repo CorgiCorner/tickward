@@ -1,6 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { formatInTimeZone } from "date-fns-tz"
-import { useMemo, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react"
+import { ChevronDownIcon } from "lucide-react"
+import { useId, useMemo, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react"
 import { useForm, useWatch, type UseFormReturn } from "react-hook-form"
 import { toast } from "sonner"
 
@@ -24,9 +25,10 @@ import {
 } from "@/components/ui/dialog"
 import { authClient } from "@/lib/auth/auth-client"
 import { useBrowserTimeZone, useDefaultTimeZone } from "@/lib/default-timezone.client"
-import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
+import { formatMessage, nextDefaultTimerLabel, type MessageKey } from "@/lib/i18n/messages"
 import { timerNotificationsEnabled } from "@/lib/notification-preferences"
 import {
+  durationTotalSeconds,
   isTimerFormStepValid,
   normalizeTimerUrl,
   timerFormSchema,
@@ -95,9 +97,15 @@ function getDefaultValues(args: {
     description: args.initial?.description ?? "",
     url: args.initial?.url ?? "",
     timezone,
+    scheduleMode: "at",
     date: targetDate ? formatInTimeZone(targetDate, timezone, "yyyy-MM-dd") : "",
     time: targetDate ? formatInTimeZone(targetDate, timezone, "HH:mm") : "09:00",
+    durationDays: "00",
+    durationHours: "00",
+    durationMinutes: "10",
+    durationSeconds: "00",
     notify: args.initial ? timerNotificationsEnabled(args.initial.notification, args.initial.notify) : true,
+    reminders: args.initial?.reminders?.map((reminder) => ({ offsetMinutes: reminder.offsetMinutes })) ?? [],
     repeatEnabled: args.initial?.recurrence?.enabled ?? false,
     repeatType: args.initial?.recurrence?.type ?? "yearly",
     lastDay: args.initial?.recurrence?.lastDay ?? false,
@@ -125,11 +133,13 @@ function TimerStepContent(
     form: UseFormReturn<TimerFormValues>
     isPastDate: boolean
     labelLength: number
+    labelPlaceholder: string
     localTz: string
     onNotifyChange: (checked: boolean) => void
     repeatEnabled: boolean
     repeatPreview: string[]
     repeatType: TimerFormValues["repeatType"]
+    scheduleMode: TimerFormValues["scheduleMode"]
     spaces: ComponentProps<typeof TimerBasicsSection>["spaces"]
     timezone: string
   }>,
@@ -142,6 +152,7 @@ function TimerStepContent(
         spaces={props.spaces}
         labelLength={props.labelLength}
         descriptionLength={props.descriptionLength}
+        labelPlaceholder={props.labelPlaceholder}
       />
     )
   }
@@ -150,8 +161,10 @@ function TimerStepContent(
     return (
       <TimerScheduleSection
         control={props.form.control}
+        allowScheduleMode
         localTz={props.localTz}
         timezone={props.timezone}
+        scheduleMode={props.scheduleMode}
         repeatEnabled={props.repeatEnabled}
         repeatType={props.repeatType}
         repeatPreview={props.repeatPreview}
@@ -172,13 +185,16 @@ function TimerFormFooter(
     currentStepValid: boolean
     mode: Mode
     notifyBlockedByPastDate: boolean
+    formId: string
     onBack: () => void
     onNext: (event: MouseEvent<HTMLButtonElement>) => void
     scheduleValid: boolean
   }>,
 ) {
+  // Rendered inside DialogFooter at the DialogContent level: the dialog pins
+  // only direct DialogFooter children, so the wrapper must not own it.
   return (
-    <DialogFooter className="flex-row gap-2">
+    <>
       {props.currentStep > 1 ? (
         <Button type="button" variant="outline" onClick={props.onBack}>
           {formatMessage("common.back")}
@@ -190,23 +206,22 @@ function TimerFormFooter(
         </Button>
       ) : (
         <Button
+          form={props.formId}
           type="submit"
           disabled={!props.currentStepValid || !props.scheduleValid || props.notifyBlockedByPastDate}
         >
           {formatMessage(props.mode === "create" ? "common.create" : "common.save")}
         </Button>
       )}
-    </DialogFooter>
+    </>
   )
 }
 
-function TimerEditFooter(props: Readonly<{ saveDisabled: boolean }>) {
+function TimerEditFooter(props: Readonly<{ formId: string; saveDisabled: boolean }>) {
   return (
-    <DialogFooter className="flex-row justify-end gap-2">
-      <Button type="submit" disabled={props.saveDisabled}>
-        {formatMessage("common.save")}
-      </Button>
-    </DialogFooter>
+    <Button form={props.formId} type="submit" disabled={props.saveDisabled}>
+      {formatMessage("common.save")}
+    </Button>
   )
 }
 
@@ -217,9 +232,11 @@ function TimerEditSections(
     form: UseFormReturn<TimerFormValues>
     spaces: ComponentProps<typeof TimerBasicsSection>["spaces"]
     labelLength: number
+    labelPlaceholder: string
     descriptionLength: number
     localTz: string
     timezone: string
+    scheduleMode: TimerFormValues["scheduleMode"]
     repeatEnabled: boolean
     repeatType: TimerFormValues["repeatType"]
     repeatPreview: string[]
@@ -227,9 +244,11 @@ function TimerEditSections(
     onNotifyChange: (checked: boolean) => void
   }>,
 ) {
+  const [customizeOpen, setCustomizeOpen] = useState(false)
+
   return (
     <div className="grid gap-5">
-      <section className="grid gap-3">
+      <section className="grid gap-3 rounded-lg border p-4">
         <TimerFormSectionHeading step={1} labelKey="timer.form.basics" />
         <TimerBasicsSection
           control={props.form.control}
@@ -237,14 +256,16 @@ function TimerEditSections(
           spaces={props.spaces}
           labelLength={props.labelLength}
           descriptionLength={props.descriptionLength}
+          labelPlaceholder={props.labelPlaceholder}
         />
       </section>
-      <section className="grid gap-3">
+      <section className="grid gap-3 rounded-lg border p-4">
         <TimerFormSectionHeading step={2} labelKey="timer.form.schedule" />
         <TimerScheduleSection
           control={props.form.control}
           localTz={props.localTz}
           timezone={props.timezone}
+          scheduleMode={props.scheduleMode}
           repeatEnabled={props.repeatEnabled}
           repeatType={props.repeatType}
           repeatPreview={props.repeatPreview}
@@ -252,9 +273,21 @@ function TimerEditSections(
           onNotifyChange={props.onNotifyChange}
         />
       </section>
-      <section className="grid gap-3">
-        <TimerFormSectionHeading step={3} labelKey="timer.form.customize" />
-        <TimerCustomizeSection control={props.form.control} />
+      <section className="grid gap-3 rounded-lg border p-4">
+        <button
+          type="button"
+          className="flex items-center justify-between gap-3 text-left outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+          aria-expanded={customizeOpen}
+          onClick={() => setCustomizeOpen((open) => !open)}
+        >
+          <TimerFormSectionHeading step={3} labelKey="timer.form.customize" />
+          <ChevronDownIcon
+            className={["size-4 text-muted-foreground transition-transform", customizeOpen ? "rotate-180" : ""].join(
+              " ",
+            )}
+          />
+        </button>
+        {customizeOpen ? <TimerCustomizeSection control={props.form.control} /> : null}
       </section>
     </div>
   )
@@ -268,12 +301,14 @@ function TimerFormContent(
   >,
 ) {
   const spaces = useTimerStore((s) => s.spaces ?? [])
+  const timers = useTimerStore((s) => s.timers ?? [])
   const activeSpaceId = useTimerStore((s) => s.activeSpaceId ?? null)
   const defaultTz = useDefaultTimeZone()
   const browserTz = useBrowserTimeZone()
   const nowMs = useNow()
   const [step, setStep] = useState<TimerFormStep>(1)
   const session = authClient.useSession()
+  const formId = useId()
 
   const defaultValues = useMemo(
     () =>
@@ -299,6 +334,7 @@ function TimerFormContent(
   const date = values.date ?? ""
   const time = values.time ?? ""
   const timezone = values.timezone ?? defaultTz
+  const scheduleMode = values.scheduleMode ?? "at"
   const notify = values.notify ?? false
   const repeatEnabled = values.repeatEnabled ?? false
   const repeatType = values.repeatType ?? "yearly"
@@ -306,14 +342,16 @@ function TimerFormContent(
 
   const labelLength = label.trim().length
   const descriptionLength = description.trim().length
+  const labelPlaceholder = useMemo(() => nextDefaultTimerLabel(timers), [timers])
   const currentStepValid = isTimerFormStepValid(step, values)
   const scheduleValid = isTimerFormStepValid(2, values)
 
   const isPastDate = useMemo(() => {
+    if (scheduleMode === "in") return false
     if (!scheduleValid) return false
     const targetDate = wallClockToUtcIso({ date, time, timezone })
     return new Date(targetDate).getTime() < nowMs
-  }, [date, nowMs, scheduleValid, time, timezone])
+  }, [date, nowMs, scheduleMode, scheduleValid, time, timezone])
 
   const isEdit = props.mode === "edit"
   const notifyBlockedByPastDate = notify && isPastDate
@@ -322,11 +360,12 @@ function TimerFormContent(
   const editSaveDisabled = !basicsValid || !scheduleValid || notifyBlockedByPastDate
 
   const firstOccurrence = useMemo(() => {
+    if (scheduleMode === "in") return null
     if (!repeatEnabled || !scheduleValid) return null
     const anchor = wallClockToUtcIso({ date, time, timezone })
     const slot = recurrenceSlot(anchor, repeatType, timezone, lastDay)
     return nextSlotOccurrence(slot, timezone, nowMs - 1) ?? anchor
-  }, [date, lastDay, nowMs, repeatEnabled, repeatType, scheduleValid, time, timezone])
+  }, [date, lastDay, nowMs, repeatEnabled, repeatType, scheduleMode, scheduleValid, time, timezone])
 
   const repeatPreview = useMemo(() => {
     if (!firstOccurrence) return []
@@ -358,21 +397,26 @@ function TimerFormContent(
       return
     }
 
-    const picked = wallClockToUtcIso({
-      date: parsed.date,
-      time: parsed.time,
-      timezone: parsed.timezone,
-    })
-    const targetDate = parsed.repeatEnabled ? (firstOccurrence ?? picked) : picked
+    const durationMode = parsed.scheduleMode === "in"
+    const picked = durationMode
+      ? new Date(nowMs + durationTotalSeconds(parsed) * 1000).toISOString()
+      : wallClockToUtcIso({
+          date: parsed.date,
+          time: parsed.time,
+          timezone: parsed.timezone,
+        })
+    const targetDate = !durationMode && parsed.repeatEnabled ? (firstOccurrence ?? picked) : picked
+    const submitTimezone = durationMode ? browserTz : parsed.timezone
 
     props.onSubmit({
-      label: parsed.label,
+      label: parsed.label || labelPlaceholder,
       description: parsed.description || undefined,
       url: parsed.url ? (normalizeTimerUrl(parsed.url) ?? undefined) : undefined,
       targetDate,
-      timezone: parsed.timezone,
+      timezone: submitTimezone,
       notify: parsed.notify,
-      recurrence: recurrenceForSubmit(parsed),
+      reminders: parsed.reminders.length > 0 ? parsed.reminders : undefined,
+      recurrence: durationMode ? undefined : recurrenceForSubmit(parsed),
       spaceId: parsed.spaceId || undefined,
       image: parsed.image ?? undefined,
     })
@@ -388,24 +432,23 @@ function TimerFormContent(
         <DialogDescription className="sr-only">{formatMessage("timer.form.dialogDescription")}</DialogDescription>
       </DialogHeader>
 
-      <form onSubmit={form.handleSubmit(handleSubmit)} className="grid gap-4">
+      <form id={formId} onSubmit={form.handleSubmit(handleSubmit)} className="grid gap-4">
         {isEdit ? (
-          <>
-            <TimerEditSections
-              form={form}
-              spaces={spaces}
-              labelLength={labelLength}
-              descriptionLength={descriptionLength}
-              localTz={browserTz}
-              timezone={timezone}
-              repeatEnabled={repeatEnabled}
-              repeatType={repeatType}
-              repeatPreview={repeatPreview}
-              isPastDate={isPastDate}
-              onNotifyChange={(checked) => void handleNotifyChange(checked)}
-            />
-            <TimerEditFooter saveDisabled={editSaveDisabled} />
-          </>
+          <TimerEditSections
+            form={form}
+            spaces={spaces}
+            labelLength={labelLength}
+            labelPlaceholder={labelPlaceholder}
+            descriptionLength={descriptionLength}
+            localTz={browserTz}
+            timezone={timezone}
+            scheduleMode={scheduleMode}
+            repeatEnabled={repeatEnabled}
+            repeatType={repeatType}
+            repeatPreview={repeatPreview}
+            isPastDate={isPastDate}
+            onNotifyChange={(checked) => void handleNotifyChange(checked)}
+          />
         ) : (
           <>
             <TimerFormStepper step={step} />
@@ -417,29 +460,39 @@ function TimerFormContent(
                 form={form}
                 isPastDate={isPastDate}
                 labelLength={labelLength}
+                labelPlaceholder={labelPlaceholder}
                 localTz={browserTz}
                 repeatEnabled={repeatEnabled}
                 repeatPreview={repeatPreview}
                 repeatType={repeatType}
+                scheduleMode={scheduleMode}
                 spaces={spaces}
                 timezone={timezone}
                 onNotifyChange={(checked) => void handleNotifyChange(checked)}
               />
             </div>
-
-            <TimerFormFooter
-              currentStep={step}
-              currentStepReady={currentStepReady}
-              currentStepValid={currentStepValid}
-              mode={props.mode}
-              notifyBlockedByPastDate={notifyBlockedByPastDate}
-              scheduleValid={scheduleValid}
-              onBack={() => setStep(previousStep(step))}
-              onNext={(event) => void handleNextStep(event)}
-            />
           </>
         )}
       </form>
+      {isEdit ? (
+        <DialogFooter className="flex-row justify-end gap-2">
+          <TimerEditFooter formId={formId} saveDisabled={editSaveDisabled} />
+        </DialogFooter>
+      ) : (
+        <DialogFooter className="flex-row gap-2">
+          <TimerFormFooter
+            currentStep={step}
+            currentStepReady={currentStepReady}
+            currentStepValid={currentStepValid}
+            formId={formId}
+            mode={props.mode}
+            notifyBlockedByPastDate={notifyBlockedByPastDate}
+            scheduleValid={scheduleValid}
+            onBack={() => setStep(previousStep(step))}
+            onNext={(event) => void handleNextStep(event)}
+          />
+        </DialogFooter>
+      )}
     </DialogContent>
   )
 }

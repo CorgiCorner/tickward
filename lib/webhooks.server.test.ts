@@ -35,6 +35,7 @@ vi.mock("@/lib/server-adapters.server", () => ({
       isConfigured: () => true,
       sendEmailOtp: vi.fn(),
       sendTimerFinishedEmail: vi.fn(),
+      sendTimerReminderEmail: vi.fn(),
       sendWebhookEndpointDisabledEmail: mailMocks.sendWebhookEndpointDisabledEmail,
     },
   }),

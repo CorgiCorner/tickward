@@ -1,14 +1,17 @@
 import "server-only"
 
-import { formatMessage } from "@/lib/i18n/messages"
+import { DEFAULT_LOCALE, formatMessage, localeHref } from "@/lib/i18n/messages"
 import type {
   EmailOtpCommand,
   EmailOtpType,
   MailProvider,
   TimerFinishedEmailCommand,
+  TimerReminderEmailCommand,
   WebhookEndpointDisabledEmailCommand,
 } from "@/lib/mail-provider"
 import { getResendConfig } from "@/lib/private-config.server"
+import { getSiteOrigin } from "@/lib/site-config"
+import { formatTimerReminderOffset } from "@/lib/timer-reminder-offset"
 
 function escapeHtml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
@@ -21,6 +24,23 @@ function timerEmailHtml(command: TimerFinishedEmailCommand) {
   const body = formatMessage("email.timerFinished.body", { label: `<strong>${label}</strong>` })
   const when = formatMessage("email.timerFinished.when", { targetDate, timezone })
   return `<p>${body}</p><p>${when}</p>`
+}
+
+function timerReminderEmailHtml(command: TimerReminderEmailCommand) {
+  const label = escapeHtml(command.label)
+  const occurrenceAt = escapeHtml(command.occurrenceAt)
+  const timezone = escapeHtml(command.timezone)
+  const offset = escapeHtml(formatTimerReminderOffset(command.offsetMinutes))
+  const settingsUrl = escapeHtml(`${getSiteOrigin()}${localeHref(DEFAULT_LOCALE, "/settings")}#alerts`)
+  const heading = formatMessage("email.timerReminder.heading")
+  const body = formatMessage("email.timerReminder.body", {
+    label: `<strong>${label}</strong>`,
+    occurrenceAt,
+    offset,
+    timezone,
+  })
+  const manage = formatMessage("email.timerReminder.manage")
+  return `<h1>${heading}</h1><p>${body}</p><p><a href="${settingsUrl}">${manage}</a></p>`
 }
 
 function otpSubject(type: EmailOtpType) {
@@ -81,6 +101,26 @@ export const resendMailProvider: MailProvider = {
           to: [command.to],
           subject: formatMessage("email.timerFinished.subject", { label: command.label }),
           html: timerEmailHtml(command),
+        }),
+      ),
+    })
+
+    if (!res.ok) {
+      throw new Error(formatMessage("errors.resendEmailFailed", { status: res.status }))
+    }
+  },
+  async sendTimerReminderEmail(command: TimerReminderEmailCommand): Promise<void> {
+    const config = getResendConfig()
+    if (!config) return
+
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: resendHeaders(config, command.transactionId),
+      body: JSON.stringify(
+        resendPayload(config, {
+          to: [command.to],
+          subject: formatMessage("email.timerReminder.subject", { label: command.label }),
+          html: timerReminderEmailHtml(command),
         }),
       ),
     })

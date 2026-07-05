@@ -16,6 +16,7 @@ const scheduler = {
 
 const deliveryProvider = {
   sendTimerFinished: vi.fn(),
+  sendTimerReminder: vi.fn(),
 }
 
 const deliveryTracker = {
@@ -35,6 +36,8 @@ describe("notification service", () => {
     scheduler.cancelTimerNotification.mockResolvedValue(undefined)
     deliveryProvider.sendTimerFinished.mockReset()
     deliveryProvider.sendTimerFinished.mockResolvedValue([{ channel: "email", status: "sent", providerId: "resend" }])
+    deliveryProvider.sendTimerReminder.mockReset()
+    deliveryProvider.sendTimerReminder.mockResolvedValue([])
     deliveryTracker.trackDelivery.mockReset()
     deliveryTracker.trackDelivery.mockResolvedValue(undefined)
     outboxRepository.upsertIntent.mockReset()

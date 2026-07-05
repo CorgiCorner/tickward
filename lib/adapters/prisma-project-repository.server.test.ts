@@ -42,7 +42,9 @@ function prismaMock() {
       deleteMany: vi.fn((args) => ({ model: "shareDeleteMany", args })),
     },
     notificationOutboxItem: {
+      createMany: vi.fn((args) => ({ model: "notificationOutboxItemCreateMany", args })),
       deleteMany: vi.fn((args) => ({ model: "notificationOutboxItemDeleteMany", args })),
+      updateMany: vi.fn((args) => ({ model: "notificationOutboxItemUpdateMany", args })),
     },
     notificationDeliveryLog: {
       deleteMany: vi.fn((args) => ({ model: "notificationDeliveryLogDeleteMany", args })),
@@ -77,6 +79,8 @@ function expectNoRawRestoreKey(prisma: ReturnType<typeof prismaMock>, restoreKey
     ...prisma.space.updateMany.mock.calls,
     ...prisma.share.deleteMany.mock.calls,
     ...prisma.notificationOutboxItem.deleteMany.mock.calls,
+    ...prisma.notificationOutboxItem.updateMany.mock.calls,
+    ...prisma.notificationOutboxItem.createMany.mock.calls,
     ...prisma.notificationDeliveryLog.deleteMany.mock.calls,
     ...prisma.webPushSubscription.deleteMany.mock.calls,
     ...prisma.user.upsert.mock.calls,
@@ -514,19 +518,27 @@ describe("prisma project repository", () => {
       where: { id: "project_123", ownerId: "user_123" },
       select: { id: true, ownerId: true, snapshot: true },
     })
-    expect(prisma.$transaction).toHaveBeenCalledWith([
-      { model: "project", args: expect.any(Object) },
-      { model: "timerDeleteMany", args: { where: { projectId: "project_123" } } },
-      { model: "spaceDeleteMany", args: { where: { projectId: "project_123" } } },
-      {
-        model: "timerCreateMany",
-        args: expect.objectContaining({ data: [expect.objectContaining({ ownerId: "user_123" })] }),
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function))
+    expect(prisma.project.update).toHaveBeenCalledWith({
+      where: { id: "project_123" },
+      data: expect.objectContaining({ snapshot: project }),
+    })
+    expect(prisma.timer.deleteMany).toHaveBeenCalledWith({ where: { projectId: "project_123" } })
+    expect(prisma.space.deleteMany).toHaveBeenCalledWith({ where: { projectId: "project_123" } })
+    expect(prisma.timer.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: [expect.objectContaining({ ownerId: "user_123" })] }),
+    )
+    expect(prisma.space.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: [expect.objectContaining({ ownerId: "user_123" })] }),
+    )
+    expect(prisma.notificationOutboxItem.updateMany).toHaveBeenCalledWith({
+      where: {
+        timerId: "timer-a",
+        workflowIdentifier: "timer.reminder",
+        status: "scheduled",
       },
-      {
-        model: "spaceCreateMany",
-        args: expect.objectContaining({ data: [expect.objectContaining({ ownerId: "user_123" })] }),
-      },
-    ])
+      data: { cancelledAt: expect.any(Date), status: "cancelled" },
+    })
   })
 
   it("emits webhook events when account-backed timer snapshots change", async () => {

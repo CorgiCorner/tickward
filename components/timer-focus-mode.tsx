@@ -1,13 +1,15 @@
 "use client"
 
-import { Maximize2Icon, XIcon } from "lucide-react"
+import { XIcon } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { CountdownDisplay } from "@/components/countdown-display"
 import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useNow } from "@/components/use-now"
 import { formatMessage } from "@/lib/i18n/messages"
 import { cn } from "@/lib/utils"
+
+export { TimerFocusAction } from "@/components/timer-focus-action"
 
 export const TIMER_FOCUS_THEME_STORAGE_KEY = "tickward:timer-focus-theme"
 
@@ -139,7 +141,7 @@ export function TimerFocusMode(
     open: boolean
     timerLabel: string
     targetDateIsoUtc: string
-    nowMs: number
+    nowMs?: number
     onClose: () => void
   }>,
 ) {
@@ -289,7 +291,7 @@ export function TimerFocusMode(
           <h1 id="timer-focus-mode-title" className="text-balance text-3xl font-semibold sm:text-5xl">
             {timerLabel}
           </h1>
-          <CountdownDisplay
+          <FocusCountdownDisplay
             targetDateIsoUtc={targetDateIsoUtc}
             nowMs={nowMs}
             className="mx-auto w-full max-w-4xl gap-3 sm:gap-8"
@@ -332,35 +334,33 @@ export function TimerFocusMode(
   )
 }
 
-export function TimerFocusAction(
+function LiveFocusCountdownDisplay(
   props: Readonly<{
-    onOpen: () => void
     className?: string
-    stopPropagation?: boolean
+    targetDateIsoUtc: string
+    unitClassName?: string
+    unitLabelClassName?: string
+    unitValueClassName?: string
+    sinceClassName?: string
   }>,
 ) {
-  const label = formatMessage("timer.focus.enter")
+  const nowMs = useNow()
 
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className={props.className}
-          aria-label={label}
-          onClick={(event) => {
-            if (props.stopPropagation) event.stopPropagation()
-            props.onOpen()
-          }}
-        >
-          <Maximize2Icon className="size-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={6}>
-        {label}
-      </TooltipContent>
-    </Tooltip>
-  )
+  return <CountdownDisplay {...props} nowMs={nowMs} />
+}
+
+function FocusCountdownDisplay(
+  props: Readonly<{
+    className?: string
+    targetDateIsoUtc: string
+    nowMs?: number
+    unitClassName?: string
+    unitLabelClassName?: string
+    unitValueClassName?: string
+    sinceClassName?: string
+  }>,
+) {
+  if (props.nowMs !== undefined) return <CountdownDisplay {...props} nowMs={props.nowMs} />
+
+  return <LiveFocusCountdownDisplay {...props} />
 }

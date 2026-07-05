@@ -185,7 +185,7 @@ describe("TimerCard", () => {
     const focusButton = screen.getAllByRole("button", { name: "Focus timer" })[0]
     await user.click(focusButton)
 
-    expect(screen.getByRole("dialog", { name: "Launch" })).toBeVisible()
+    expect(await screen.findByRole("dialog", { name: "Launch" })).toBeVisible()
     await waitFor(() => expect(document.body.style.overflow).toBe("hidden"))
 
     const exitButton = screen.getByRole("button", { name: "Exit focus mode" })
@@ -195,8 +195,8 @@ describe("TimerCard", () => {
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: "Launch" })).not.toBeInTheDocument()
     })
-    expect(document.body.style.overflow).toBe("")
-    expect(focusButton).toHaveFocus()
+    await waitFor(() => expect(document.body.style.overflow).toBe(""))
+    await waitFor(() => expect(focusButton).toHaveFocus())
   })
 
   it("traps keyboard focus inside focus mode", async () => {
@@ -211,7 +211,7 @@ describe("TimerCard", () => {
 
     await user.click(screen.getAllByRole("button", { name: "Focus timer" })[0])
 
-    const exitButton = screen.getByRole("button", { name: "Exit focus mode" })
+    const exitButton = await screen.findByRole("button", { name: "Exit focus mode" })
     await waitFor(() => expect(exitButton).toHaveFocus())
 
     const lastThemeButton = screen.getByRole("button", { name: "Butter background" })
@@ -234,7 +234,7 @@ describe("TimerCard", () => {
     render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
 
     await user.click(screen.getAllByRole("button", { name: "Focus timer" })[0])
-    expect(screen.getByRole("dialog", { name: "Launch" })).toBeVisible()
+    expect(await screen.findByRole("dialog", { name: "Launch" })).toBeVisible()
 
     await user.keyboard("{Escape}")
 
@@ -250,7 +250,7 @@ describe("TimerCard", () => {
 
     const focusButton = screen.getAllByRole("button", { name: "Focus timer" })[0]
     await user.click(focusButton)
-    await user.click(screen.getByRole("button", { name: "Mint background" }))
+    await user.click(await screen.findByRole("button", { name: "Mint background" }))
 
     expect(localStorage.getItem(TIMER_FOCUS_THEME_STORAGE_KEY)).toBe("mint")
     expect(screen.getByRole("button", { name: "Mint background" })).toHaveAttribute("aria-pressed", "true")
@@ -262,7 +262,7 @@ describe("TimerCard", () => {
 
     await user.click(focusButton)
 
-    expect(screen.getByRole("dialog", { name: "Launch" })).toBeVisible()
+    expect(await screen.findByRole("dialog", { name: "Launch" })).toBeVisible()
     expect(screen.getByRole("button", { name: "Mint background" })).toHaveAttribute("aria-pressed", "true")
   })
 
@@ -314,7 +314,7 @@ describe("TimerCard", () => {
 
     await clickFirstTimerAction(user, "Edit")
 
-    expect(await screen.findByRole("dialog", { name: "Edit timer" })).toBeVisible()
+    expect(await screen.findByRole("dialog", { name: "Edit timer" }, { timeout: 4000 })).toBeVisible()
   })
 
   it("enables a timer local alarm without browser notification permission", async () => {
@@ -400,7 +400,7 @@ describe("TimerCard", () => {
 
     await user.click(screen.getAllByText("Launch")[0])
 
-    expect(await screen.findByRole("dialog", { name: "Edit timer" })).toBeVisible()
+    expect(await screen.findByRole("dialog", { name: "Edit timer" }, { timeout: 4000 })).toBeVisible()
   })
 
   it("keeps mobile swipe gestures from opening the edit form", () => {
@@ -463,7 +463,7 @@ describe("TimerCard", () => {
     await user.click(screen.getByRole("button", { name: "Create link" }))
 
     const shareUrl = `${globalThis.location.origin}/share/timer_staticShareId1234567890`
-    await waitFor(() => expect(screen.getByDisplayValue(shareUrl)).toBeVisible())
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Share URL" })).toHaveDisplayValue(shareUrl))
     expect(screen.getByRole("button", { name: "Copy link" })).toBeVisible()
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(storeState.syncToCloud).toHaveBeenCalledTimes(2)
@@ -504,7 +504,7 @@ describe("TimerCard", () => {
     await clickFirstTimerAction(user, "Share")
 
     const shareUrl = `${globalThis.location.origin}/share/timer_existingShareId1234567890`
-    await waitFor(() => expect(screen.getByDisplayValue(shareUrl)).toBeVisible())
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Share URL" })).toHaveDisplayValue(shareUrl))
     expect(screen.getByRole("button", { name: "Copy link" })).toBeVisible()
     expect(storeState.syncToCloud).toHaveBeenCalledWith({ force: true })
 
@@ -544,7 +544,7 @@ describe("TimerCard", () => {
     await user.click(screen.getByRole("button", { name: "Restore link" }))
 
     const shareUrl = `${globalThis.location.origin}/share/timer_restoredShareId1234567890`
-    await waitFor(() => expect(screen.getByDisplayValue(shareUrl)).toBeVisible())
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Share URL" })).toHaveDisplayValue(shareUrl))
     expect(screen.getByRole("button", { name: "Copy link" })).toBeVisible()
     expect(fetchMock).toHaveBeenCalledWith("/api/share/create", expect.anything())
     expect(writeText).toHaveBeenCalledWith(shareUrl)

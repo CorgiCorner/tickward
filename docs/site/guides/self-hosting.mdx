@@ -25,14 +25,14 @@ Published app images:
 
 | Registry   | Image                                      |
 | ---------- | ------------------------------------------ |
-| Docker Hub | `docker.io/corgicorner/tickward:0.7.1`     |
-| GHCR       | `ghcr.io/corgicorner/tickward:0.7.1`       |
+| Docker Hub | `docker.io/corgicorner/tickward:0.8.0`     |
+| GHCR       | `ghcr.io/corgicorner/tickward:0.8.0`       |
 
 Docker Compose reads `TICKWARD_IMAGE` from `.env`. The default example uses
 Docker Hub. To use GHCR instead:
 
 ```bash
-TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.7.1 docker compose up -d
+TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.8.0 docker compose up -d
 ```
 
 To build from a local checkout instead of using a published image:
@@ -73,6 +73,7 @@ Use host-reachable URLs in `.env` when you run services outside Compose.
 | `NEXT_PUBLIC_TICKWARD_MAX_TIMERS`           |       No | Public timer limit embedded into the browser bundle at build time.                  |
 | `NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE` |       No | Public per-space active timer limit embedded into the browser bundle at build time. |
 | `NEXT_PUBLIC_TICKWARD_MAX_SPACES`           |       No | Public space limit embedded into the browser bundle at build time.                  |
+| `NEXT_PUBLIC_TICKWARD_MAX_PROJECTS`         |       No | Public project limit embedded into the browser bundle at build time.                |
 | `UNSPLASH_ACCESS_KEY`                       |       No | Enables Unsplash image search.                                                      |
 | `NEXT_PUBLIC_PLAUSIBLE_URL`                 |       No | Enables the optional Plausible Analytics script.                                    |
 | `NEXT_PUBLIC_PLAUSIBLE_DOMAIN`              |       No | Plausible domain override. Defaults to the `SITE_URL` hostname.                     |

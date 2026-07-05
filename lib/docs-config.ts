@@ -1,13 +1,31 @@
-const DOCS_ROUTE_PATHS = [
-  "/docs",
-  "/docs/guides/self-hosting",
-  "/docs/guides/api-quickstart",
-  "/docs/guides/embedding-timers",
-  "/docs/guides/webhooks",
-  "/docs/guides/mcp",
-  "/docs/guides/agent-usage",
-  "/docs/api-reference",
-] as const
+import docsJson from "@/docs/site/docs.json"
+
+function collectDocsPageRefs(config: unknown) {
+  const refs: string[] = []
+
+  function visit(value: unknown) {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item)
+      return
+    }
+
+    if (!value || typeof value !== "object") return
+    const record = value as Record<string, unknown>
+    if (Array.isArray(record.pages)) {
+      for (const page of record.pages) {
+        if (typeof page === "string") refs.push(page)
+      }
+    }
+    for (const child of Object.values(record)) visit(child)
+  }
+
+  visit(config)
+  return [...new Set(refs)]
+}
+
+const DOCS_ROUTE_PATHS = collectDocsPageRefs(docsJson.navigation).map((page) =>
+  page === "index" ? "/docs" : `/docs/${page}`,
+)
 
 function docsOrigin() {
   const value = process.env.TICKWARD_DOCS_ORIGIN?.trim()

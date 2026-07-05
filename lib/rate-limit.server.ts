@@ -20,6 +20,7 @@ const RATE_LIMITS = {
   "auth-otp-ip": { limit: 3, window: "60 s", prefix: "tickward:ratelimit:auth-otp-ip" },
   "public-api": { limit: 120, window: "60 s", prefix: "tickward:ratelimit:public-api" },
   "public-api-ip": { limit: 300, window: "60 s", prefix: "tickward:ratelimit:public-api-ip" },
+  inbox: { limit: 60, window: "60 s", prefix: "tickward:ratelimit:inbox" },
   "api-key-management": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:api-key-management" },
   "webhook-management": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:webhook-management" },
   "webhook-test": { limit: 3, window: "60 s", prefix: "tickward:ratelimit:webhook-test" },

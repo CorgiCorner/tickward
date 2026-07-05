@@ -22,6 +22,11 @@ import { timerNotificationsEnabled } from "@/lib/notification-preferences"
 import { type ProjectSnapshotV2, createProjectSnapshot, isProjectSnapshot } from "@/lib/project-model"
 import { checkRateLimit } from "@/lib/rate-limit.server"
 import { stableShareId } from "@/lib/static-share-id.server"
+import {
+  cancelScheduledTimerReminderIntentsForTimer,
+  cancelScheduledTimerReminderIntentsForTimers,
+  reconcileTimerReminders,
+} from "@/lib/timer-reminders.server"
 import type { Space, Timer } from "@/lib/types"
 import { effectiveTargetDate } from "@/lib/utils"
 import {
@@ -40,6 +45,9 @@ import {
 } from "@/lib/webhooks.server"
 import { webhookEventTypeSchema, type WebhookEventType } from "@/lib/webhook-events"
 import {
+  duplicateTimerReminderOffsetIndex,
+  MAX_TIMER_REMINDERS,
+  REMINDER_OFFSET_MAX_MINUTES,
   colorSchema,
   recurrenceSchema,
   targetDateSchema,
@@ -502,6 +510,7 @@ function timerObject(project: Pick<ProjectRow, "id" | "name">, timer: Timer) {
     space_id: timer.spaceId ?? null,
     shared_at: timer.sharedAt ?? null,
     notify: timerNotificationsEnabled(timer.notification, timer.notify),
+    reminders: (timer.reminders ?? []).map((reminder) => ({ offset_minutes: reminder.offsetMinutes })),
     recurrence: timer.recurrence ?? null,
     pinned: timer.pinned ?? false,
     image: timer.image ?? null,
@@ -682,7 +691,7 @@ function publicApiCapabilities() {
       },
       timer_webhooks: true,
       webhook_management: true,
-      timer_reminders: false,
+      timer_reminders: true,
     },
     limits: {
       project_create_max_spaces: getEntitlements().maxSpaces,
@@ -702,27 +711,51 @@ const projectUpdateSchema = z.object({
   name: z.string().trim().min(1).max(40).optional(),
 })
 
-const timerCreateSchema = z
+const publicTimerReminderSchema = z
   .object({
-    color: colorSchema,
-    description: z.string().trim().max(200).optional(),
-    id: z
-      .string()
-      .regex(/^[A-Za-z0-9_-]{6,128}$/)
-      .optional(),
-    image: unsplashImageSchema.optional(),
-    label: z.string().trim().min(1).max(200),
-    notification: z.never().optional(),
-    notify: z.boolean().optional(),
-    pinned: z.boolean().optional(),
-    recurrence: recurrenceSchema.optional(),
-    space_id: z.string().min(1).max(64).nullable().optional(),
-    target_date: targetDateSchema,
-    timezone: timezoneSchema,
+    offset_minutes: z.number().int().min(0).max(REMINDER_OFFSET_MAX_MINUTES),
   })
   .strict()
 
-const timerPatchSchema = timerCreateSchema
+function addDuplicatePublicReminderIssue(
+  reminders: Array<{ offset_minutes: number }> | undefined,
+  ctx: z.RefinementCtx,
+) {
+  const duplicateIndex = duplicateTimerReminderOffsetIndex(
+    reminders?.map((reminder) => ({ offsetMinutes: reminder.offset_minutes })),
+  )
+  if (duplicateIndex === null) return
+  ctx.addIssue({
+    code: "custom",
+    message: "Reminder offsets must be unique.",
+    path: ["reminders", duplicateIndex, "offset_minutes"],
+  })
+}
+
+const timerCreateBaseSchema = z.object({
+  color: colorSchema,
+  description: z.string().trim().max(200).optional(),
+  id: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{6,128}$/)
+    .optional(),
+  image: unsplashImageSchema.optional(),
+  label: z.string().trim().min(1).max(200),
+  notification: z.never().optional(),
+  notify: z.boolean().optional(),
+  pinned: z.boolean().optional(),
+  recurrence: recurrenceSchema.optional(),
+  reminders: z.array(publicTimerReminderSchema).max(MAX_TIMER_REMINDERS).optional(),
+  space_id: z.string().min(1).max(64).nullable().optional(),
+  target_date: targetDateSchema,
+  timezone: timezoneSchema,
+})
+
+const timerCreateSchema = timerCreateBaseSchema.strict().superRefine((timer, ctx) => {
+  addDuplicatePublicReminderIssue(timer.reminders, ctx)
+})
+
+const timerPatchSchema = timerCreateBaseSchema
   .omit({ id: true, label: true, target_date: true, timezone: true })
   .extend({
     archived_at: z.string().nullable().optional(),
@@ -731,6 +764,10 @@ const timerPatchSchema = timerCreateSchema
     timezone: timezoneSchema.optional(),
   })
   .partial()
+  .strict()
+  .superRefine((timer, ctx) => {
+    addDuplicatePublicReminderIssue(timer.reminders, ctx)
+  })
 
 const spaceCreateSchema = z.object({
   color: colorSchema,
@@ -741,9 +778,15 @@ const spaceCreateSchema = z.object({
   name: z.string().trim().min(1).max(30),
 })
 
-const projectNestedTimerCreateSchema = timerCreateSchema.omit({ space_id: true }).extend({
-  space_id: z.never().optional(),
-})
+const projectNestedTimerCreateSchema = timerCreateBaseSchema
+  .omit({ space_id: true })
+  .extend({
+    space_id: z.never().optional(),
+  })
+  .strict()
+  .superRefine((timer, ctx) => {
+    addDuplicatePublicReminderIssue(timer.reminders, ctx)
+  })
 
 const projectNestedSpaceCreateSchema = spaceCreateSchema.extend({
   timers: z.array(projectNestedTimerCreateSchema).optional(),
@@ -811,6 +854,7 @@ function timerFromCreate(input: z.infer<typeof timerCreateSchema>): Timer {
     notify: input.notify ?? true,
     pinned: input.pinned,
     recurrence: input.recurrence,
+    reminders: input.reminders?.map((reminder) => ({ offsetMinutes: reminder.offset_minutes })),
     spaceId: nonEmptyOrUndefined(input.space_id),
   }
 }
@@ -831,6 +875,10 @@ function timerFromPatch(timer: Timer, input: z.infer<typeof timerPatchSchema>): 
     notify: input.notify ?? timer.notify,
     pinned: input.pinned ?? timer.pinned,
     recurrence: input.recurrence ?? timer.recurrence,
+    reminders:
+      input.reminders === undefined
+        ? timer.reminders
+        : input.reminders.map((reminder) => ({ offsetMinutes: reminder.offset_minutes })),
     spaceId: input.space_id === undefined ? timer.spaceId : nextSpaceId,
     targetDate: input.target_date ?? timer.targetDate,
     timezone: input.timezone ?? timer.timezone,
@@ -857,6 +905,7 @@ function timerPlanInput(input: z.infer<typeof timerCreateSchema>) {
     notify: input.notify ?? true,
     pinned: input.pinned ?? false,
     recurrence: input.recurrence ?? null,
+    reminders: input.reminders?.map((reminder) => ({ offset_minutes: reminder.offset_minutes })) ?? [],
     space_id: nonEmptyOrNull(input.space_id),
     target_date: input.target_date,
     timezone: input.timezone,
@@ -1047,6 +1096,7 @@ function assertProjectLimits(snapshot: ProjectSnapshotV2): Response | null {
 async function deleteProjectGraph(tx: Prisma.TransactionClient, projectId: string) {
   const timerIds = (await tx.timer.findMany({ where: { projectId }, select: { id: true } })).map((timer) => timer.id)
   if (timerIds.length > 0) {
+    await cancelScheduledTimerReminderIntentsForTimers(tx, { timerIds })
     await tx.notificationOutboxItem.deleteMany({ where: { timerId: { in: timerIds } } })
     await tx.notificationDeliveryLog.deleteMany({ where: { timerId: { in: timerIds } } })
   }
@@ -1191,6 +1241,7 @@ async function createProject(ctx: PublicApiContext, req: Request) {
         userId: project.ownerId,
       })
       await scheduleTimerEndedEvent(tx, { project, timer })
+      await reconcileTimerReminders(tx, { project, timer })
     }
     return project
   })
@@ -1380,6 +1431,7 @@ async function createTimer(ctx: PublicApiContext, projectId: string, req: Reques
       userId: row.ownerId,
     })
     await scheduleTimerEndedEvent(tx, { project: row, timer })
+    await reconcileTimerReminders(tx, { project: row, timer })
     return timerObject(row, timer)
   })
 
@@ -1455,6 +1507,7 @@ async function updateTimer(ctx: PublicApiContext, projectId: string, timerId: st
       userId: row.ownerId,
     })
     await scheduleTimerEndedEvent(tx, { project: row, timer })
+    await reconcileTimerReminders(tx, { project: row, timer })
     return timerObject(row, timer)
   })
 
@@ -1479,6 +1532,7 @@ async function deleteTimer(ctx: PublicApiContext, projectId: string, timerId: st
 
     const next = changedSnapshot(snapshot, { timers: snapshot.timers.filter((timer) => timer.id !== timerId) })
     await cancelPendingTimerEndedEvents(tx, { projectId, timerId, userId: row.ownerId })
+    await cancelScheduledTimerReminderIntentsForTimer(tx, { timerId })
     await tx.notificationOutboxItem.deleteMany({ where: { timerId } })
     await tx.notificationDeliveryLog.deleteMany({ where: { timerId } })
     await tx.share.deleteMany({ where: { projectId, kind: "timer", data: { path: ["timerId"], equals: timerId } } })

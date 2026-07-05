@@ -14,8 +14,8 @@ const { Client } = pg
 export const BOOTSTRAP_DEMO_PROJECT_ID = "demo_big_days"
 export const BOOTSTRAP_DEMO_RESTORE_KEY = "demoBigDays2026"
 export const BOOTSTRAP_DEMO_ACCESS_TOKEN_ID = "seed_demo_big_days_access"
-export const BOOTSTRAP_DEMO_SHARE_ID = "share_lisbon_flight_2026"
-export const BOOTSTRAP_DEMO_SHARED_TIMER_ID = "timer_lisbon_flight"
+export const BOOTSTRAP_DEMO_SHARE_ID = "share_train_gdansk_2026"
+export const BOOTSTRAP_DEMO_SHARED_TIMER_ID = "timer_train_gdansk"
 
 const PROJECT_SNAPSHOT_VERSION = 2
 const idTokenPattern = /^[A-Za-z0-9_-]{8,64}$/
@@ -77,12 +77,13 @@ function demoTimer(args) {
     updatedAt: args.createdAt,
     color: args.color,
     description: args.description,
-    notify: true,
+    notify: args.notify ?? true,
     pinned: args.pinned,
+    recurrence: args.recurrence,
     spaceId: args.spaceId,
     ...sharedFields,
     notification: {
-      enabled: true,
+      enabled: args.notify ?? true,
     },
   }
 }
@@ -94,15 +95,15 @@ export function createBootstrapDemoProject(baseDate = new Date(), projectId = BO
 
   const spaces = [
     {
-      id: "space_plans",
-      name: "Plans",
+      id: "space_doing",
+      name: "Coming up",
       color: "#2563eb",
       createdAt: nowIso,
     },
     {
-      id: "space_deadlines",
-      name: "Deadlines",
-      color: "#d97706",
+      id: "space_done",
+      name: "Done",
+      color: "#16a34a",
       createdAt: nowIso,
     },
   ]
@@ -110,66 +111,79 @@ export function createBootstrapDemoProject(baseDate = new Date(), projectId = BO
   const timers = [
     demoTimer({
       id: BOOTSTRAP_DEMO_SHARED_TIMER_ID,
-      label: "Flight to Lisbon",
-      description: "Bags by the door the night before. Passport in the front pocket this time.",
-      targetDate: addDays(createdAt, 3, 6, 40),
+      label: "Train to Gdansk",
+      description: "Tickets are in the wallet. Pack the charger before leaving.",
+      targetDate: addDays(createdAt, 1, 15),
       color: "#2563eb",
-      spaceId: "space_plans",
+      spaceId: "space_doing",
       pinned: true,
       sharedAt: nowIso,
       shareId: BOOTSTRAP_DEMO_SHARE_ID,
       createdAt: nowIso,
     }),
     demoTimer({
+      id: "timer_balcony_herbs",
+      label: "Water balcony herbs",
+      description: "Do it before the afternoon sun hits the pots.",
+      targetDate: addDays(createdAt, 1, 8, 45),
+      color: "#0d9488",
+      spaceId: "space_doing",
+      recurrence: { enabled: true, type: "daily" },
+      createdAt: nowIso,
+    }),
+    demoTimer({
+      id: "timer_sunday_reset",
+      label: "Sunday reset",
+      description: "Laundry, clean the fridge shelf, and pick meals for the first half of the week.",
+      targetDate: addDays(createdAt, 4, 9, 30),
+      color: "#d97706",
+      spaceId: "space_doing",
+      recurrence: { enabled: true, type: "weekly" },
+      createdAt: nowIso,
+    }),
+    demoTimer({
       id: "timer_marta_birthday",
       label: "Marta's birthday",
-      description: "Order the cake by Tuesday. She noticed it was last-minute last year.",
-      targetDate: addDays(createdAt, 6, 18),
-      color: "#db2777",
-      spaceId: "space_plans",
-      createdAt: nowIso,
-    }),
-    demoTimer({
-      id: "timer_lease_decision",
-      label: "Lease renewal decision",
-      description: "Compare a few places before it auto-renews. Email the landlord either way.",
-      targetDate: addDays(createdAt, 9, 17),
-      color: "#d97706",
-      spaceId: "space_deadlines",
-      createdAt: nowIso,
-    }),
-    demoTimer({
-      id: "timer_stadium_gig",
-      label: "Stadium gig with Ola",
-      description: "Gates at six. Earplugs this time, no excuses.",
-      targetDate: addDays(createdAt, 12, 18),
+      description: "Order the cake by Tuesday and hide the candles before she visits.",
+      targetDate: addDays(createdAt, 6, 17),
       color: "#7c3aed",
-      spaceId: "space_plans",
+      spaceId: "space_doing",
       createdAt: nowIso,
     }),
     demoTimer({
-      id: "timer_visa_window",
-      label: "Visa appointment",
-      description: "Print the confirmation and bring both photos. Get there 15 minutes early.",
-      targetDate: addDays(createdAt, 15, 8, 30),
+      id: "timer_lease_renewal",
+      label: "Lease renewal call",
+      description: "Call the landlord before the renewal window closes.",
+      targetDate: addDays(createdAt, 9, 12),
       color: "#dc2626",
-      spaceId: "space_deadlines",
+      spaceId: "space_doing",
       createdAt: nowIso,
     }),
     demoTimer({
-      id: "timer_race_day",
-      label: "Half marathon",
-      description: "Nothing new on race morning. Same shoes, same breakfast.",
-      targetDate: addDays(createdAt, 20, 9),
-      color: "#0d9488",
-      spaceId: "space_plans",
+      id: "timer_parcel_picked_up",
+      label: "Parcel picked up",
+      description: "Collected the lamp from the pickup point on the way home.",
+      targetDate: addDays(createdAt, -1, 20),
+      color: "#16a34a",
+      spaceId: "space_done",
+      notify: false,
+      createdAt: nowIso,
+    }),
+    demoTimer({
+      id: "timer_dentist_booked",
+      label: "Dentist booked",
+      description: "Appointment confirmed; reminder can stay off now.",
+      targetDate: addDays(createdAt, -3, 16),
+      color: "#64748b",
+      spaceId: "space_done",
+      notify: false,
       createdAt: nowIso,
     }),
   ]
 
   const snapshot = {
     version: PROJECT_SNAPSHOT_VERSION,
-    name: "Big days",
+    name: "Home week",
     color: "#2563eb",
     timers,
     spaces,

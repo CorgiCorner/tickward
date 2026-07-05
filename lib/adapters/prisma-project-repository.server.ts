@@ -6,6 +6,11 @@ import { requirePrismaClient } from "@/lib/db/prisma.server"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { type ProjectSnapshotV2, isProjectSnapshot } from "@/lib/project-model"
 import type { ClaimedProject, ProjectRepository } from "@/lib/repositories"
+import {
+  cancelScheduledTimerReminderIntentsForTimer,
+  cancelScheduledTimerReminderIntentsForTimers,
+  reconcileTimerReminders,
+} from "@/lib/timer-reminders.server"
 import type { Space, Timer } from "@/lib/types"
 import { cancelPendingTimerEndedEvents, emitWebhookEvent, scheduleTimerEndedEvent } from "@/lib/webhooks.server"
 
@@ -134,8 +139,6 @@ async function emitUserProjectSnapshotEvents(
     project: { id: string; name: string; ownerId: string | null }
   },
 ) {
-  if (!args.project.ownerId) return
-
   if (args.previous.name !== args.next.name || args.previous.color !== args.next.color) {
     await emitWebhookEvent(tx, {
       aggregateId: args.project.id,
@@ -171,6 +174,7 @@ async function emitUserProjectSnapshotEvents(
         userId: args.project.ownerId,
       })
       await scheduleTimerEndedEvent(tx, { project: args.project, timer })
+      await reconcileTimerReminders(tx, { project: args.project, timer })
       continue
     }
 
@@ -190,10 +194,12 @@ async function emitUserProjectSnapshotEvents(
       userId: args.project.ownerId,
     })
     await scheduleTimerEndedEvent(tx, { project: args.project, timer })
+    await reconcileTimerReminders(tx, { project: args.project, timer })
   }
 
   for (const timer of args.previous.timers) {
     if (nextTimers.has(timer.id)) continue
+    await cancelScheduledTimerReminderIntentsForTimer(tx, { timerId: timer.id })
     await cancelPendingTimerEndedEvents(tx, {
       projectId: args.project.id,
       timerId: timer.id,
@@ -246,6 +252,7 @@ async function deleteProjectGraph(
     }
 
     if (timerIds.length > 0) {
+      await cancelScheduledTimerReminderIntentsForTimers(tx, { timerIds })
       await tx.notificationOutboxItem.deleteMany({ where: { timerId: { in: timerIds } } })
       await tx.notificationDeliveryLog.deleteMany({ where: { timerId: { in: timerIds } } })
     }
@@ -346,6 +353,8 @@ export const prismaProjectRepository: ProjectRepository = {
     })
 
     if (!token || !isProjectSnapshot(token.project.snapshot)) return null
+    // Capture the narrowed snapshot; the type guard does not carry into closures.
+    const snapshot = token.project.snapshot
 
     const claimedAt = dateFromIso(args.claimedAt, new Date())
     const claimed = await prisma.$transaction(async (tx) => {
@@ -374,6 +383,12 @@ export const prismaProjectRepository: ProjectRepository = {
         where: { projectId: token.projectId },
         data: { ownerId: args.user.id },
       })
+      for (const timer of snapshot.timers) {
+        await reconcileTimerReminders(tx, {
+          project: { id: token.projectId, ownerId: args.user.id },
+          timer,
+        })
+      }
       return true
     })
 
@@ -381,7 +396,7 @@ export const prismaProjectRepository: ProjectRepository = {
 
     return {
       projectId: token.projectId,
-      project: token.project.snapshot,
+      project: snapshot,
       owner: args.user,
       claimedAt: args.claimedAt,
     }
@@ -449,16 +464,22 @@ export const prismaProjectRepository: ProjectRepository = {
     const spaceRows = spaceCreateManyData(existing.id, existing.ownerId, args.project)
 
     if (!previousSnapshot) {
-      await prisma.$transaction([
-        prisma.project.update({
+      await prisma.$transaction(async (tx) => {
+        await tx.project.update({
           where: { id: existing.id },
           data: prismaProjectFields(args.project),
-        }),
-        prisma.timer.deleteMany({ where: { projectId: existing.id } }),
-        prisma.space.deleteMany({ where: { projectId: existing.id } }),
-        ...(timerRows.length > 0 ? [prisma.timer.createMany({ data: timerRows })] : []),
-        ...(spaceRows.length > 0 ? [prisma.space.createMany({ data: spaceRows })] : []),
-      ])
+        })
+        await tx.timer.deleteMany({ where: { projectId: existing.id } })
+        await tx.space.deleteMany({ where: { projectId: existing.id } })
+        if (timerRows.length > 0) await tx.timer.createMany({ data: timerRows })
+        if (spaceRows.length > 0) await tx.space.createMany({ data: spaceRows })
+        for (const timer of args.project.timers) {
+          await reconcileTimerReminders(tx, {
+            project: { id: existing.id, ownerId: existing.ownerId },
+            timer,
+          })
+        }
+      })
       return true
     }
 

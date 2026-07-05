@@ -4,6 +4,7 @@ import type { NotificationChannel } from "@/lib/notification-preferences"
 
 export const NOTIFICATION_WORKFLOWS = {
   timerFinished: "timer.finished",
+  timerReminder: "timer.reminder",
 } as const
 
 export type NotificationWorkflowIdentifier = (typeof NOTIFICATION_WORKFLOWS)[keyof typeof NOTIFICATION_WORKFLOWS]

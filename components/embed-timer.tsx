@@ -196,7 +196,7 @@ export function EmbedTimer(props: EmbedTimerProps) {
   const inlineStyle = props.accent && !parts.isCountUp ? { color: props.accent } : undefined
 
   useEffect(() => {
-    if (!restartOnFinish || !parts.isCountUp) return
+    if (!restartOnFinish || !crossedZeroWhileMounted) return
     const timeout = window.setTimeout(() => {
       if (onRestartRequest) {
         onRestartRequest()
@@ -205,7 +205,7 @@ export function EmbedTimer(props: EmbedTimerProps) {
       window.location.reload()
     }, 1200)
     return () => window.clearTimeout(timeout)
-  }, [onRestartRequest, parts.isCountUp, restartOnFinish])
+  }, [crossedZeroWhileMounted, onRestartRequest, restartOnFinish])
 
   const inline = (size: "text" | "minimal") => (
     <div
@@ -261,7 +261,7 @@ export function EmbedTimer(props: EmbedTimerProps) {
               </>
             )}
             <div className="flex max-w-full flex-col items-center gap-1">
-              {showTarget && (
+              {showTarget && targetLine && (
                 <div className="max-w-full truncate text-center text-[10px] leading-none text-muted-foreground">
                   {targetLine}
                 </div>
@@ -297,7 +297,9 @@ export function EmbedTimer(props: EmbedTimerProps) {
               </div>
             )}
             <div className="flex flex-col items-center gap-1">
-              {showTarget && <div className="text-[10px] leading-none text-muted-foreground">{targetLine}</div>}
+              {showTarget && targetLine && (
+                <div className="text-[10px] leading-none text-muted-foreground">{targetLine}</div>
+              )}
               <Attribution attribution={props.attribution} />
             </div>
           </div>
@@ -310,7 +312,7 @@ export function EmbedTimer(props: EmbedTimerProps) {
           >
             <div className="min-w-0">
               <div className="truncate text-sm font-medium">{props.label}</div>
-              {showTarget && (
+              {showTarget && targetLine && (
                 <div className="mt-0.5 truncate text-[10px] leading-none text-muted-foreground">{targetLine}</div>
               )}
               <Attribution attribution={props.attribution} className="mt-1 block" />

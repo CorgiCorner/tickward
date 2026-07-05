@@ -28,11 +28,17 @@ type SitemapSource = Readonly<{
   localized?: boolean
 }>
 
+function sitemapUrl(siteOrigin: string, href: string): string {
+  return href === "/" ? siteOrigin : `${siteOrigin}${href}`
+}
+
 function localeAlternates(siteOrigin: string, path: string) {
   return {
     languages: {
-      ...Object.fromEntries(SUPPORTED_LOCALES.map((locale) => [locale, `${siteOrigin}${localeHref(locale, path)}`])),
-      "x-default": `${siteOrigin}${localeHref(DEFAULT_LOCALE, path)}`,
+      ...Object.fromEntries(
+        SUPPORTED_LOCALES.map((locale) => [locale, sitemapUrl(siteOrigin, localeHref(locale, path))]),
+      ),
+      "x-default": sitemapUrl(siteOrigin, localeHref(DEFAULT_LOCALE, path)),
     },
   }
 }
@@ -41,7 +47,7 @@ function sitemapEntries(siteOrigin: string, entry: SitemapSource): MetadataRoute
   if (!entry.localized) {
     return [
       {
-        url: `${siteOrigin}${entry.path}`,
+        url: sitemapUrl(siteOrigin, entry.path),
         changeFrequency: entry.changeFrequency,
         priority: entry.priority,
       },
@@ -49,7 +55,7 @@ function sitemapEntries(siteOrigin: string, entry: SitemapSource): MetadataRoute
   }
 
   return SUPPORTED_LOCALES.map((locale) => ({
-    url: `${siteOrigin}${localeHref(locale, entry.path)}`,
+    url: sitemapUrl(siteOrigin, localeHref(locale, entry.path)),
     changeFrequency: entry.changeFrequency,
     priority: entry.priority,
     alternates: localeAlternates(siteOrigin, entry.path),

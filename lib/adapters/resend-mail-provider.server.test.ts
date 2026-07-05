@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { EmailOtpCommand, TimerFinishedEmailCommand } from "@/lib/mail-provider"
+import type { EmailOtpCommand, TimerFinishedEmailCommand, TimerReminderEmailCommand } from "@/lib/mail-provider"
 import { resendMailProvider } from "@/lib/adapters/resend-mail-provider.server"
 
 const command: TimerFinishedEmailCommand = {
@@ -17,11 +17,19 @@ const otpCommand: EmailOtpCommand = {
   type: "email-verification",
 }
 
+const reminderCommand: TimerReminderEmailCommand = {
+  ...command,
+  offsetMinutes: 10,
+  occurrenceAt: "2026-06-05T21:37:00.000Z",
+  transactionId: "timer-reminder:timer-a:10m:2026-06-05T21:37:00.000Z",
+}
+
 describe("resend mail provider", () => {
   beforeEach(() => {
     delete process.env.RESEND_API_KEY
     delete process.env.RESEND_FROM
     delete process.env.RESEND_REPLY_TO
+    delete process.env.SITE_URL
   })
 
   afterEach(() => {
@@ -29,6 +37,7 @@ describe("resend mail provider", () => {
     delete process.env.RESEND_API_KEY
     delete process.env.RESEND_FROM
     delete process.env.RESEND_REPLY_TO
+    delete process.env.SITE_URL
   })
 
   it("does nothing when Resend is not configured", async () => {
@@ -38,6 +47,7 @@ describe("resend mail provider", () => {
     expect(resendMailProvider.id).toBe("resend")
     expect(resendMailProvider.isConfigured()).toBe(false)
     await resendMailProvider.sendTimerFinishedEmail(command)
+    await resendMailProvider.sendTimerReminderEmail(reminderCommand)
     await resendMailProvider.sendEmailOtp(otpCommand)
 
     expect(fetchMock).not.toHaveBeenCalled()
@@ -84,6 +94,40 @@ describe("resend mail provider", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("bad", { status: 422 })))
 
     await expect(resendMailProvider.sendTimerFinishedEmail(command)).rejects.toThrow("Resend email failed: 422")
+  })
+
+  it("sends reminder email HTML with the outbox transaction idempotency key", async () => {
+    process.env.RESEND_API_KEY = "rk_test"
+    process.env.RESEND_FROM = "Tickward <noreply@example.com>"
+    process.env.RESEND_REPLY_TO = "contact@example.com"
+    process.env.SITE_URL = "https://example.test"
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await resendMailProvider.sendTimerReminderEmail(reminderCommand)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.resend.com/emails",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer rk_test",
+          "Content-Type": "application/json",
+          "Idempotency-Key": reminderCommand.transactionId,
+          "User-Agent": "tickward/1.0",
+        }),
+      }),
+    )
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit
+    const body = JSON.parse(String(init.body))
+    expect(body).toEqual({
+      from: "Tickward <noreply@example.com>",
+      reply_to: "contact@example.com",
+      to: ["ada@example.com"],
+      subject: "Reminder: Deploy <script>",
+      html: '<h1>Timer reminder</h1><p>This is your 10 minutes before reminder for <strong>Deploy &lt;script&gt;</strong>. Target: 2026-06-05T21:37:00.000Z (Europe/Warsaw).</p><p><a href="https://example.test/en/settings#alerts">Manage reminder emails</a></p>',
+    })
   })
 
   it("sends escaped OTP email HTML through Resend", async () => {

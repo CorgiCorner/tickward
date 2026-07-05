@@ -253,6 +253,34 @@ describe("OtpSignInPageClient", () => {
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/en/settings#alerts"))
   })
 
+  it("lets a correct OTP sign in after an invalid code attempt", async () => {
+    const user = userEvent.setup()
+    mocks.signInEmailOtp
+      .mockResolvedValueOnce({ data: null, error: { message: "INVALID_OTP" } })
+      .mockResolvedValueOnce({ data: { user: { email: "ada@example.com" } }, error: null })
+    render(<OtpSignInPageClient email="ada@example.com" />)
+
+    const firstSlot = screen.getByLabelText("Code 1")
+    await user.type(firstSlot, "123456")
+    await user.click(screen.getByRole("button", { name: "Verify code" }))
+
+    await waitFor(() => expect(screen.getByText("Invalid or expired code.")).toBeVisible())
+
+    await user.click(firstSlot)
+    await user.paste("654321")
+    await user.click(screen.getByRole("button", { name: "Verify code" }))
+
+    await waitFor(() =>
+      expect(mocks.signInEmailOtp).toHaveBeenLastCalledWith({
+        email: "ada@example.com",
+        otp: "654321",
+      }),
+    )
+    expect(mocks.refetch).toHaveBeenCalled()
+    expect(mocks.replace).toHaveBeenCalledWith("/")
+    expect(mocks.toastError.mock.calls.flat()).not.toContain("Wait 60s before requesting another code.")
+  })
+
   it("marks the OTP input for one-time-code autofill", () => {
     render(<OtpSignInPageClient email="ada@example.com" />)
 

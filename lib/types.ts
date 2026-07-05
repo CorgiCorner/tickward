@@ -1,6 +1,10 @@
 import type { TimerNotificationSettings } from "@/lib/notification-preferences"
 import { LIMITS } from "@/lib/limits"
 
+export type TimerReminder = {
+  offsetMinutes: number
+}
+
 export type Timer = {
   id: string
   label: string
@@ -24,6 +28,7 @@ export type Timer = {
     enabled: boolean
     lastDay?: boolean
   }
+  reminders?: TimerReminder[]
   description?: string
   url?: string
   spaceId?: string

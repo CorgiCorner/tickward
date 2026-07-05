@@ -204,7 +204,7 @@ describe("AccountPageClient", () => {
     expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument()
   })
 
-  it("orders account sections from profile to MCP", () => {
+  it("orders account sections from profile to MCP", async () => {
     mocks.useSession.mockReturnValue({
       data: { user: { email: "ada@example.com" } },
       refetch: mocks.refetch,
@@ -229,7 +229,7 @@ describe("AccountPageClient", () => {
     expect(alerts!.compareDocumentPosition(apiKeys!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(apiKeys!.compareDocumentPosition(webhooks!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(webhooks!.compareDocumentPosition(mcp!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(screen.getByText("MCP configured")).toBeVisible()
+    expect(await screen.findByText("MCP configured")).toBeVisible()
   })
 
   it("normalizes and scrolls to settings hash sections after render", async () => {

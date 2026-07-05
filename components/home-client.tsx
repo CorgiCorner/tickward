@@ -12,7 +12,7 @@ import {
   TimerIcon,
   XIcon,
 } from "lucide-react"
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 
 import { FooterStatusBar } from "@/components/footer"
@@ -155,6 +155,25 @@ function targetMs(timer: Timer, nowMs: number) {
   return new Date(effectiveTargetDate(timer, nowMs)).getTime()
 }
 
+function timerReclassificationBoundaryMs(timer: Timer, nowMs: number) {
+  const target = targetMs(timer, nowMs)
+  if (!Number.isFinite(target)) return null
+  if (timer.recurrence?.enabled) return target >= nowMs ? target : null
+  return target >= nowMs ? target + 1 : null
+}
+
+function nextReclassificationBoundaryMs(timers: Timer[], nowMs: number) {
+  let next: number | null = null
+
+  for (const timer of timers) {
+    const boundary = timerReclassificationBoundaryMs(timer, nowMs)
+    if (boundary === null || boundary <= nowMs) continue
+    if (next === null || boundary < next) next = boundary
+  }
+
+  return next
+}
+
 function sortTimers(timers: Timer[], sortMode: TimerSortMode, nowMs: number) {
   if (sortMode === "manual") return timers
 
@@ -198,7 +217,7 @@ function matchesActiveSpace(timer: Timer, activeSpaceId: string | null, spaces: 
 
 type TimerSectionKind = "pinned" | "upcoming" | "archived"
 
-function SortableTimerSection(
+const SortableTimerSection = memo(function SortableTimerSection(
   props: Readonly<{
     kind: TimerSectionKind
     headingId: string
@@ -244,9 +263,9 @@ function SortableTimerSection(
       </DndContext>
     </section>
   )
-}
+})
 
-function ActiveTimerList(
+const ActiveTimerList = memo(function ActiveTimerList(
   props: Readonly<{
     pinnedTimers: Timer[]
     upcomingTimers: Timer[]
@@ -280,7 +299,7 @@ function ActiveTimerList(
       />
     </div>
   )
-}
+})
 
 function scrollToId(id: string) {
   const reduceMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
@@ -303,7 +322,7 @@ function SectionJump(props: Readonly<{ direction: "toArchived" | "toActive" }>) 
   )
 }
 
-function ArchivedTimerList(
+const ArchivedTimerList = memo(function ArchivedTimerList(
   props: Readonly<{
     timers: Timer[]
     nowMs: number
@@ -345,9 +364,9 @@ function ArchivedTimerList(
       ) : null}
     </>
   )
-}
+})
 
-function TimerCollection(
+const TimerCollection = memo(function TimerCollection(
   props: Readonly<{
     hasActiveProject: boolean
     timers: Timer[]
@@ -364,7 +383,7 @@ function TimerCollection(
   if (props.timers.length === 0) {
     return (
       <>
-        {props.hasActiveProject ? <OrganizerBar /> : null}
+        {props.hasActiveProject ? <OrganizerBar nowMs={props.nowMs} /> : null}
         <EmptyState compact={!props.hasActiveProject} onSelectExample={props.onSelectExample} />
       </>
     )
@@ -374,7 +393,7 @@ function TimerCollection(
 
   return (
     <>
-      <OrganizerBar />
+      <OrganizerBar nowMs={props.nowMs} />
       {props.activeTimers.length > 0 ? (
         <ActiveTimerList
           pinnedTimers={props.pinnedTimers}
@@ -399,6 +418,41 @@ function TimerCollection(
       {props.activeTimers.length === 0 && props.archivedTimers.length === 0 ? <FilteredEmptyState /> : null}
     </>
   )
+})
+
+function ReclassificationBoundary(
+  props: Readonly<{
+    nextBoundaryMs: number
+    onBoundary: (nowMs: number) => void
+  }>,
+) {
+  const nowMs = useNow()
+  const { nextBoundaryMs, onBoundary } = props
+
+  useEffect(() => {
+    if (nowMs >= nextBoundaryMs) onBoundary(nowMs)
+  }, [nextBoundaryMs, nowMs, onBoundary])
+
+  return null
+}
+
+function HomeTickEffects(
+  props: Readonly<{
+    activeProjectName?: string
+    hasHydrated: boolean
+    timers: Timer[]
+  }>,
+) {
+  const nowMs = useNow()
+  const alarmTimers = props.hasHydrated ? props.timers : []
+  const localAlarm = useLocalTimerAlarms(alarmTimers, nowMs)
+
+  useEffect(() => {
+    if (!props.hasHydrated) return
+    document.title = browserTitle({ projectName: props.activeProjectName, timers: props.timers, nowMs })
+  }, [props.activeProjectName, props.hasHydrated, nowMs, props.timers])
+
+  return <TimerAlarmOverlay alarm={localAlarm.alarm} onDismiss={localAlarm.dismissAlarm} />
 }
 
 export function HomeClient() {
@@ -413,7 +467,6 @@ export function HomeClient() {
   const activeSpaceId = useTimerStore((s) => s.activeSpaceId)
   const sortMode = useTimerStore((s) => s.sortMode)
   const timerFilters = useTimerStore((s) => s.timerFilters)
-  const nowMs = useNow()
   const refreshFollowedTimers = useTimerStore((s) => s.refreshFollowedTimers)
   const refreshActiveProjectFromCloud = useTimerStore((s) => s.refreshActiveProjectFromCloud)
   const reorderVisibleTimers = useTimerStore((s) => s.reorderVisibleTimers)
@@ -426,12 +479,14 @@ export function HomeClient() {
   const signedInUserKey = session.data?.user?.id ?? session.data?.user?.email ?? null
   const sessionPending = Boolean(session.isPending)
   const [quickAddLabel, setQuickAddLabel] = useState("")
+  const [classificationNowMs, setClassificationNowMs] = useState(() => Date.now())
+  const visibleSpaceTimers = useMemo(
+    () => timers.filter((timer) => matchesActiveSpace(timer, activeSpaceId, spaces)),
+    [activeSpaceId, spaces, timers],
+  )
   const filteredTimers = useMemo(
-    () =>
-      timers.filter(
-        (timer) => matchesActiveSpace(timer, activeSpaceId, spaces) && timerMatchesFilters(timer, timerFilters, nowMs),
-      ),
-    [activeSpaceId, nowMs, spaces, timerFilters, timers],
+    () => visibleSpaceTimers.filter((timer) => timerMatchesFilters(timer, timerFilters, classificationNowMs)),
+    [classificationNowMs, timerFilters, visibleSpaceTimers],
   )
   const activeTimers = useMemo(() => filteredTimers.filter((timer) => !timer.archivedAt), [filteredTimers])
   const pinnedTimers = useMemo(() => activeTimers.filter((timer) => timer.pinned), [activeTimers])
@@ -440,20 +495,19 @@ export function HomeClient() {
       sortTimers(
         activeTimers.filter((timer) => !timer.pinned),
         sortMode,
-        nowMs,
+        classificationNowMs,
       ),
-    [activeTimers, nowMs, sortMode],
+    [activeTimers, classificationNowMs, sortMode],
   )
   const archivedTimers = useMemo(() => {
     const archived = filteredTimers.filter((timer) => timer.archivedAt)
     if (sortMode === "manual") return archived
     return [...archived].sort((a, b) => new Date(b.archivedAt ?? 0).getTime() - new Date(a.archivedAt ?? 0).getTime())
   }, [filteredTimers, sortMode])
-
-  useEffect(() => {
-    if (!hasHydrated) return
-    document.title = browserTitle({ projectName: activeProject?.name, timers, nowMs })
-  }, [activeProject?.name, hasHydrated, nowMs, timers])
+  const nextBoundaryMs = useMemo(
+    () => nextReclassificationBoundaryMs(visibleSpaceTimers, classificationNowMs),
+    [classificationNowMs, visibleSpaceTimers],
+  )
 
   useEffect(() => {
     if (!hasHydrated || sessionPending) return
@@ -465,14 +519,17 @@ export function HomeClient() {
   }, [hasHydrated, refreshAccountProjectsFromCloud, removeAccountProjectsFromDevice, sessionPending, signedInUserKey])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock refresh so changed data classifies against current time, not the last boundary
+    if (hasHydrated) setClassificationNowMs(Date.now())
+  }, [activeSpaceId, hasHydrated, sortMode, spaces, timerFilters, timers])
+
+  useEffect(() => {
     if (!hasHydrated) return
     const url = new URL(globalThis.location.href)
     if (!url.searchParams.has("space")) return
     url.searchParams.delete("space")
     globalThis.history.replaceState(null, "", url.toString())
   }, [hasHydrated])
-
-  const localAlarm = useLocalTimerAlarms(timers, nowMs)
 
   useEffect(() => {
     if (!hasHydrated) return
@@ -494,31 +551,37 @@ export function HomeClient() {
     }
   }, [hasHydrated, refreshActiveProjectFromCloud])
 
-  function handleTimerDragEnd(event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    const visibleIds = sectionTimers.map((timer) => timer.id)
-    const activeIdx = visibleIds.indexOf(String(active.id))
-    const overIdx = visibleIds.indexOf(String(over.id))
-    if (activeIdx === -1 || overIdx === -1) return
+  const handleTimerDragEnd = useCallback(
+    (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => {
+      const { active, over } = event
+      if (!over || active.id === over.id) return
+      const visibleIds = sectionTimers.map((timer) => timer.id)
+      const activeIdx = visibleIds.indexOf(String(active.id))
+      const overIdx = visibleIds.indexOf(String(over.id))
+      if (activeIdx === -1 || overIdx === -1) return
 
-    if (kind === "upcoming") {
-      reorderVisibleTimers(arrayMove(visibleIds, activeIdx, overIdx))
-    } else {
-      const fromIndex = timers.findIndex((timer) => timer.id === active.id)
-      const toIndex = timers.findIndex((timer) => timer.id === over.id)
-      if (fromIndex === -1 || toIndex === -1) return
-      reorderTimers(fromIndex, toIndex)
-      if (sortMode !== "manual") setTimerSortMode("manual")
-    }
+      if (kind === "upcoming") {
+        reorderVisibleTimers(arrayMove(visibleIds, activeIdx, overIdx))
+      } else {
+        const fromIndex = timers.findIndex((timer) => timer.id === active.id)
+        const toIndex = timers.findIndex((timer) => timer.id === over.id)
+        if (fromIndex === -1 || toIndex === -1) return
+        reorderTimers(fromIndex, toIndex)
+        if (sortMode !== "manual") setTimerSortMode("manual")
+      }
 
-    if (sortMode !== "manual") {
-      toast(formatMessage("timer.manualOrder"), { id: "manual-sort-after-drag" })
-    }
-  }
+      if (sortMode !== "manual") {
+        toast(formatMessage("timer.manualOrder"), { id: "manual-sort-after-drag" })
+      }
+    },
+    [reorderTimers, reorderVisibleTimers, setTimerSortMode, sortMode, timers],
+  )
 
   return (
     <div className="flex min-h-svh flex-col bg-background">
+      {nextBoundaryMs !== null ? (
+        <ReclassificationBoundary nextBoundaryMs={nextBoundaryMs} onBoundary={setClassificationNowMs} />
+      ) : null}
       <Header />
 
       {/* The section constrains the sticky status footer to the timer list area
@@ -544,7 +607,7 @@ export function HomeClient() {
                 archivedTimers={archivedTimers}
                 pinnedTimers={pinnedTimers}
                 upcomingTimers={upcomingTimers}
-                nowMs={nowMs}
+                nowMs={classificationNowMs}
                 sensors={sensors}
                 onDragEnd={handleTimerDragEnd}
                 onSelectExample={setQuickAddLabel}
@@ -557,7 +620,7 @@ export function HomeClient() {
         <FooterStatusBar />
       </section>
       <IosPwaPrompt />
-      <TimerAlarmOverlay alarm={localAlarm.alarm} onDismiss={localAlarm.dismissAlarm} />
+      <HomeTickEffects activeProjectName={activeProject?.name} hasHydrated={hasHydrated} timers={timers} />
     </div>
   )
 }

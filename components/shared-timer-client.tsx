@@ -24,7 +24,7 @@ export function SharedTimerClient(props: Readonly<{ initial: ResolvedShareClient
 
   const timer = props.initial.timer
   const subtitle = useMemo(() => {
-    return `${formatTargetInTimeZone(timer.targetDate, timer.timezone)} · ${timer.timezone}`
+    return [formatTargetInTimeZone(timer.targetDate, timer.timezone), timer.timezone].filter(Boolean).join(" · ")
   }, [timer.targetDate, timer.timezone])
 
   return (

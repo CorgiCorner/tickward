@@ -38,6 +38,16 @@ describe("docs config", () => {
       "/docs/guides/webhooks",
       "/docs/guides/mcp",
       "/docs/guides/agent-usage",
+      "/docs/concepts/countdown-accuracy",
+      "/docs/concepts/recurrence",
+      "/docs/concepts/notifications-and-alarms",
+      "/docs/concepts/where-timers-live",
+      "/docs/concepts/plans-and-limits",
+      "/docs/concepts/sharing-model",
+      "/docs/concepts/api-reliability",
+      "/docs/guides/recipes/retry-safe-mutation",
+      "/docs/guides/recipes/create-project-with-timers",
+      "/docs/guides/recipes/preview-and-delete-project",
       "/docs/api-reference",
     ])
   })

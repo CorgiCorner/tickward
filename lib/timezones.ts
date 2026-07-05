@@ -35,17 +35,35 @@ const FALLBACK_TIMEZONES: string[] = [
 ]
 
 export function getBrowserTimeZone() {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+  // Headless or tzdata-less browsers can *report* a zone (e.g. "Etc/Unknown")
+  // that Intl rejects as input, which later crashes date formatting.
+  const reported = Intl.DateTimeFormat().resolvedOptions().timeZone
+  return reported && isSupportedTimeZone(reported) ? reported : "UTC"
 }
+
+// Probing Intl is not free and recurrence walkers ask about the same zone in
+// tight loops; support cannot change within a session, so cache the verdicts.
+const timeZoneSupportCache = new Map<string, boolean>()
 
 export function isSupportedTimeZone(value: string) {
   if (!value) return false
+  const cached = timeZoneSupportCache.get(value)
+  if (cached !== undefined) return cached
+  let supported = false
   try {
     new Intl.DateTimeFormat("en", { timeZone: value }).format(new Date(0))
-    return true
+    supported = true
   } catch {
-    return false
+    supported = false
   }
+  timeZoneSupportCache.set(value, supported)
+  return supported
+}
+
+// A stored zone must survive runtimes with incomplete tz data (some embedded
+// or headless browsers): degrade to UTC instead of crashing date formatting.
+export function normalizeTimeZone(value: string) {
+  return isSupportedTimeZone(value) ? value : "UTC"
 }
 
 export function getStoredDefaultTimeZone() {

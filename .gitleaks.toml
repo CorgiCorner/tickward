@@ -1,0 +1,3 @@
+[allowlist]
+description = "Public documentation placeholders"
+regexes = ['''tw_your_api_key''']

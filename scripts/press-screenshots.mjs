@@ -222,6 +222,22 @@ async function waitForDemoToastToClear(page) {
   await toast.waitFor({ state: "hidden", timeout: 7_000 })
 }
 
+async function hideNextDevTools(page) {
+  await page.addStyleTag({
+    content: `
+      nextjs-portal,
+      script[data-nextjs-dev-overlay="true"],
+      [data-nextjs-toast],
+      .nextjs-toast {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+    `,
+  })
+}
+
 async function captureTheme(browser, baseUrl, theme, fileName) {
   const context = await browser.newContext({
     baseURL: baseUrl,
@@ -246,11 +262,12 @@ async function captureTheme(browser, baseUrl, theme, fileName) {
     // The pinned demo timer renders more than once (pinned strip + list) and
     // some copies stay hidden; wait on the first visible match.
     await page
-      .getByText("Flight to Lisbon")
+      .getByText("Train to Gdansk")
       .filter({ visible: true })
       .first()
       .waitFor({ state: "visible", timeout: 10_000 })
     await waitForDemoToastToClear(page)
+    await hideNextDevTools(page)
 
     const screenshotPath = path.join(outputDir, fileName)
     await page.screenshot({

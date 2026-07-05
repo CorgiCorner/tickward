@@ -657,7 +657,7 @@ export function SignInDialog(
           {formatMessage("auth.signIn")}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-sm rounded-2xl border-border bg-popover p-6 shadow-none sm:max-w-sm">
+      <DialogContent className="max-w-sm rounded-2xl border-border bg-popover shadow-none sm:max-w-sm">
         <SignInDialogContent
           onDone={closeAfterSuccess}
           onSignedIn={() => {

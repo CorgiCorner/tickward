@@ -32,7 +32,6 @@ node_modules/
 *.cert
 
 # local tooling and editors
-.claude/
 .idea/
 .vscode/
 

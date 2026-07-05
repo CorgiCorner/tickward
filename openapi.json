@@ -2557,7 +2557,8 @@
           "notify",
           "recurrence",
           "pinned",
-          "image"
+          "image",
+          "reminders"
         ],
         "properties": {
           "object": {
@@ -2636,6 +2637,14 @@
                 "type": "null"
               }
             ]
+          },
+          "reminders": {
+            "type": "array",
+            "maxItems": 5,
+            "description": "Reminder offsets configured on this timer.",
+            "items": {
+              "$ref": "#/components/schemas/TimerReminder"
+            }
           }
         },
         "example": {
@@ -2657,7 +2666,12 @@
           "notify": true,
           "recurrence": null,
           "pinned": false,
-          "image": null
+          "image": null,
+          "reminders": [
+            {
+              "offset_minutes": 10
+            }
+          ]
         }
       },
       "TimerCreateRequest": {
@@ -2702,6 +2716,14 @@
           },
           "image": {
             "$ref": "#/components/schemas/UnsplashImage"
+          },
+          "reminders": {
+            "type": "array",
+            "maxItems": 5,
+            "description": "Reminder offsets for in-app delivery, and email delivery when enabled in account settings. Offsets must be unique.",
+            "items": {
+              "$ref": "#/components/schemas/TimerReminder"
+            }
           }
         }
       },
@@ -2745,6 +2767,14 @@
           },
           "image": {
             "$ref": "#/components/schemas/UnsplashImage"
+          },
+          "reminders": {
+            "type": "array",
+            "maxItems": 5,
+            "description": "Reminder offsets for in-app delivery, and email delivery when enabled in account settings. Offsets must be unique.",
+            "items": {
+              "$ref": "#/components/schemas/TimerReminder"
+            }
           }
         }
       },
@@ -3184,7 +3214,8 @@
               "remote_oauth": false
             },
             "timer_webhooks": true,
-            "timer_reminders": false
+            "timer_reminders": true,
+            "webhook_management": true
           },
           "limits": {
             "project_create_max_spaces": 20,
@@ -3405,6 +3436,14 @@
           },
           "image": {
             "$ref": "#/components/schemas/UnsplashImage"
+          },
+          "reminders": {
+            "type": "array",
+            "maxItems": 5,
+            "description": "Reminder offsets for in-app delivery, and email delivery when enabled in account settings. Offsets must be unique.",
+            "items": {
+              "$ref": "#/components/schemas/TimerReminder"
+            }
           }
         }
       },
@@ -3928,6 +3967,19 @@
           "deleted": {
             "type": "boolean",
             "enum": [true]
+          }
+        }
+      },
+      "TimerReminder": {
+        "type": "object",
+        "required": ["offset_minutes"],
+        "additionalProperties": false,
+        "properties": {
+          "offset_minutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 40320,
+            "description": "Minutes before the timer occurrence when the reminder should be delivered."
           }
         }
       }

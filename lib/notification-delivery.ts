@@ -24,6 +24,19 @@ export type TimerFinishedDeliveryCommand = {
   recipient: NotificationRecipient
 }
 
+export type TimerReminderDeliveryCommand = {
+  transactionId: string
+  workflowIdentifier: "timer.reminder"
+  timerId: string
+  projectId?: string
+  label: string
+  timezone: string
+  channels: NotificationChannel[]
+  recipient: NotificationRecipient
+  offsetMinutes: number
+  occurrenceAt: string
+}
+
 export type TimerDeliveryPlan = {
   settings: TimerNotificationSettings
   recipient: NotificationRecipient
@@ -44,10 +57,19 @@ export type DeliveryResult = {
 
 export interface NotificationDeliveryProvider {
   sendTimerFinished(command: TimerFinishedDeliveryCommand): Promise<DeliveryResult[]>
+  sendTimerReminder(command: TimerReminderDeliveryCommand): Promise<DeliveryResult[]>
 }
 
 export const nullNotificationDeliveryProvider: NotificationDeliveryProvider = {
   async sendTimerFinished(command: TimerFinishedDeliveryCommand): Promise<DeliveryResult[]> {
+    return command.channels.map((channel) => ({
+      channel,
+      status: "skipped",
+      reason: "provider_not_configured",
+      providerId: "none",
+    }))
+  },
+  async sendTimerReminder(command: TimerReminderDeliveryCommand): Promise<DeliveryResult[]> {
     return command.channels.map((channel) => ({
       channel,
       status: "skipped",

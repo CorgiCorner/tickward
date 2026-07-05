@@ -4,7 +4,7 @@ import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { ArchiveIcon, ArchiveRestoreIcon, GripVerticalIcon, TrashIcon } from "lucide-react"
 import type { CSSProperties } from "react"
-import { useState } from "react"
+import { lazy, memo, Suspense, useState } from "react"
 import {
   SwipeableList,
   SwipeableListItem,
@@ -17,15 +17,12 @@ import "react-swipeable-list/dist/styles.css"
 import { toast } from "sonner"
 
 import {
-  MoveToProjectDialog,
   TimerCardContent,
   TimerCardDesktopActions,
   TimerCardMobileActions,
   TimerImageAttribution,
-  TimerShareDialog,
 } from "@/components/timer-card-parts"
-import { TimerFocusMode } from "@/components/timer-focus-mode"
-import { TimerForm, type TimerFormSubmitValue } from "@/components/timer-form"
+import type { TimerFormSubmitValue } from "@/components/timer-form"
 import { authClient } from "@/lib/auth/auth-client"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
 import { formatMessage } from "@/lib/i18n/messages"
@@ -36,7 +33,21 @@ import { timerAlertReadiness } from "@/lib/timer-alert-readiness.client"
 import type { Timer } from "@/lib/types"
 import { effectiveTargetDate, formatTargetInTimeZone, recurrenceHistory } from "@/lib/utils"
 
-export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortable?: boolean }>) {
+const LazyMoveToProjectDialog = lazy(() =>
+  import("@/components/timer-card-move-dialog").then((mod) => ({ default: mod.MoveToProjectDialog })),
+)
+
+const LazyTimerFocusMode = lazy(() =>
+  import("@/components/timer-focus-mode").then((mod) => ({ default: mod.TimerFocusMode })),
+)
+
+const LazyTimerForm = lazy(() => import("@/components/timer-form").then((mod) => ({ default: mod.TimerForm })))
+
+const LazyTimerShareDialog = lazy(() =>
+  import("@/components/timer-card-share-dialog").then((mod) => ({ default: mod.TimerShareDialog })),
+)
+
+export const TimerCard = memo(function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortable?: boolean }>) {
   const { timer, nowMs } = props
   const session = authClient.useSession()
   const sortable = props.sortable ?? true
@@ -70,14 +81,18 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
   const timerSpace = spaces.find((space) => space.id === timer.spaceId)
   const canMove = !isFollowed && otherProjects.length > 0
 
-  const sub = `${formatTargetInTimeZone(effectiveTarget, timer.timezone)} · ${timer.timezone}`
+  const sub = [formatTargetInTimeZone(effectiveTarget, timer.timezone), timer.timezone].filter(Boolean).join(" · ")
 
   const [shareOpen, setShareOpen] = useState(false)
+  const [shareLoaded, setShareLoaded] = useState(false)
   const [shareUrl, setShareUrl] = useState("")
   const [shareLoading, setShareLoading] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const [editLoaded, setEditLoaded] = useState(false)
   const [focusOpen, setFocusOpen] = useState(false)
+  const [focusLoaded, setFocusLoaded] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
+  const [moveLoaded, setMoveLoaded] = useState(false)
 
   function shareOwnerPayload() {
     return { projectId: activeProject?.cloudProjectId, restoreKey, timerId: timer.id }
@@ -253,8 +268,24 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
   }
 
   function openShareDialog() {
+    setShareLoaded(true)
     setShareOpen(true)
     if (!shareUrl) void loadExistingShareLink()
+  }
+
+  function openEditDialog() {
+    setEditLoaded(true)
+    setEditOpen(true)
+  }
+
+  function openFocusMode() {
+    setFocusLoaded(true)
+    setFocusOpen(true)
+  }
+
+  function openMoveDialog() {
+    setMoveLoaded(true)
+    setMoveOpen(true)
   }
 
   function handleUnfollow() {
@@ -286,7 +317,7 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
       const mobile = globalThis.matchMedia("(max-width: 767px)").matches
       if (!mobile) return
     }
-    if (!isFollowed) setEditOpen(true)
+    if (!isFollowed) openEditDialog()
   }
 
   const leadingActions = () => (
@@ -347,9 +378,9 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
           onTogglePin={togglePin}
           onToggleNotification={() => void toggleNotification()}
           onOpenShare={openShareDialog}
-          onOpenFocus={() => setFocusOpen(true)}
-          onOpenEdit={() => setEditOpen(true)}
-          onOpenMove={() => setMoveOpen(true)}
+          onOpenFocus={openFocusMode}
+          onOpenEdit={openEditDialog}
+          onOpenMove={openMoveDialog}
           onUnfollow={handleUnfollow}
           onDuplicate={handleDuplicate}
           onToggleArchive={toggleArchive}
@@ -366,9 +397,9 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
           onTogglePin={togglePin}
           onToggleNotification={() => void toggleNotification()}
           onOpenShare={openShareDialog}
-          onOpenFocus={() => setFocusOpen(true)}
-          onOpenMove={() => setMoveOpen(true)}
-          onOpenEdit={() => setEditOpen(true)}
+          onOpenFocus={openFocusMode}
+          onOpenMove={openMoveDialog}
+          onOpenEdit={openEditDialog}
           onUnfollow={handleUnfollow}
           onDuplicate={handleDuplicate}
           onToggleArchive={toggleArchive}
@@ -391,36 +422,55 @@ export function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortabl
       </div>
       <div className="hidden md:block">{cardDiv}</div>
 
-      {isFollowed ? null : (
-        <TimerForm mode="edit" initial={timer} open={editOpen} onOpenChange={setEditOpen} onSubmit={handleEditSubmit} />
+      {isFollowed || !editLoaded ? null : (
+        <Suspense fallback={null}>
+          <LazyTimerForm
+            mode="edit"
+            initial={timer}
+            open={editOpen}
+            onOpenChange={setEditOpen}
+            onSubmit={handleEditSubmit}
+          />
+        </Suspense>
       )}
 
-      <TimerShareDialog
-        open={shareOpen}
-        onOpenChange={setShareOpen}
-        shareUrl={shareUrl}
-        shareLoading={shareLoading}
-        hasSharedMarker={Boolean(timer.sharedAt)}
-        timerLabel={timer.label}
-        onCreateAndCopy={() => void createAndCopyShareLink()}
-      />
+      {shareLoaded ? (
+        <Suspense fallback={null}>
+          <LazyTimerShareDialog
+            open={shareOpen}
+            onOpenChange={setShareOpen}
+            shareUrl={shareUrl}
+            shareLoading={shareLoading}
+            hasSharedMarker={Boolean(timer.sharedAt)}
+            timerLabel={timer.label}
+            onCreateAndCopy={() => void createAndCopyShareLink()}
+          />
+        </Suspense>
+      ) : null}
 
-      <TimerFocusMode
-        open={focusOpen}
-        timerLabel={timer.label}
-        targetDateIsoUtc={effectiveTarget}
-        nowMs={nowMs}
-        onClose={() => setFocusOpen(false)}
-      />
+      {focusLoaded ? (
+        <Suspense fallback={null}>
+          <LazyTimerFocusMode
+            open={focusOpen}
+            timerLabel={timer.label}
+            targetDateIsoUtc={effectiveTarget}
+            onClose={() => setFocusOpen(false)}
+          />
+        </Suspense>
+      ) : null}
 
-      <MoveToProjectDialog
-        open={moveOpen}
-        onOpenChange={setMoveOpen}
-        projects={otherProjects.map((project) => ({ id: project.id, name: project.name }))}
-        onMove={handleMoveToProject}
-      />
+      {moveLoaded ? (
+        <Suspense fallback={null}>
+          <LazyMoveToProjectDialog
+            open={moveOpen}
+            onOpenChange={setMoveOpen}
+            projects={otherProjects.map((project) => ({ id: project.id, name: project.name }))}
+            onMove={handleMoveToProject}
+          />
+        </Suspense>
+      ) : null}
 
       <TimerImageAttribution timer={timer} />
     </div>
   )
-}
+})

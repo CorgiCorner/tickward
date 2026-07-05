@@ -70,7 +70,7 @@ describe("tickward Better Auth server config", () => {
   })
 
   it("configures Email OTP and Admin plugins without social providers", async () => {
-    const { auth } = await loadAuth()
+    const { auth, emailOtpPlugin } = await loadAuth()
 
     expect(auth).toBeTruthy()
     expect(mocks.emailOTP).toHaveBeenCalledWith(
@@ -80,9 +80,9 @@ describe("tickward Better Auth server config", () => {
         allowedAttempts: 3,
         storeOTP: "hashed",
         overrideDefaultEmailVerification: true,
-        rateLimit: { window: 60, max: 1 },
       }),
     )
+    expect(emailOtpPlugin).not.toHaveProperty("rateLimit")
     expect(mocks.admin).toHaveBeenCalledWith(
       expect.objectContaining({
         defaultRole: "user",

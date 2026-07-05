@@ -6,17 +6,21 @@ import { AccountPreferencesProvider } from "@/components/account-preferences-pro
 import { HomePageLoading } from "@/components/app-shell-loading"
 import { HomeClient } from "@/components/home-client"
 import { CountryCalendarsSection } from "@/components/country-calendars-section"
+import { FaqSection } from "@/components/faq-section"
+import { GitHubStarCta } from "@/components/github-star-cta"
 import { HomeContentSection } from "@/components/home-content-section"
+import { HomeUseCasesSection } from "@/components/home-use-cases-section"
 import { SiteFooter } from "@/components/site-footer"
 import { WebMcpTools } from "@/components/webmcp-tools"
 import { getCurrentActor } from "@/lib/actor.server"
 import { DEFAULT_ACCOUNT_PREFERENCES, type AccountPreferencesRecord } from "@/lib/account-preferences"
 import { getAccountPreferencesForUser } from "@/lib/account-preferences.server"
 import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/cookies.server"
+import { getHomeFaqs } from "@/lib/home-faqs"
 import { setActiveLocale } from "@/lib/i18n/active-locale"
-import { isSupportedLocale, localeHref, SUPPORTED_LOCALES, type Locale } from "@/lib/i18n/messages"
+import { formatMessage, isSupportedLocale, localeHref, SUPPORTED_LOCALES, type Locale } from "@/lib/i18n/messages"
 import { TimerStoreProvider } from "@/lib/store"
-import { buildSoftwareApplicationJsonLd } from "@/lib/structured-data"
+import { buildFaqPageJsonLd, buildSoftwareApplicationJsonLd, jsonLdScriptContent } from "@/lib/structured-data"
 import type { Space, Timer } from "@/lib/types"
 import { isSpaceArray, isTimerArray } from "@/lib/validate"
 
@@ -96,6 +100,7 @@ async function PersonalizedHome() {
 
 export default async function Home(props: Readonly<{ params: HomeRouteParams }>) {
   const locale = await resolveLocale(props.params)
+  const homeFaqs = getHomeFaqs(locale)
 
   return (
     <>
@@ -104,12 +109,21 @@ export default async function Home(props: Readonly<{ params: HomeRouteParams }>)
         // Static, trusted payload: built from i18n constants and SITE_URL only.
         dangerouslySetInnerHTML={{ __html: JSON.stringify(buildSoftwareApplicationJsonLd()) }}
       />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: jsonLdScriptContent(buildFaqPageJsonLd(homeFaqs)) }}
+      />
       <Suspense fallback={<HomePageLoading />}>
         <PersonalizedHome />
       </Suspense>
       {/* Server-rendered below the Suspense boundary: hydration of the client
-          app can never remove the SEO hero, content, or contentinfo footer. */}
+          app can never remove the SEO content, links, or contentinfo footer. */}
       <HomeContentSection />
+      <GitHubStarCta />
+      <div className="mx-auto w-full max-w-[640px] px-4 pb-16">
+        <FaqSection heading={formatMessage("home.faq.heading", {}, locale)} faqs={homeFaqs} />
+      </div>
+      <HomeUseCasesSection locale={locale} />
       <CountryCalendarsSection locale={locale} />
       <SiteFooter locale={locale} />
     </>

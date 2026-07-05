@@ -5,6 +5,7 @@ import {
   nullMailProvider,
   type EmailOtpCommand,
   type TimerFinishedEmailCommand,
+  type TimerReminderEmailCommand,
 } from "./mail-provider"
 
 describe("mail provider", () => {
@@ -30,6 +31,21 @@ describe("mail provider", () => {
     }
 
     await expect(nullMailProvider.sendEmailOtp(command)).resolves.toBeUndefined()
+  })
+
+  it("null provider accepts timer reminder email commands", async () => {
+    const command: TimerReminderEmailCommand = {
+      to: "user@example.com",
+      timerId: "timer_123",
+      label: "Launch",
+      targetDate: "2026-05-25T12:00:00.000Z",
+      timezone: "Europe/Warsaw",
+      offsetMinutes: 10,
+      occurrenceAt: "2026-05-25T12:00:00.000Z",
+      transactionId: "timer-reminder:timer_123:10m:2026-05-25T12:00:00.000Z",
+    }
+
+    await expect(nullMailProvider.sendTimerReminderEmail(command)).resolves.toBeUndefined()
   })
 
   it("getMailProvider returns the stable null instance", () => {
