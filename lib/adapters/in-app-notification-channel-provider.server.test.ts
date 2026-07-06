@@ -35,7 +35,8 @@ describe("in-app notification channel provider", () => {
       findMany: vi.fn().mockResolvedValue([]),
       deleteMany: vi.fn(),
     }
-    mocks.requirePrismaClient.mockReturnValue({ inAppNotification: delegate })
+    const userPreference = { findUnique: vi.fn().mockResolvedValue(null) }
+    mocks.requirePrismaClient.mockReturnValue({ inAppNotification: delegate, userPreference })
     const provider = createInAppNotificationChannelProvider()
 
     await expect(provider.sendTimerReminder?.(command)).resolves.toEqual({
@@ -70,6 +71,68 @@ describe("in-app notification channel provider", () => {
         userId: "user_123",
       }),
     })
+    expect(userPreference.findUnique).toHaveBeenCalledWith({
+      where: { userId: "user_123" },
+      select: { inAppNotifications: true },
+    })
+  })
+
+  it("skips the preference lookup when the command carries the resolved flag", async () => {
+    const delegate = {
+      upsert: vi.fn().mockResolvedValue({ id: "inbox_123" }),
+      findMany: vi.fn().mockResolvedValue([]),
+      deleteMany: vi.fn(),
+    }
+    const userPreference = { findUnique: vi.fn() }
+    mocks.requirePrismaClient.mockReturnValue({ inAppNotification: delegate, userPreference })
+    const provider = createInAppNotificationChannelProvider()
+
+    await expect(provider.sendTimerReminder?.({ ...command, inAppNotificationsEnabled: true })).resolves.toMatchObject({
+      channel: "in_app",
+      status: "sent",
+    })
+
+    expect(userPreference.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("skips delivery without a lookup when the command resolves the preference to disabled", async () => {
+    const delegate = {
+      upsert: vi.fn(),
+      findMany: vi.fn(),
+      deleteMany: vi.fn(),
+    }
+    const userPreference = { findUnique: vi.fn() }
+    mocks.requirePrismaClient.mockReturnValue({ inAppNotification: delegate, userPreference })
+    const provider = createInAppNotificationChannelProvider()
+
+    await expect(provider.sendTimerReminder?.({ ...command, inAppNotificationsEnabled: false })).resolves.toMatchObject(
+      { channel: "in_app", status: "skipped", reason: "preference_disabled" },
+    )
+
+    expect(userPreference.findUnique).not.toHaveBeenCalled()
+    expect(delegate.upsert).not.toHaveBeenCalled()
+  })
+
+  it("skips timer reminders when in-app notifications are disabled", async () => {
+    const delegate = {
+      upsert: vi.fn(),
+      findMany: vi.fn(),
+      deleteMany: vi.fn(),
+    }
+    mocks.requirePrismaClient.mockReturnValue({
+      inAppNotification: delegate,
+      userPreference: { findUnique: vi.fn().mockResolvedValue({ inAppNotifications: false }) },
+    })
+    const provider = createInAppNotificationChannelProvider()
+
+    await expect(provider.sendTimerReminder?.(command)).resolves.toMatchObject({
+      channel: "in_app",
+      status: "skipped",
+      reason: "preference_disabled",
+      providerId: "inbox",
+    })
+
+    expect(delegate.upsert).not.toHaveBeenCalled()
   })
 
   it("skips timer reminders without a subscriber id", async () => {

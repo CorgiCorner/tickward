@@ -11,6 +11,7 @@ import {
 export type LocalNotificationPreferences = {
   browserNotificationsEnabled: boolean
   fullPageAlarm: boolean
+  inAppNotifications: boolean
   sound: NotificationSound
   localAlarmEnabled: boolean
 }
@@ -27,20 +28,23 @@ function preferencesSnapshot(preferences: LocalNotificationPreferences) {
   return [
     preferences.browserNotificationsEnabled ? "1" : "0",
     preferences.fullPageAlarm ? "1" : "0",
+    preferences.inAppNotifications ? "1" : "0",
     preferences.sound,
   ].join("|")
 }
 
 function preferencesFromSnapshot(snapshot: string): LocalNotificationPreferences {
-  const [browserNotificationsEnabled, fullPageAlarm, sound] = snapshot.split("|")
+  const [browserNotificationsEnabled, fullPageAlarm, inAppNotifications, sound] = snapshot.split("|")
   const normalizedSound = normalizeNotificationSound(sound)
   const fullPageEnabled = fullPageAlarm === "1"
+  const inAppEnabled = inAppNotifications !== "0"
 
   return {
     browserNotificationsEnabled: browserNotificationsEnabled === "1",
     fullPageAlarm: fullPageEnabled,
+    inAppNotifications: inAppEnabled,
     sound: normalizedSound,
-    localAlarmEnabled: fullPageEnabled || normalizedSound !== "none",
+    localAlarmEnabled: inAppEnabled && (fullPageEnabled || normalizedSound !== "none"),
   }
 }
 
@@ -76,13 +80,15 @@ function subscribeLocalPreferences(callback: () => void) {
 
 export function readLocalNotificationPreferences(storage = browserStorage()): LocalNotificationPreferences {
   const fullPageAlarm = storage?.getItem(LOCAL_NOTIFICATION_STORAGE_KEYS.fullPageAlarm) === "1"
+  const inAppNotifications = storage?.getItem(LOCAL_NOTIFICATION_STORAGE_KEYS.inAppNotifications) !== "0"
   const sound = normalizeNotificationSound(storage?.getItem(LOCAL_NOTIFICATION_STORAGE_KEYS.sound))
 
   return {
     browserNotificationsEnabled: storage?.getItem(LOCAL_NOTIFICATION_STORAGE_KEYS.enabled) === "1",
     fullPageAlarm,
+    inAppNotifications,
     sound,
-    localAlarmEnabled: fullPageAlarm || sound !== "none",
+    localAlarmEnabled: inAppNotifications && (fullPageAlarm || sound !== "none"),
   }
 }
 
@@ -93,6 +99,11 @@ export function setLocalBrowserNotificationsEnabled(enabled: boolean, storage = 
 
 export function setLocalFullPageAlarmEnabled(enabled: boolean, storage = browserStorage()) {
   storage?.setItem(LOCAL_NOTIFICATION_STORAGE_KEYS.fullPageAlarm, enabled ? "1" : "0")
+  emitLocalPreferencesChanged()
+}
+
+export function setLocalInAppNotificationsEnabled(enabled: boolean, storage = browserStorage()) {
+  storage?.setItem(LOCAL_NOTIFICATION_STORAGE_KEYS.inAppNotifications, enabled ? "1" : "0")
   emitLocalPreferencesChanged()
 }
 

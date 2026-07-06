@@ -92,6 +92,7 @@ export function timerNotificationsEnabled(
 export const LOCAL_NOTIFICATION_STORAGE_KEYS = {
   enabled: "notificationsEnabled",
   fullPageAlarm: "timerAlarmFullPage",
+  inAppNotifications: "timerInAppNotifications",
   sound: "timerAlarmSound",
 } as const
 

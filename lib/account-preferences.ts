@@ -7,6 +7,7 @@ export const accountPreferencesRecordSchema = z.object({
   default_timezone: timezoneSchema.nullable(),
   email_reminders: z.boolean(),
   full_page_alarm: z.boolean(),
+  in_app_notifications: z.boolean(),
   notification_sound: notificationSoundSchema,
 })
 
@@ -15,6 +16,7 @@ export const accountPreferencesPatchSchema = z
     default_timezone: timezoneSchema.nullable().optional(),
     email_reminders: z.boolean().optional(),
     full_page_alarm: z.boolean().optional(),
+    in_app_notifications: z.boolean().optional(),
     notification_sound: notificationSoundSchema.optional(),
   })
   .strict()
@@ -27,5 +29,6 @@ export const DEFAULT_ACCOUNT_PREFERENCES: AccountPreferencesRecord = {
   default_timezone: null,
   email_reminders: false,
   full_page_alarm: true,
+  in_app_notifications: true,
   notification_sound: "polite",
 }

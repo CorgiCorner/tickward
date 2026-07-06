@@ -42,7 +42,7 @@ export type Timer = {
 }
 
 export type Space = {
-  id: string // nanoid(8)
+  id: string // opaque public id; new ids are prefixed (space_...)
   name: string // max 30 chars
   color?: string
   createdAt: string

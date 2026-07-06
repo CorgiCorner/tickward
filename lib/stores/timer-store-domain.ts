@@ -1,5 +1,3 @@
-import { nanoid } from "nanoid"
-
 import { getEntitlements } from "@/lib/entitlements"
 import {
   DEFAULT_PROJECT_NAME,
@@ -8,11 +6,14 @@ import {
   isValidRestoreKey,
   normalizeProjectName,
 } from "@/lib/project-model"
+import { newPublicId } from "@/lib/public-ids"
 import type { TimerState, TimerStore } from "@/lib/stores/timer-store-types"
 import type { Space, Timer, TimerFilterType, TimerFilters, TimerSortMode } from "@/lib/types"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
 
 const TIMER_SORT_MODES = new Set<TimerSortMode>(["manual", "soonest", "latest", "name_asc", "recently_added"])
+
+export const DEFAULT_TIMER_SORT_MODE: TimerSortMode = "soonest"
 
 export const DEFAULT_TIMER_FILTERS: TimerFilters = {
   type: "all",
@@ -23,7 +24,9 @@ export const DEFAULT_TIMER_FILTERS: TimerFilters = {
 }
 
 export function safeSortMode(mode: unknown): TimerSortMode {
-  return typeof mode === "string" && TIMER_SORT_MODES.has(mode as TimerSortMode) ? (mode as TimerSortMode) : "manual"
+  return typeof mode === "string" && TIMER_SORT_MODES.has(mode as TimerSortMode)
+    ? (mode as TimerSortMode)
+    : DEFAULT_TIMER_SORT_MODE
 }
 
 export function safeTimerFilterType(type: unknown): TimerFilterType {
@@ -204,9 +207,9 @@ export function defaultProjectMeta(args: {
   hasUnsyncedChanges?: boolean
 }): ProjectMeta {
   return {
-    id: args.id ?? nanoid(8),
+    id: args.id ?? newPublicId("project"),
     name: normalizeProjectName(args.name ?? DEFAULT_PROJECT_NAME),
-    restoreKey: args.restoreKey && isValidRestoreKey(args.restoreKey) ? args.restoreKey : nanoid(12),
+    restoreKey: args.restoreKey && isValidRestoreKey(args.restoreKey) ? args.restoreKey : newPublicId("restoreKey"),
     cloudProjectId: args.cloudProjectId,
     ownerId: args.ownerId,
     claimedAt: args.claimedAt,

@@ -3,6 +3,7 @@
 import type { PropsWithChildren } from "react"
 
 import { TimerStoreProvider } from "@/lib/store"
+import { DEFAULT_TIMER_SORT_MODE } from "@/lib/stores/timer-store-domain"
 import type { Space, Timer, TimerFilters } from "@/lib/types"
 
 export const storybookNowMs = Date.parse("2026-06-03T08:00:00.000Z")
@@ -50,7 +51,7 @@ export function TimerStorePreview(props: TimerStorePreviewProps) {
         timers: props.timers ?? storybookTimers,
         spaces: props.spaces ?? storybookSpaces,
         activeSpaceId: props.activeSpaceId ?? "space-work",
-        sortMode: "manual",
+        sortMode: DEFAULT_TIMER_SORT_MODE,
         timerFilters: props.timerFilters ?? {
           type: "all",
           pinned: false,

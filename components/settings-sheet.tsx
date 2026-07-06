@@ -47,6 +47,30 @@ async function copy(text: string) {
   await navigator.clipboard.writeText(text)
 }
 
+function ProjectIdRow(props: Readonly<{ cloudProjectId: string }>) {
+  return (
+    <div className="mt-3 grid gap-2 border-t pt-3">
+      <Label htmlFor="projectId">{formatMessage("project.idLabel")}</Label>
+      <div className="flex items-center gap-2">
+        <Input className="min-w-0 font-mono text-xs" id="projectId" value={props.cloudProjectId} readOnly />
+        <Button
+          variant="outline"
+          size="icon"
+          className="shrink-0"
+          aria-label={formatMessage("project.copyId")}
+          onClick={async () => {
+            await copy(props.cloudProjectId)
+            toast.success(formatMessage("project.idCopied"))
+          }}
+        >
+          <CopyIcon className="size-4" />
+        </Button>
+      </div>
+      <div className="text-xs text-muted-foreground">{formatMessage("project.idDescription")}</div>
+    </div>
+  )
+}
+
 function forwardWheelToSettingsScroller(event: WheelEvent, scroller: HTMLDivElement | null) {
   if (!scroller || event.defaultPrevented || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return
   if (event.target instanceof Node && scroller.contains(event.target)) return
@@ -194,6 +218,7 @@ function ProjectStorageSection(
           </div>
         </div>
         <SyncErrorStatus message={props.lastSyncError} />
+        {props.cloudProjectId ? <ProjectIdRow cloudProjectId={props.cloudProjectId} /> : null}
       </div>
     )
   }
@@ -239,6 +264,7 @@ function ProjectStorageSection(
       {props.visibleRestoreKey ? (
         <div className="text-xs text-muted-foreground">{formatMessage("project.restoreKeyDescription")}</div>
       ) : null}
+      <div className="text-xs text-muted-foreground">{formatMessage("project.idAnonymousHint")}</div>
       <ProjectClaimSlot
         claimActiveProject={claimActiveProject}
         restoreKey={props.restoreKey}

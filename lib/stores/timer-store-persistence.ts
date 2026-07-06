@@ -7,6 +7,7 @@ import {
   writeProjectRegistry,
 } from "@/lib/project-storage.client"
 import {
+  DEFAULT_TIMER_SORT_MODE,
   activeProject,
   safeActiveSpaceId,
   safeSortMode,
@@ -43,7 +44,7 @@ export function payloadForProject(project: ProjectMeta): LocalProjectPayload {
       timers: [],
       spaces: [],
       activeSpaceId: null,
-      sortMode: "manual",
+      sortMode: DEFAULT_TIMER_SORT_MODE,
       timerFilters: safeTimerFilters(undefined),
       updatedAt: project.updatedAt,
     }

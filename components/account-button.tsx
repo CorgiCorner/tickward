@@ -14,6 +14,7 @@ import { useLocale } from "@/components/locale-provider"
 import { authClient } from "@/lib/auth/auth-client"
 import { authErrorMessage } from "@/lib/auth/auth-client-errors"
 import { formatMessage, localeHref } from "@/lib/i18n/messages"
+import { setLocalInAppNotificationsEnabled } from "@/lib/local-notification-preferences.client"
 import { useTimerStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
@@ -73,6 +74,9 @@ export function AccountButton() {
       const result = await authClient.signOut()
       if (result.error) throw result.error
       removeAccountProjectsFromDevice()
+      // The account master toggle mirrors into device storage; without an
+      // account the default is ON, so drop any stale suppression on sign-out.
+      setLocalInAppNotificationsEnabled(true)
       await session.refetch?.()
       toast.success(formatMessage("auth.signedOut"))
     } catch (error) {

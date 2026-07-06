@@ -1463,6 +1463,51 @@ describe("public API v1", () => {
     )
   })
 
+  it("maps a cross-project timer id collision to the duplicate-id error", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({ name: "Main", timers: [] })
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      project: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: "project_123",
+          ownerId: "user_123",
+          name: "Main",
+          color: null,
+          snapshot,
+          createdAt: new Date("2026-06-07T00:00:00.000Z"),
+          updatedAt: new Date(snapshot.updatedAt),
+          claimedAt: null,
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      timer: {
+        create: vi.fn().mockRejectedValue(Object.assign(new Error("unique constraint"), { code: "P2002" })),
+      },
+    }
+    const transaction = vi.fn(async (callback: (client: typeof tx) => unknown | Promise<unknown>) => callback(tx))
+    mocks.requirePrismaClient.mockReturnValue({ $transaction: transaction })
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      new Request("https://tickward.test/api/v1/projects/project_123/timers", {
+        method: "POST",
+        headers: { authorization: "Bearer tw_full" },
+        body: JSON.stringify({
+          id: "cc-5h-1751700000",
+          label: "Launch",
+          target_date: "2026-12-01T10:00:00.000Z",
+          timezone: "UTC",
+        }),
+      }),
+      ["projects", "project_123", "timers"],
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.text()).resolves.toContain("Timer id already exists.")
+  })
+
   it("rejects per-timer notification channel settings in public timer writes", async () => {
     const { handlePublicApiV1Request } = await import("./public-api-v1.server")
     mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
@@ -1663,7 +1708,7 @@ describe("public API v1", () => {
             scheduledFor: new Date("2026-12-10T09:00:00.000Z"),
             status: "scheduled",
             timerId: "timer-a",
-            transactionId: "timer-reminder:timer-a:60m:2026-12-10T10:00:00.000Z",
+            transactionId: "timer-reminder:project_123:timer-a:60m:2026-12-10T10:00:00.000Z",
           }),
         ],
       }),
@@ -1741,6 +1786,7 @@ describe("public API v1", () => {
         status: "scheduled",
         timerId: "timer-a",
         workflowIdentifier: "timer.reminder",
+        payload: { path: ["projectId"], equals: "project_123" },
       },
     })
   })
@@ -1833,10 +1879,21 @@ describe("public API v1", () => {
         status: "scheduled",
         timerId: "timer-a",
         workflowIdentifier: "timer.reminder",
+        payload: { path: ["projectId"], equals: "project_123" },
       },
     })
-    expect(tx.notificationOutboxItem.deleteMany).toHaveBeenCalledWith({ where: { timerId: "timer-a" } })
-    expect(tx.notificationDeliveryLog.deleteMany).toHaveBeenCalledWith({ where: { timerId: "timer-a" } })
+    expect(tx.notificationOutboxItem.deleteMany).toHaveBeenCalledWith({
+      where: { timerId: "timer-a", payload: { path: ["projectId"], equals: "project_123" } },
+    })
+    expect(tx.notificationDeliveryLog.deleteMany).toHaveBeenCalledWith({
+      where: {
+        timerId: "timer-a",
+        OR: [
+          { transactionId: { startsWith: "timer-reminder:project_123:" } },
+          { transactionId: { startsWith: "timer-reminder:timer-a:" } },
+        ],
+      },
+    })
     expect(tx.share.deleteMany).toHaveBeenCalledWith({
       where: { data: { equals: "timer-a", path: ["timerId"] }, kind: "timer", projectId: "project_123" },
     })

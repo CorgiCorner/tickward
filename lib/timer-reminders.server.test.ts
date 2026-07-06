@@ -31,12 +31,13 @@ function outboxTx() {
 function dueItem(overrides: Record<string, unknown> = {}) {
   return {
     id: "outbox_123",
-    transactionId: "timer-reminder:timer-a:10m:2026-07-10T12:00:00.000Z",
+    transactionId: "timer-reminder:project_123:timer-a:10m:2026-07-10T12:00:00.000Z",
     workflowIdentifier: "timer.reminder",
     subscriberId: "user_123",
     timerId: "timer-a",
     channels: ["in_app", "email"],
     payload: {
+      projectId: "project_123",
       offsetMinutes: 10,
       occurrenceAt: "2026-07-10T12:00:00.000Z",
     },
@@ -60,7 +61,7 @@ function timerRow(overrides: Partial<ReturnType<typeof makeTimer>> = {}) {
       owner: {
         id: "user_123",
         email: "ada@example.com",
-        preference: { emailReminders: false },
+        preference: { emailReminders: false, inAppNotifications: true },
       },
     },
   }
@@ -71,6 +72,7 @@ function deliveryPrisma(
     items?: Array<ReturnType<typeof dueItem>>
     lateSkipped?: number
     timer?: ReturnType<typeof timerRow> | null
+    timerRows?: Array<ReturnType<typeof timerRow>>
     deliveryLogCounts?: number[]
   } = {},
 ) {
@@ -92,7 +94,8 @@ function deliveryPrisma(
       deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     timer: {
-      findUnique: vi.fn().mockResolvedValue(args.timer === undefined ? timerRow() : args.timer),
+      findFirst: vi.fn().mockResolvedValue(args.timer === undefined ? timerRow() : args.timer),
+      findMany: vi.fn().mockResolvedValue(args.timerRows ?? [timerRow()]),
     },
     inAppNotification: {
       deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -130,8 +133,8 @@ describe("timer reminders", () => {
   it("builds stable transaction ids", async () => {
     const { timerReminderTransactionId } = await import("./timer-reminders.server")
 
-    expect(timerReminderTransactionId("timer_123", 10, "2026-07-10T12:00:00.000Z")).toBe(
-      "timer-reminder:timer_123:10m:2026-07-10T12:00:00.000Z",
+    expect(timerReminderTransactionId("project_123", "timer_123", 10, "2026-07-10T12:00:00.000Z")).toBe(
+      "timer-reminder:project_123:timer_123:10m:2026-07-10T12:00:00.000Z",
     )
   })
 
@@ -154,7 +157,8 @@ describe("timer reminders", () => {
         timerId: "timer-a",
         workflowIdentifier: "timer.reminder",
         status: "scheduled",
-        transactionId: { notIn: ["timer-reminder:timer-a:10m:2026-07-10T12:00:00.000Z"] },
+        transactionId: { notIn: ["timer-reminder:project_123:timer-a:10m:2026-07-10T12:00:00.000Z"] },
+        payload: { path: ["projectId"], equals: "project_123" },
       },
       data: { cancelledAt: expect.any(Date), status: "cancelled" },
     })
@@ -162,7 +166,7 @@ describe("timer reminders", () => {
       skipDuplicates: true,
       data: [
         expect.objectContaining({
-          transactionId: "timer-reminder:timer-a:10m:2026-07-10T12:00:00.000Z",
+          transactionId: "timer-reminder:project_123:timer-a:10m:2026-07-10T12:00:00.000Z",
           workflowIdentifier: "timer.reminder",
           subscriberId: "user_123",
           timerId: "timer-a",
@@ -191,7 +195,7 @@ describe("timer reminders", () => {
     expect(tx.notificationOutboxItem.createMany).not.toHaveBeenCalled()
     expect(tx.notificationOutboxItem.updateMany).toHaveBeenLastCalledWith({
       where: {
-        transactionId: "timer-reminder:timer-a:10m:2026-07-10T12:00:00.000Z",
+        transactionId: "timer-reminder:project_123:timer-a:10m:2026-07-10T12:00:00.000Z",
         status: { in: ["scheduled", "cancelled"] },
       },
       data: expect.objectContaining({
@@ -226,6 +230,7 @@ describe("timer reminders", () => {
         timerId: "timer-a",
         workflowIdentifier: "timer.reminder",
         status: "scheduled",
+        payload: { path: ["projectId"], equals: "project_123" },
       },
       data: { cancelledAt: expect.any(Date), status: "cancelled" },
     })
@@ -250,7 +255,7 @@ describe("timer reminders", () => {
     expect(tx.notificationOutboxItem.createMany).toHaveBeenCalledTimes(1)
     expect(tx.notificationOutboxItem.createMany.mock.calls[0][0].data[0]).toEqual(
       expect.objectContaining({
-        transactionId: "timer-reminder:timer-a:0m:2026-07-10T12:00:00.000Z",
+        transactionId: "timer-reminder:project_123:timer-a:0m:2026-07-10T12:00:00.000Z",
         scheduledFor: new Date("2026-07-10T12:00:00.000Z"),
       }),
     )
@@ -338,8 +343,8 @@ describe("timer reminders", () => {
   it("delivers due reminders and schedules the next recurring occurrence", async () => {
     vi.setSystemTime(new Date("2026-03-28T08:50:00.000Z"))
     const item = dueItem({
-      transactionId: "timer-reminder:timer-a:10m:2026-03-28T09:00:00.000Z",
-      payload: { offsetMinutes: 10, occurrenceAt: "2026-03-28T09:00:00.000Z" },
+      transactionId: "timer-reminder:project_123:timer-a:10m:2026-03-28T09:00:00.000Z",
+      payload: { projectId: "project_123", offsetMinutes: 10, occurrenceAt: "2026-03-28T09:00:00.000Z" },
     })
     const prisma = deliveryPrisma({
       items: [item],
@@ -360,17 +365,49 @@ describe("timer reminders", () => {
         channels: ["in_app"],
         occurrenceAt: "2026-03-28T09:00:00.000Z",
         offsetMinutes: 10,
+        inAppNotificationsEnabled: true,
       }),
     )
     expect(prisma.notificationOutboxItem.createMany).toHaveBeenCalledWith({
       skipDuplicates: true,
       data: [
         expect.objectContaining({
-          transactionId: "timer-reminder:timer-a:10m:2026-03-29T08:00:00.000Z",
+          transactionId: "timer-reminder:project_123:timer-a:10m:2026-03-29T08:00:00.000Z",
           scheduledFor: new Date("2026-03-29T07:50:00.000Z"),
           status: "scheduled",
         }),
       ],
+    })
+  })
+
+  it("skips in-app reminder delivery when the account preference is disabled", async () => {
+    const prisma = deliveryPrisma({
+      timer: {
+        ...timerRow(),
+        project: {
+          ...timerRow().project,
+          owner: {
+            id: "user_123",
+            email: "ada@example.com",
+            preference: { emailReminders: false, inAppNotifications: false },
+          },
+        },
+      },
+    })
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+    const { deliverDueTimerReminders } = await import("./timer-reminders.server")
+
+    await expect(deliverDueTimerReminders()).resolves.toMatchObject({ picked: 1, skipped: 1 })
+
+    expect(mocks.notificationDeliveryProvider.sendTimerReminder).not.toHaveBeenCalled()
+    expect(prisma.notificationOutboxItem.updateMany).toHaveBeenLastCalledWith({
+      where: { id: "outbox_123" },
+      data: {
+        status: "skipped",
+        error: undefined,
+        processedAt: expect.any(Date),
+        failedAt: undefined,
+      },
     })
   })
 
@@ -389,7 +426,7 @@ describe("timer reminders", () => {
           owner: {
             id: "user_123",
             email: "ada@example.com",
-            preference: { emailReminders: true },
+            preference: { emailReminders: true, inAppNotifications: true },
           },
         },
       },
@@ -409,6 +446,18 @@ describe("timer reminders", () => {
         status: "skipped",
       }),
     )
+  })
+
+  it("does not deliver a legacy reminder whose timer id matches multiple projects", async () => {
+    const item = dueItem({ payload: { offsetMinutes: 10, occurrenceAt: "2026-07-10T12:00:00.000Z" } })
+    const prisma = deliveryPrisma({ items: [item], timerRows: [timerRow(), timerRow()] })
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+    const { deliverDueTimerReminders } = await import("./timer-reminders.server")
+
+    await expect(deliverDueTimerReminders()).resolves.toMatchObject({ delivered: 0, picked: 1 })
+
+    expect(prisma.timer.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "timer-a" }, take: 2 }))
+    expect(mocks.notificationDeliveryProvider.sendTimerReminder).not.toHaveBeenCalled()
   })
 
   it("skips stale reminders when the offset is removed before delivery", async () => {

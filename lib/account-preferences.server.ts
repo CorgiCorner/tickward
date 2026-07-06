@@ -13,6 +13,7 @@ type UserPreferenceRow = {
   defaultTimezone: string | null
   emailReminders: boolean
   fullPageAlarm: boolean
+  inAppNotifications?: boolean | null
   notificationSound: string
 }
 
@@ -70,6 +71,7 @@ function publicAccountPreferences(row: UserPreferenceRow | null | undefined): Ac
     default_timezone: row.defaultTimezone,
     email_reminders: row.emailReminders,
     full_page_alarm: row.fullPageAlarm,
+    in_app_notifications: row.inAppNotifications !== false,
     notification_sound: sound.success ? sound.data : "none",
   }
 }
@@ -90,6 +92,7 @@ export async function updateAccountPreferencesForUser(
   if (patch.default_timezone !== undefined) data.defaultTimezone = patch.default_timezone
   if (patch.email_reminders !== undefined) data.emailReminders = patch.email_reminders
   if (patch.full_page_alarm !== undefined) data.fullPageAlarm = patch.full_page_alarm
+  if (patch.in_app_notifications !== undefined) data.inAppNotifications = patch.in_app_notifications
   if (patch.notification_sound !== undefined) data.notificationSound = patch.notification_sound
 
   const create = {
@@ -99,6 +102,10 @@ export async function updateAccountPreferencesForUser(
       typeof data.emailReminders === "boolean" ? data.emailReminders : DEFAULT_ACCOUNT_PREFERENCES.email_reminders,
     fullPageAlarm:
       typeof data.fullPageAlarm === "boolean" ? data.fullPageAlarm : DEFAULT_ACCOUNT_PREFERENCES.full_page_alarm,
+    inAppNotifications:
+      typeof data.inAppNotifications === "boolean"
+        ? data.inAppNotifications
+        : DEFAULT_ACCOUNT_PREFERENCES.in_app_notifications,
     notificationSound:
       typeof data.notificationSound === "string"
         ? data.notificationSound

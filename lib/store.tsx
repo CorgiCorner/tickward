@@ -1,6 +1,5 @@
 "use client"
 
-import { nanoid } from "nanoid"
 import { type PropsWithChildren, createContext, useContext, useEffect, useState } from "react"
 import { useStore } from "zustand"
 import { immer } from "zustand/middleware/immer"
@@ -17,9 +16,11 @@ import {
   isValidRestoreKey,
   normalizeProjectName,
 } from "./project-model"
-import { removeProjectPayload } from "./project-storage.client"
+import { readProjectPayload, removeProjectPayload } from "./project-storage.client"
+import { newPublicId } from "./public-ids"
 import { activeTimerCountForTargetSpace } from "./timer-space-limits"
 import {
+  DEFAULT_TIMER_SORT_MODE,
   activeProject,
   DEFAULT_TIMER_FILTERS,
   defaultProjectMeta,
@@ -119,9 +120,9 @@ function projectMetaFromAccountSummary(summary: UserProjectSummary, existing: Pr
   const hasLocalChanges = existing?.hasUnsyncedChanges === true
 
   return {
-    id: existing?.id ?? nanoid(8),
+    id: existing?.id ?? newPublicId("project"),
     name: hasLocalChanges ? existing.name : normalizeProjectName(summary.name),
-    restoreKey: existing?.restoreKey ?? nanoid(12),
+    restoreKey: existing?.restoreKey ?? newPublicId("restoreKey"),
     cloudProjectId: summary.projectId,
     ownerId: summary.ownerId ?? undefined,
     claimedAt: summary.claimedAt,
@@ -157,7 +158,7 @@ function applyProjectPayloadToState(state: TimerStore, project: ProjectMeta | nu
     state.timers = []
     state.spaces = []
     state.activeSpaceId = null
-    state.sortMode = "manual"
+    state.sortMode = DEFAULT_TIMER_SORT_MODE
     state.timerFilters = { ...DEFAULT_TIMER_FILTERS }
     return
   }
@@ -434,7 +435,7 @@ export function createTimerStore(init?: TimerStoreInit) {
               s.timers = []
               s.spaces = []
               s.activeSpaceId = null
-              s.sortMode = "manual"
+              s.sortMode = DEFAULT_TIMER_SORT_MODE
               s.timerFilters = { ...DEFAULT_TIMER_FILTERS }
               s.restoreKey = project.restoreKey
               s.lastSyncAt = null
@@ -453,12 +454,15 @@ export function createTimerStore(init?: TimerStoreInit) {
             if (pinned) {
               for (const t of s.timers) t.pinned = undefined
             }
+            // A caller-supplied id restores a deleted timer (e.g. toast undo) so
+            // existing share links keep resolving; otherwise mint a fresh one.
+            const requestedId = timer.id && !findTimerById(s.timers, timer.id) ? timer.id : undefined
             s.timers.unshift({
               ...timer,
               spaceId,
               notify: timer.notify ?? true,
               pinned: pinned ? true : undefined,
-              id: nanoid(8),
+              id: requestedId ?? newPublicId("timer"),
               createdAt: now,
               updatedAt: now,
             })
@@ -536,7 +540,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             const copy: Timer = {
               ...original,
               spaceId,
-              id: nanoid(8),
+              id: newPublicId("timer"),
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
               label: original.label.length > 52 ? `${original.label.slice(0, 52)}...` : original.label,
@@ -636,7 +640,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             const trimmed = name.trim().slice(0, 30)
             if (!trimmed) return
             s.spaces.push({
-              id: nanoid(8),
+              id: newPublicId("space"),
               name: trimmed,
               color,
               createdAt: new Date().toISOString(),
@@ -802,7 +806,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             timers: [],
             spaces: [],
             activeSpaceId: null,
-            sortMode: "manual",
+            sortMode: DEFAULT_TIMER_SORT_MODE,
             timerFilters: { ...DEFAULT_TIMER_FILTERS },
             updatedAt: project.updatedAt,
           })
@@ -812,7 +816,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             s.timers = []
             s.spaces = []
             s.activeSpaceId = null
-            s.sortMode = "manual"
+            s.sortMode = DEFAULT_TIMER_SORT_MODE
             s.timerFilters = { ...DEFAULT_TIMER_FILTERS }
             s.restoreKey = project.restoreKey
             s.lastSyncAt = null
@@ -940,7 +944,7 @@ export function createTimerStore(init?: TimerStoreInit) {
                 spaceCount: restored.spaces.length,
               }
             : {
-                id: nanoid(8),
+                id: newPublicId("project"),
                 name: restored.name,
                 restoreKey,
                 color: restored.color,
@@ -953,11 +957,17 @@ export function createTimerStore(init?: TimerStoreInit) {
                 spaceCount: restored.spaces.length,
               }
 
+          // Cloud snapshots do not carry a sort mode, so restoring a key that
+          // already belongs to a local project must keep the locally
+          // persisted preference instead of resetting it to the default.
+          const existingPayload = existing ? readProjectPayload(existing.id) : null
+          const restoredSortMode = existingPayload ? safeSortMode(existingPayload.sortMode) : DEFAULT_TIMER_SORT_MODE
+
           writeProjectPayload(project.id, {
             timers: restoredTimers,
             spaces: restoredSpaces,
             activeSpaceId: null,
-            sortMode: "manual",
+            sortMode: restoredSortMode,
             timerFilters: { ...DEFAULT_TIMER_FILTERS },
             updatedAt: restored.updatedAt,
           })
@@ -968,7 +978,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             s.timers = restoredTimers
             s.spaces = restoredSpaces
             s.activeSpaceId = null
-            s.sortMode = "manual"
+            s.sortMode = restoredSortMode
             s.timerFilters = { ...DEFAULT_TIMER_FILTERS }
             s.restoreKey = restoreKey
             s.lastSyncAt = now
@@ -1095,7 +1105,7 @@ export function createTimerStore(init?: TimerStoreInit) {
           set((s) => {
             const project = activeProject(s)
             if (!project) return
-            project.restoreKey = key && isValidRestoreKey(key) ? key : nanoid(12)
+            project.restoreKey = key && isValidRestoreKey(key) ? key : newPublicId("restoreKey")
             s.restoreKey = project.restoreKey
             project.lastRemoteUpdatedAt = undefined
             markActiveProjectChanged(s)
@@ -1104,7 +1114,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         regenerateRestoreKey: () => {
-          get().setRestoreKey(nanoid(12))
+          get().setRestoreKey(newPublicId("restoreKey"))
         },
 
         syncToCloud: async (opts) => {

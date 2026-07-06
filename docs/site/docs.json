@@ -23,7 +23,8 @@
               "guides/embedding-timers",
               "guides/webhooks",
               "guides/mcp",
-              "guides/agent-usage"
+              "guides/agent-usage",
+              "guides/claude-code-codex-usage-limits"
             ]
           },
           {

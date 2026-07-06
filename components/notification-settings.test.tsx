@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     preferences: {
       email_reminders: false,
       full_page_alarm: false,
+      in_app_notifications: true,
       notification_sound: "none" as NotificationSound,
     },
     saving: false,
@@ -48,6 +49,7 @@ describe("NotificationSettingsPanel", () => {
       preferences: {
         email_reminders: false,
         full_page_alarm: false,
+        in_app_notifications: true,
         notification_sound: "none",
       },
       saving: false,
@@ -58,6 +60,7 @@ describe("NotificationSettingsPanel", () => {
       default_timezone: null,
       email_reminders: false,
       full_page_alarm: false,
+      in_app_notifications: true,
       notification_sound: "none",
     })
     vi.mocked(toast.success).mockReset()
@@ -79,6 +82,7 @@ describe("NotificationSettingsPanel", () => {
 
     expect(screen.getByRole("heading", { name: "Device notifications" })).toBeVisible()
     expect(screen.getByRole("heading", { name: "Alarm defaults" })).toBeVisible()
+    expect(screen.getByLabelText("In-app notifications")).toBeChecked()
     expect(screen.getByLabelText("Email reminders")).toBeVisible()
 
     await user.click(screen.getByRole("button", { name: "Enable on this device" }))
@@ -105,6 +109,19 @@ describe("NotificationSettingsPanel", () => {
     await user.click(screen.getByLabelText("Email reminders"))
 
     expect(mocks.updatePreferences).toHaveBeenCalledWith({ email_reminders: true })
+  })
+
+  it("persists the in-app notifications master preference", async () => {
+    const user = userEvent.setup()
+
+    render(<NotificationSettingsPanel />)
+
+    const toggle = screen.getByLabelText("In-app notifications")
+    expect(toggle).toBeChecked()
+
+    await user.click(toggle)
+
+    expect(mocks.updatePreferences).toHaveBeenCalledWith({ in_app_notifications: false })
   })
 
   it("disables device notifications without changing account defaults", async () => {

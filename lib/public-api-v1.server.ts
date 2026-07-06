@@ -6,6 +6,7 @@ import { nanoid } from "nanoid"
 import { z } from "zod"
 
 import { apiError, apiJson, apiList, isResponse, type ApiErrorType } from "@/lib/api-response"
+import { newPublicId } from "@/lib/public-ids"
 import {
   MCP_CREDENTIAL_KIND,
   authenticateApiKey,
@@ -842,7 +843,7 @@ function validationResponse(error: z.ZodError) {
 function timerFromCreate(input: z.infer<typeof timerCreateSchema>): Timer {
   const createdAt = nowIso()
   return {
-    id: input.id ?? nanoid(10),
+    id: input.id ?? newPublicId("timer"),
     label: input.label,
     targetDate: input.target_date,
     timezone: input.timezone,
@@ -888,7 +889,7 @@ function timerFromPatch(timer: Timer, input: z.infer<typeof timerPatchSchema>): 
 
 function spaceFromCreate(input: z.infer<typeof spaceCreateSchema>): Space {
   return {
-    id: input.id ?? nanoid(8),
+    id: input.id ?? newPublicId("space"),
     name: input.name,
     color: nonEmptyOrUndefined(input.color),
     createdAt: nowIso(),
@@ -1096,9 +1097,23 @@ function assertProjectLimits(snapshot: ProjectSnapshotV2): Response | null {
 async function deleteProjectGraph(tx: Prisma.TransactionClient, projectId: string) {
   const timerIds = (await tx.timer.findMany({ where: { projectId }, select: { id: true } })).map((timer) => timer.id)
   if (timerIds.length > 0) {
-    await cancelScheduledTimerReminderIntentsForTimers(tx, { timerIds })
-    await tx.notificationOutboxItem.deleteMany({ where: { timerId: { in: timerIds } } })
-    await tx.notificationDeliveryLog.deleteMany({ where: { timerId: { in: timerIds } } })
+    // Timer ids are only unique per project, so every cleanup filter is
+    // scoped to this project: the outbox payload records the project id, and
+    // delivery-log transaction ids embed it (legacy rows embed the timer id
+    // first, from before ids could collide across projects).
+    await cancelScheduledTimerReminderIntentsForTimers(tx, { projectId, timerIds })
+    await tx.notificationOutboxItem.deleteMany({
+      where: { timerId: { in: timerIds }, payload: { path: ["projectId"], equals: projectId } },
+    })
+    await tx.notificationDeliveryLog.deleteMany({
+      where: {
+        timerId: { in: timerIds },
+        OR: [
+          { transactionId: { startsWith: `timer-reminder:${projectId}:` } },
+          ...timerIds.map((id) => ({ transactionId: { startsWith: `timer-reminder:${id}:` } })),
+        ],
+      },
+    })
   }
   await tx.share.deleteMany({ where: { projectId } })
   await tx.timer.deleteMany({ where: { projectId } })
@@ -1198,6 +1213,7 @@ async function createProject(ctx: PublicApiContext, req: Request) {
   if (typeof (prisma as { $transaction?: unknown }).$transaction !== "function") {
     const row = await prisma.project.create({
       data: {
+        id: newPublicId("project"),
         ...writeProjectFields(planned.snapshot),
         ownerId: ctx.apiKey.user.id,
       },
@@ -1205,48 +1221,56 @@ async function createProject(ctx: PublicApiContext, req: Request) {
     return apiJson(projectCreateResult(row, planned.spaces, planned.timers), { status: 201 })
   }
 
-  const row = await prisma.$transaction(async (tx) => {
-    const project = await tx.project.create({
-      data: {
-        ...writeProjectFields(planned.snapshot),
-        ownerId: ctx.apiKey.user.id,
-      },
-    })
-
-    await emitWebhookEvent(tx, {
-      aggregateId: project.id,
-      aggregateType: "project",
-      payload: projectEventPayload(project),
-      projectId: project.id,
-      type: "project.created",
-      userId: project.ownerId,
-    })
-
-    for (const space of planned.spaces) {
-      await tx.space.create({ data: spaceRowData(project.id, project.ownerId, space) })
-    }
-    for (const timer of planned.timers) {
-      await tx.timer.create({ data: timerRowData(project.id, project.ownerId, timer) })
-      await emitWebhookEvent(tx, {
-        aggregateId: timer.id,
-        aggregateType: "timer",
-        payload: {
-          ...timerEventPayload(project, timer),
-          target_date: timer.targetDate,
-          timezone: timer.timezone,
+  const row = await prisma
+    .$transaction(async (tx) => {
+      const project = await tx.project.create({
+        data: {
+          id: newPublicId("project"),
+          ...writeProjectFields(planned.snapshot),
+          ownerId: ctx.apiKey.user.id,
         },
+      })
+
+      await emitWebhookEvent(tx, {
+        aggregateId: project.id,
+        aggregateType: "project",
+        payload: projectEventPayload(project),
         projectId: project.id,
-        timerId: timer.id,
-        type: "timer.created",
+        type: "project.created",
         userId: project.ownerId,
       })
-      await scheduleTimerEndedEvent(tx, { project, timer })
-      await reconcileTimerReminders(tx, { project, timer })
-    }
-    return project
-  })
 
-  return apiJson(projectCreateResult(row, planned.spaces, planned.timers), { status: 201 })
+      for (const space of planned.spaces) {
+        await tx.space.create({ data: spaceRowData(project.id, project.ownerId, space) })
+      }
+      for (const timer of planned.timers) {
+        await tx.timer.create({ data: timerRowData(project.id, project.ownerId, timer) })
+        await emitWebhookEvent(tx, {
+          aggregateId: timer.id,
+          aggregateType: "timer",
+          payload: {
+            ...timerEventPayload(project, timer),
+            target_date: timer.targetDate,
+            timezone: timer.timezone,
+          },
+          projectId: project.id,
+          timerId: timer.id,
+          type: "timer.created",
+          userId: project.ownerId,
+        })
+        await scheduleTimerEndedEvent(tx, { project, timer })
+        await reconcileTimerReminders(tx, { project, timer })
+      }
+      return project
+    })
+    .catch((error: unknown) => {
+      if (isPrismaUniqueConstraintError(error)) {
+        return apiError("validation_error", "Timer or space id already exists.", { status: 400 })
+      }
+      throw error
+    })
+
+  return isResponse(row) ? row : apiJson(projectCreateResult(row, planned.spaces, planned.timers), { status: 201 })
 }
 
 async function previewProjectCreate(req: Request) {
@@ -1398,42 +1422,51 @@ async function createTimer(ctx: PublicApiContext, projectId: string, req: Reques
   if (!parsed.success) return validationResponse(parsed.error)
 
   const prisma = requirePrismaClient()
-  const result = await prisma.$transaction(async (tx) => {
-    const row = await lockedProjectForUser(tx, projectId, ctx.apiKey.user)
-    if (!row) return apiError("not_found", "Project not found.", { status: 404 })
-    const snapshot = requireSnapshot(row)
-    if (isResponse(snapshot)) return snapshot
+  const result = await prisma
+    .$transaction(async (tx) => {
+      const row = await lockedProjectForUser(tx, projectId, ctx.apiKey.user)
+      if (!row) return apiError("not_found", "Project not found.", { status: 404 })
+      const snapshot = requireSnapshot(row)
+      if (isResponse(snapshot)) return snapshot
 
-    const timer = timerFromCreate(parsed.data)
-    if (snapshot.timers.some((existing) => existing.id === timer.id)) {
-      return apiError("validation_error", "Timer id already exists.", { status: 400 })
-    }
-    const invalidSpace = assertTimerCanUseSpace(snapshot, timer)
-    if (invalidSpace) return invalidSpace
+      const timer = timerFromCreate(parsed.data)
+      if (snapshot.timers.some((existing) => existing.id === timer.id)) {
+        return apiError("validation_error", "Timer id already exists.", { status: 400 })
+      }
+      const invalidSpace = assertTimerCanUseSpace(snapshot, timer)
+      if (invalidSpace) return invalidSpace
 
-    const next = changedSnapshot(snapshot, { timers: [...snapshot.timers, timer] })
-    const limits = assertProjectLimits(next)
-    if (limits) return limits
+      const next = changedSnapshot(snapshot, { timers: [...snapshot.timers, timer] })
+      const limits = assertProjectLimits(next)
+      if (limits) return limits
 
-    await tx.timer.create({ data: timerRowData(projectId, row.ownerId, timer) })
-    await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
-    await emitWebhookEvent(tx, {
-      aggregateId: timer.id,
-      aggregateType: "timer",
-      payload: {
-        ...timerEventPayload(row, timer),
-        target_date: timer.targetDate,
-        timezone: timer.timezone,
-      },
-      projectId,
-      timerId: timer.id,
-      type: "timer.created",
-      userId: row.ownerId,
+      await tx.timer.create({ data: timerRowData(projectId, row.ownerId, timer) })
+      await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
+      await emitWebhookEvent(tx, {
+        aggregateId: timer.id,
+        aggregateType: "timer",
+        payload: {
+          ...timerEventPayload(row, timer),
+          target_date: timer.targetDate,
+          timezone: timer.timezone,
+        },
+        projectId,
+        timerId: timer.id,
+        type: "timer.created",
+        userId: row.ownerId,
+      })
+      await scheduleTimerEndedEvent(tx, { project: row, timer })
+      await reconcileTimerReminders(tx, { project: row, timer })
+      return timerObject(row, timer)
     })
-    await scheduleTimerEndedEvent(tx, { project: row, timer })
-    await reconcileTimerReminders(tx, { project: row, timer })
-    return timerObject(row, timer)
-  })
+    .catch((error: unknown) => {
+      // Timer ids are unique per project; a unique violation here means two
+      // concurrent creates raced past the snapshot check above.
+      if (isPrismaUniqueConstraintError(error)) {
+        return apiError("validation_error", "Timer id already exists.", { status: 400 })
+      }
+      throw error
+    })
 
   return isResponse(result) ? result : apiJson(result, { status: 201 })
 }
@@ -1532,9 +1565,19 @@ async function deleteTimer(ctx: PublicApiContext, projectId: string, timerId: st
 
     const next = changedSnapshot(snapshot, { timers: snapshot.timers.filter((timer) => timer.id !== timerId) })
     await cancelPendingTimerEndedEvents(tx, { projectId, timerId, userId: row.ownerId })
-    await cancelScheduledTimerReminderIntentsForTimer(tx, { timerId })
-    await tx.notificationOutboxItem.deleteMany({ where: { timerId } })
-    await tx.notificationDeliveryLog.deleteMany({ where: { timerId } })
+    await cancelScheduledTimerReminderIntentsForTimer(tx, { projectId, timerId })
+    await tx.notificationOutboxItem.deleteMany({
+      where: { timerId, payload: { path: ["projectId"], equals: projectId } },
+    })
+    await tx.notificationDeliveryLog.deleteMany({
+      where: {
+        timerId,
+        OR: [
+          { transactionId: { startsWith: `timer-reminder:${projectId}:` } },
+          { transactionId: { startsWith: `timer-reminder:${timerId}:` } },
+        ],
+      },
+    })
     await tx.share.deleteMany({ where: { projectId, kind: "timer", data: { path: ["timerId"], equals: timerId } } })
     const deletedTimer = await tx.timer.deleteMany({ where: { id: timerId, projectId } })
     if (deletedTimer.count !== 1) {
@@ -1582,25 +1625,32 @@ async function createSpace(ctx: PublicApiContext, projectId: string, req: Reques
   if (!parsed.success) return validationResponse(parsed.error)
 
   const prisma = requirePrismaClient()
-  const result = await prisma.$transaction(async (tx) => {
-    const row = await lockedProjectForUser(tx, projectId, ctx.apiKey.user)
-    if (!row) return apiError("not_found", "Project not found.", { status: 404 })
-    const snapshot = requireSnapshot(row)
-    if (isResponse(snapshot)) return snapshot
+  const result = await prisma
+    .$transaction(async (tx) => {
+      const row = await lockedProjectForUser(tx, projectId, ctx.apiKey.user)
+      if (!row) return apiError("not_found", "Project not found.", { status: 404 })
+      const snapshot = requireSnapshot(row)
+      if (isResponse(snapshot)) return snapshot
 
-    const space = spaceFromCreate(parsed.data)
-    if (snapshot.spaces.some((existing) => existing.id === space.id)) {
-      return apiError("validation_error", "Space id already exists.", { status: 400 })
-    }
+      const space = spaceFromCreate(parsed.data)
+      if (snapshot.spaces.some((existing) => existing.id === space.id)) {
+        return apiError("validation_error", "Space id already exists.", { status: 400 })
+      }
 
-    const next = changedSnapshot(snapshot, { spaces: [...snapshot.spaces, space] })
-    const limits = assertProjectLimits(next)
-    if (limits) return limits
+      const next = changedSnapshot(snapshot, { spaces: [...snapshot.spaces, space] })
+      const limits = assertProjectLimits(next)
+      if (limits) return limits
 
-    await tx.space.create({ data: spaceRowData(projectId, row.ownerId, space) })
-    await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
-    return spaceObject(row, space)
-  })
+      await tx.space.create({ data: spaceRowData(projectId, row.ownerId, space) })
+      await tx.project.update({ where: { id: projectId }, data: writeProjectFields(next) })
+      return spaceObject(row, space)
+    })
+    .catch((error: unknown) => {
+      if (isPrismaUniqueConstraintError(error)) {
+        return apiError("validation_error", "Space id already exists.", { status: 400 })
+      }
+      throw error
+    })
 
   return isResponse(result) ? result : apiJson(result, { status: 201 })
 }

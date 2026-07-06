@@ -35,6 +35,8 @@ export type TimerReminderDeliveryCommand = {
   recipient: NotificationRecipient
   offsetMinutes: number
   occurrenceAt: string
+  // Resolved by the caller so channel providers can skip their own lookup.
+  inAppNotificationsEnabled?: boolean
 }
 
 export type TimerDeliveryPlan = {

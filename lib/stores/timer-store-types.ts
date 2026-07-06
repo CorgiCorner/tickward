@@ -25,7 +25,7 @@ export type TimerState = {
 export type TimerActions = {
   hydrateProjectsFromBrowser: () => void
 
-  addTimer: (timer: Omit<Timer, "id" | "createdAt">) => boolean
+  addTimer: (timer: Omit<Timer, "id" | "createdAt"> & { id?: string }) => boolean
   removeTimer: (id: string) => void
   updateTimer: (id: string, updates: Partial<Timer>) => void
   archiveTimer: (id: string) => void

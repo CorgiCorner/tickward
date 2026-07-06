@@ -5,6 +5,7 @@ import { hashRestoreKeyToken, type RestoreKeyTokenHash } from "@/lib/auth/restor
 import { requirePrismaClient } from "@/lib/db/prisma.server"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { type ProjectSnapshotV2, isProjectSnapshot } from "@/lib/project-model"
+import { newPublicId } from "@/lib/public-ids"
 import type { ClaimedProject, ProjectRepository } from "@/lib/repositories"
 import {
   cancelScheduledTimerReminderIntentsForTimer,
@@ -199,7 +200,7 @@ async function emitUserProjectSnapshotEvents(
 
   for (const timer of args.previous.timers) {
     if (nextTimers.has(timer.id)) continue
-    await cancelScheduledTimerReminderIntentsForTimer(tx, { timerId: timer.id })
+    await cancelScheduledTimerReminderIntentsForTimer(tx, { projectId: args.project.id, timerId: timer.id })
     await cancelPendingTimerEndedEvents(tx, {
       projectId: args.project.id,
       timerId: timer.id,
@@ -252,9 +253,21 @@ async function deleteProjectGraph(
     }
 
     if (timerIds.length > 0) {
-      await cancelScheduledTimerReminderIntentsForTimers(tx, { timerIds })
-      await tx.notificationOutboxItem.deleteMany({ where: { timerId: { in: timerIds } } })
-      await tx.notificationDeliveryLog.deleteMany({ where: { timerId: { in: timerIds } } })
+      // Scoped like the public API's delete flows: timer ids are only unique
+      // per project, so bare timer-id filters could hit other projects' rows.
+      await cancelScheduledTimerReminderIntentsForTimers(tx, { projectId: args.projectId, timerIds })
+      await tx.notificationOutboxItem.deleteMany({
+        where: { timerId: { in: timerIds }, payload: { path: ["projectId"], equals: args.projectId } },
+      })
+      await tx.notificationDeliveryLog.deleteMany({
+        where: {
+          timerId: { in: timerIds },
+          OR: [
+            { transactionId: { startsWith: `timer-reminder:${args.projectId}:` } },
+            ...timerIds.map((id) => ({ transactionId: { startsWith: `timer-reminder:${id}:` } })),
+          ],
+        },
+      })
     }
 
     if (args.restoreKeyHash) {
@@ -315,6 +328,7 @@ export const prismaProjectRepository: ProjectRepository = {
     const fallbackDate = dateFromIso(project.updatedAt, new Date())
     await prisma.project.create({
       data: {
+        id: newPublicId("project"),
         ...prismaProjectFields(project),
         accessTokens: {
           create: { tokenHash },

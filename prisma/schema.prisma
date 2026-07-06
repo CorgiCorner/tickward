@@ -30,13 +30,14 @@ model User {
   notificationOutboxItems  NotificationOutboxItem[]
   inAppNotifications       InAppNotification[]
   pushSubscriptions        WebPushSubscription[]
-  apiKeys                  ApiKey[]
-  mcpAuthorizationGrants   McpAuthorizationGrant[]
-  publicApiIdempotencyKeys PublicApiIdempotencyKey[]
-  preference               UserPreference?
-  webhookEndpoints         WebhookEndpoint[]
-  webhookEvents            WebhookEvent[]
-  webhookDeliveries        WebhookDelivery[]
+  apiKeys                   ApiKey[]
+  deviceAuthorizationGrants DeviceAuthorizationGrant[]
+  mcpAuthorizationGrants    McpAuthorizationGrant[]
+  publicApiIdempotencyKeys  PublicApiIdempotencyKey[]
+  preference                UserPreference?
+  webhookEndpoints          WebhookEndpoint[]
+  webhookEvents             WebhookEvent[]
+  webhookDeliveries         WebhookDelivery[]
 
   @@map("user")
 }
@@ -47,6 +48,7 @@ model UserPreference {
   defaultTimezone             String?
   emailReminders              Boolean  @default(false)
   fullPageAlarm               Boolean  @default(true)
+  inAppNotifications          Boolean  @default(true)
   notificationSound           String   @default("polite")
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
@@ -98,6 +100,24 @@ model McpAuthorizationGrant {
   @@index([userId, expiresAt])
   @@index([expiresAt])
   @@map("mcp_authorization_grant")
+}
+
+model DeviceAuthorizationGrant {
+  id            String    @id @default(cuid())
+  userId        String
+  tokenHash     String    @unique
+  deviceName    String
+  codeChallenge String
+  scopes        Json
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  usedAt        DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+  @@map("device_authorization_grant")
 }
 
 model PublicApiIdempotencyKey {
@@ -211,7 +231,7 @@ model ProjectAccessToken {
 }
 
 model Timer {
-  id         String    @id
+  id         String
   projectId  String
   ownerId    String?
   data       Json
@@ -222,7 +242,11 @@ model Timer {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   owner   User?   @relation("TimerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
 
-  @@index([projectId])
+  // Client-supplied ids are unique per project, not globally: two accounts
+  // may pick the same deterministic id without contending for it. The plain
+  // id index covers legacy lookups that only know the timer id.
+  @@id([projectId, id])
+  @@index([id])
   @@index([ownerId])
   @@map("timer")
 }
@@ -247,7 +271,7 @@ model InAppNotification {
 }
 
 model Space {
-  id        String   @id
+  id        String
   projectId String
   ownerId   String?
   data      Json
@@ -257,7 +281,7 @@ model Space {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   owner   User?   @relation("SpaceOwner", fields: [ownerId], references: [id], onDelete: SetNull)
 
-  @@index([projectId])
+  @@id([projectId, id])
   @@index([ownerId])
   @@map("space")
 }

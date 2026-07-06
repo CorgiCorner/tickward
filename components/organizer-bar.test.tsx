@@ -30,7 +30,7 @@ describe("OrganizerBar", () => {
       ],
       spaces: [makeSpace({ id: "space-a" })],
       activeSpaceId: null,
-      sortMode: "manual",
+      sortMode: "soonest",
       timerFilters: { type: "all", pinned: false, muted: false, shared: false, recurring: false },
       setActiveSpace: vi.fn(),
       setTimerSortMode: vi.fn(),
@@ -88,11 +88,11 @@ describe("OrganizerBar", () => {
     for (const [optionLabel] of sortOptions) {
       expect(screen.getByRole("button", { name: optionLabel })).toBeInTheDocument()
     }
-    expect(screen.getByRole("button", { name: "Manual order" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: "Soonest first" })).toHaveAttribute("aria-pressed", "true")
 
-    await user.click(screen.getByRole("button", { name: "Recently added" }))
+    await user.click(screen.getByRole("button", { name: "Manual order" }))
 
-    expect(storeState.setTimerSortMode).toHaveBeenLastCalledWith("recently_added")
+    expect(storeState.setTimerSortMode).toHaveBeenLastCalledWith("manual")
   })
 
   it("adds a space inline from the bar without a management modal", async () => {

@@ -4,7 +4,16 @@ import { toast } from "sonner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ProjectSwitcher } from "@/components/project-switcher"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import type { TimerStore } from "@/lib/store"
+
+function renderSwitcher() {
+  return render(
+    <TooltipProvider delayDuration={0}>
+      <ProjectSwitcher />
+    </TooltipProvider>,
+  )
+}
 
 let storeState: Partial<TimerStore>
 const settingsSheetMock = vi.hoisted(() => vi.fn())
@@ -87,7 +96,7 @@ describe("ProjectSwitcher", () => {
 
   it("renders active project and available projects", async () => {
     const user = userEvent.setup()
-    render(<ProjectSwitcher />)
+    renderSwitcher()
 
     await user.click(screen.getByRole("button", { name: "Switch project" }))
 
@@ -105,11 +114,13 @@ describe("ProjectSwitcher", () => {
 
   it("does not apply row hover styling to the selected project", async () => {
     const user = userEvent.setup()
-    render(<ProjectSwitcher />)
+    renderSwitcher()
 
     await user.click(screen.getByRole("button", { name: "Switch project" }))
 
-    const selectedRow = document.querySelector('[aria-current="true"]')
+    const selectedButton = document.querySelector('[aria-current="true"]')
+    expect(selectedButton).not.toBeNull()
+    const selectedRow = selectedButton!.parentElement
     expect(selectedRow).not.toBeNull()
     expect(selectedRow!).toHaveClass("bg-muted")
     expect(selectedRow!.className).not.toContain("hover:bg-muted")
@@ -117,7 +128,7 @@ describe("ProjectSwitcher", () => {
 
   it("opens project settings from the active project header without switching projects", async () => {
     const user = userEvent.setup()
-    render(<ProjectSwitcher />)
+    renderSwitcher()
 
     await user.click(screen.getByRole("button", { name: "Switch project" }))
     await user.click(screen.getByRole("button", { name: "Project settings" }))
@@ -128,7 +139,7 @@ describe("ProjectSwitcher", () => {
 
   it("keeps the project settings drawer open after the project menu closes", async () => {
     const user = userEvent.setup()
-    render(<ProjectSwitcher />)
+    renderSwitcher()
 
     await user.click(screen.getByRole("button", { name: "Switch project" }))
     await user.click(screen.getByRole("button", { name: "Project settings" }))
@@ -139,7 +150,7 @@ describe("ProjectSwitcher", () => {
 
   it("does not show the settings tooltip when the project menu auto-focuses the settings trigger", async () => {
     const user = userEvent.setup()
-    render(<ProjectSwitcher />)
+    renderSwitcher()
 
     await user.click(screen.getByRole("button", { name: "Switch project" }))
 
@@ -163,17 +174,39 @@ describe("ProjectSwitcher", () => {
       },
     ]
 
-    render(<ProjectSwitcher />)
+    renderSwitcher()
     await user.click(screen.getByRole("button", { name: "Switch project" }))
 
     expect(screen.queryByText("Local")).not.toBeInTheDocument()
+  })
+
+  it("copies the cloud project id from the row copy button", async () => {
+    const user = userEvent.setup()
+    storeState.projects = [
+      {
+        id: "project-a",
+        name: "Alpha",
+        restoreKey: "restoreKey_123",
+        cloudProjectId: "project_123",
+        createdAt: "2026-05-20T00:00:00.000Z",
+        updatedAt: "2026-05-20T00:00:00.000Z",
+      },
+    ]
+
+    renderSwitcher()
+    await user.click(screen.getByRole("button", { name: "Switch project" }))
+    await user.click(screen.getByRole("button", { name: "Copy project id" }))
+
+    expect(await navigator.clipboard.readText()).toBe("project_123")
+    expect(toast.success).toHaveBeenCalled()
+    expect(storeState.switchProject).not.toHaveBeenCalled()
   })
 
   it("renders no fake project while the browser has no projects", () => {
     storeState.projects = []
     storeState.activeProjectId = null
 
-    const { container } = render(<ProjectSwitcher />)
+    const { container } = renderSwitcher()
 
     expect(container).toBeEmptyDOMElement()
   })
@@ -190,7 +223,7 @@ describe("ProjectSwitcher", () => {
       },
     ]
 
-    render(<ProjectSwitcher />)
+    renderSwitcher()
 
     const trigger = screen.getByRole("button", { name: "Switch project" })
     expect(trigger).toHaveClass("project-switcher-trigger", "w-fit", "min-w-0", "overflow-hidden")
@@ -211,7 +244,7 @@ describe("ProjectSwitcher", () => {
       },
     ]
 
-    render(<ProjectSwitcher />)
+    renderSwitcher()
 
     const trigger = screen.getByRole("button", { name: "Switch project" })
     expect(trigger).toHaveClass("project-switcher-trigger", "w-fit", "min-w-0", "overflow-hidden")
@@ -229,7 +262,7 @@ describe("ProjectSwitcher", () => {
         }),
     )
 
-    render(<ProjectSwitcher />)
+    renderSwitcher()
     await user.click(screen.getByRole("button", { name: "Switch project" }))
     await user.type(screen.getByPlaceholderText("Paste restore key"), "restoreKey_456")
 
@@ -248,7 +281,7 @@ describe("ProjectSwitcher", () => {
     const user = userEvent.setup()
     storeState.restoreProjectFromCloud = vi.fn().mockRejectedValue(new Error("raw restore token failed"))
 
-    render(<ProjectSwitcher />)
+    renderSwitcher()
     await user.click(screen.getByRole("button", { name: "Switch project" }))
     await user.type(screen.getByPlaceholderText("Paste restore key"), "restoreKey_456")
     await user.click(screen.getByRole("button", { name: "Restore project" }))

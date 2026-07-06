@@ -1,6 +1,27 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 - 2026-07-06
+
+### Added
+
+- Added an Italian translation of the app. Grazie to
+  [@albanobattistella](https://github.com/albanobattistella) for contributing
+  the initial catalog.
+- Added a desktop browser-connect flow with PKCE device grants.
+- Added an in-app notifications toggle in settings.
+- Added a usage-limit reset timer guide and examples for AI coding agents.
+
+### Changed
+
+- Added confirmation before deleting a shared timer and preserved its id when
+  undoing the delete.
+- Moved elapsed timers into a dedicated past section.
+
+### Fixed
+
+- Added missing Italian copy for the desktop connect flow.
+- Defaulted timer sorting to soonest first.
+- Included the spaces read scope in desktop connect grants.
 
 ## 0.8.0 - 2026-07-05
 

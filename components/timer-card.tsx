@@ -22,6 +22,16 @@ import {
   TimerCardMobileActions,
   TimerImageAttribution,
 } from "@/components/timer-card-parts"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import type { TimerFormSubmitValue } from "@/components/timer-form"
 import { authClient } from "@/lib/auth/auth-client"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
@@ -93,6 +103,7 @@ export const TimerCard = memo(function TimerCard(props: Readonly<{ timer: Timer;
   const [focusLoaded, setFocusLoaded] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
   const [moveLoaded, setMoveLoaded] = useState(false)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
 
   function shareOwnerPayload() {
     return { projectId: activeProject?.cloudProjectId, restoreKey, timerId: timer.id }
@@ -239,6 +250,16 @@ export const TimerCard = memo(function TimerCard(props: Readonly<{ timer: Timer;
     }
   }
 
+  function requestDelete() {
+    // Deleting a shared timer breaks its public link and any embeds on other
+    // sites, so it needs an explicit confirmation instead of instant delete.
+    if (timer.sharedAt) {
+      setConfirmDeleteOpen(true)
+      return
+    }
+    handleDelete()
+  }
+
   function handleDelete() {
     const snapshot = timer
     removeTimer(timer.id)
@@ -246,7 +267,8 @@ export const TimerCard = memo(function TimerCard(props: Readonly<{ timer: Timer;
       action: {
         label: formatMessage("common.undo"),
         onClick: () => {
-          addTimer({
+          const restored = addTimer({
+            id: snapshot.id,
             label: snapshot.label,
             description: snapshot.description,
             url: snapshot.url,
@@ -262,6 +284,7 @@ export const TimerCard = memo(function TimerCard(props: Readonly<{ timer: Timer;
             archivedAt: snapshot.archivedAt,
             pinned: snapshot.pinned,
           })
+          if (!restored) toast.error(formatMessage("entry.limitReachedToast"))
         },
       },
     })
@@ -335,7 +358,7 @@ export const TimerCard = memo(function TimerCard(props: Readonly<{ timer: Timer;
 
   const trailingActions = () => (
     <TrailingActions>
-      <SwipeAction onClick={handleDelete}>
+      <SwipeAction onClick={requestDelete}>
         <div className="flex items-center justify-center gap-2 bg-red-500 px-5 text-white">
           <TrashIcon className="size-5" />
           <span className="text-sm font-medium">{formatMessage("timer.mobileDelete")}</span>
@@ -384,7 +407,7 @@ export const TimerCard = memo(function TimerCard(props: Readonly<{ timer: Timer;
           onUnfollow={handleUnfollow}
           onDuplicate={handleDuplicate}
           onToggleArchive={toggleArchive}
-          onDelete={handleDelete}
+          onDelete={requestDelete}
         />
       }
       desktopActions={
@@ -403,7 +426,7 @@ export const TimerCard = memo(function TimerCard(props: Readonly<{ timer: Timer;
           onUnfollow={handleUnfollow}
           onDuplicate={handleDuplicate}
           onToggleArchive={toggleArchive}
-          onDelete={handleDelete}
+          onDelete={requestDelete}
         />
       }
       onMobileCardTap={handleMobileCardTap}
@@ -469,6 +492,21 @@ export const TimerCard = memo(function TimerCard(props: Readonly<{ timer: Timer;
           />
         </Suspense>
       ) : null}
+
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{formatMessage("timer.deleteShared.title")}</AlertDialogTitle>
+            <AlertDialogDescription>{formatMessage("timer.deleteShared.description")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{formatMessage("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleDelete}>
+              {formatMessage("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <TimerImageAttribution timer={timer} />
     </div>

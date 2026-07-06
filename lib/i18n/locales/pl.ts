@@ -286,6 +286,7 @@ export const plMessages = {
   "entry.byCountryHeading": "Kalendarze według kraju",
   "entry.indexAll": "Wszystkie kalendarze",
   "entry.indexTitle": "Gotowe kalendarze",
+  "entry.limitReachedToast": "Masz już maksymalną liczbę aktywnych liczników. Usuń któryś, żeby dodać kolejne.",
   "error.back": "Wstecz",
   "error.description": "Nie udało się załadować tej strony. Odśwież, aby spróbować ponownie, lub wróć.",
   "error.reference": "ID błędu: {id}",
@@ -434,6 +435,7 @@ export const plMessages = {
   "home.faq.timezones.answer":
     "Wybierasz strefę czasową, w której odbywa się wydarzenie, a licznik odlicza do dokładnie tego momentu. Osoba otwierająca ten sam licznik z innego kraju widzi ten sam moment, a nie przesuniętą kopię.",
   "home.faq.timezones.question": "Jak odliczanie obsługuje strefy czasowe?",
+  "home.past": "Minione",
   "home.upcoming": "Nadchodzące",
   "home.useCases.heading": "Popularne liczniki odliczające",
   "ios.install.description": "Stuknij Udostępnij, a potem {action}, aby włączyć powiadomienia i tryb pełnoekranowy.",
@@ -570,6 +572,7 @@ export const plMessages = {
   "project.accountStorageDescription":
     "Ten projekt jest połączony z Twoim kontem i wraca po zalogowaniu na tym albo innym urządzeniu.",
   "project.accountStorageTitle": "Zapisano na Twoim koncie",
+  "project.copyId": "Kopiuj id projektu",
   "project.copyRestoreKey": "Kopiuj klucz przywracania",
   "project.created": "Projekt utworzony.",
   "project.current": "Projekt",
@@ -582,6 +585,10 @@ export const plMessages = {
   "project.deleteDescription": "Usuwa ten projekt z chmury i z tego urządzenia.",
   "project.deleteTitle": "Usunąć ten projekt?",
   "project.deleteWarning": "Klucz przywracania przestanie działać, a ten projekt zostanie usunięty z tego urządzenia.",
+  "project.idAnonymousHint": "Zaloguj się i zsynchronizuj projekt, aby uzyskać id projektu dla API i MCP.",
+  "project.idCopied": "Skopiowano id projektu.",
+  "project.idDescription": "Użyj go jako project_id w wywołaniach API lub MCP.",
+  "project.idLabel": "Id projektu",
   "project.keyCopied": "Skopiowano klucz przywracania.",
   "project.listHeading": "Projekty {count}/{max}",
   "project.local": "Lokalny",
@@ -644,6 +651,9 @@ export const plMessages = {
   "settings.alerts.emailReminders.description":
     "Przypomnienia przychodzą w aplikacji oraz emailem, gdy ta opcja jest włączona. Emaile mają dzienny limit.",
   "settings.alerts.emailReminders.title": "Przypomnienia email",
+  "settings.alerts.inAppNotifications.description":
+    "Pokazuj przypomnienia w dzwonku powiadomień i pozwól aplikacji uruchamiać alarmy liczników.",
+  "settings.alerts.inAppNotifications.title": "Powiadomienia w aplikacji",
   "settings.confirmProjectName": "Wpisz „{project}”, aby potwierdzić.",
   "settings.defaultTimezone": "Domyślna strefa czasowa",
   "settings.defaultTimezoneDescription":
@@ -735,6 +745,9 @@ export const plMessages = {
   "timer.countdown.secondsShort": "s",
   "timer.countdown.since": "Minęło",
   "timer.delete": "Usuń licznik",
+  "timer.deleteShared.title": "Usunąć udostępniony licznik?",
+  "timer.deleteShared.description":
+    "Ten licznik ma publiczny link. Po usunięciu link oraz liczniki osadzone na innych stronach przestaną działać.",
   "timer.deleted": "Licznik usunięty.",
   "timer.defaultLabel": "Licznik {n}",
   "timer.duplicated": "Licznik zduplikowany.",
@@ -875,4 +888,4 @@ export const plMessages = {
   "validation.timerLabelTooLong": "Etykieta „{label}” przekracza limit 200 znaków.",
   "webPush.incompleteSubscription": "Przeglądarka zwróciła niepełną subskrypcję push.",
   "webPush.persistFailed": "Nie udało się zapisać subskrypcji push przeglądarki.",
-}
+} as const

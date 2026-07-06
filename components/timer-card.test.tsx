@@ -108,7 +108,7 @@ describe("TimerCard", () => {
       spaces: [],
       activeProjectId: "project-local",
       removeTimer: vi.fn(),
-      addTimer: vi.fn(),
+      addTimer: vi.fn().mockReturnValue(true),
       updateTimer: vi.fn(),
       archiveTimer: vi.fn(),
       unarchiveTimer: vi.fn(),
@@ -306,6 +306,77 @@ describe("TimerCard", () => {
     await waitFor(() => {
       expect(screen.queryByRole("menuitem", { name: "Disable notifications" })).not.toBeInTheDocument()
     })
+  })
+
+  it("deletes unshared timers immediately and restores the same id on undo", async () => {
+    const user = userEvent.setup()
+    render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+
+    await clickFirstTimerAction(user, "Delete")
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(storeState.removeTimer).toHaveBeenCalledWith("timer-a")
+    expect(toastMock).toHaveBeenCalledWith(
+      "Timer deleted.",
+      expect.objectContaining({
+        action: expect.objectContaining({ label: "Undo", onClick: expect.any(Function) }),
+      }),
+    )
+
+    const [, options] = toastMock.mock.calls[0] as [string, { action: { onClick: () => void } }]
+    options.action.onClick()
+    expect(storeState.addTimer).toHaveBeenCalledWith(expect.objectContaining({ id: "timer-a" }))
+    expect(toastMock.error).not.toHaveBeenCalled()
+  })
+
+  it("shows an error when undoing a delete fails on the timer limit", async () => {
+    const user = userEvent.setup()
+    storeState.addTimer = vi.fn().mockReturnValue(false)
+    render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+
+    await clickFirstTimerAction(user, "Delete")
+
+    const [, options] = toastMock.mock.calls[0] as [string, { action: { onClick: () => void } }]
+    options.action.onClick()
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "You already have the maximum number of active timers. Remove one to add more.",
+    )
+  })
+
+  it("asks for confirmation before deleting a shared timer", async () => {
+    const user = userEvent.setup()
+    render(
+      <TimerCard
+        timer={makeTimer({ sharedAt: "2026-05-23T00:00:00.000Z" })}
+        nowMs={Date.parse("2026-05-24T00:00:00.000Z")}
+      />,
+    )
+
+    await clickFirstTimerAction(user, "Delete")
+
+    expect(await screen.findByRole("alertdialog", { name: "Delete shared timer?" })).toBeVisible()
+    expect(storeState.removeTimer).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole("button", { name: "Delete" }))
+    expect(storeState.removeTimer).toHaveBeenCalledWith("timer-a")
+  })
+
+  it("keeps a shared timer when the delete confirmation is cancelled", async () => {
+    const user = userEvent.setup()
+    render(
+      <TimerCard
+        timer={makeTimer({ sharedAt: "2026-05-23T00:00:00.000Z" })}
+        nowMs={Date.parse("2026-05-24T00:00:00.000Z")}
+      />,
+    )
+
+    await clickFirstTimerAction(user, "Delete")
+    await user.click(await screen.findByRole("button", { name: "Cancel" }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    })
+    expect(storeState.removeTimer).not.toHaveBeenCalled()
   })
 
   it("opens the edit form from the overflow menu", async () => {

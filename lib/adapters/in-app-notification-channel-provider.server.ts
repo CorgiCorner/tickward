@@ -30,8 +30,16 @@ type InAppNotificationDelegate = {
   }): Promise<{ id: string }>
 }
 
+type UserPreferenceDelegate = {
+  findUnique(args: {
+    select: { inAppNotifications: true }
+    where: { userId: string }
+  }): Promise<{ inAppNotifications?: boolean | null } | null>
+}
+
 type InAppPrisma = {
   inAppNotification?: InAppNotificationDelegate
+  userPreference?: UserPreferenceDelegate
 }
 
 function skipped(reason: string): DeliveryResult {
@@ -48,6 +56,19 @@ function skipped(reason: string): DeliveryResult {
 
 function inAppDelegate(prisma: unknown): InAppNotificationDelegate | null {
   return (prisma as InAppPrisma).inAppNotification ?? null
+}
+
+async function inAppNotificationsEnabled(resolved: boolean | undefined, userId: string, prisma: unknown) {
+  // Callers that already loaded the account preference pass it on the command
+  // so the provider can skip the lookup; the query is only a fallback.
+  if (typeof resolved === "boolean") return resolved
+  const delegate = (prisma as InAppPrisma).userPreference
+  if (!delegate) return true
+  const row = await delegate.findUnique({
+    where: { userId },
+    select: { inAppNotifications: true },
+  })
+  return row?.inAppNotifications !== false
 }
 
 async function trimInbox(userId: string, delegate: InAppNotificationDelegate) {
@@ -73,7 +94,12 @@ export function createInAppNotificationChannelProvider(): NotificationChannelPro
       const userId = command.recipient.subscriberId
       if (!userId) return skipped("missing_recipient")
 
-      const delegate = inAppDelegate(requirePrismaClient())
+      const prisma = requirePrismaClient()
+      if (!(await inAppNotificationsEnabled(command.inAppNotificationsEnabled, userId, prisma))) {
+        return skipped("preference_disabled")
+      }
+
+      const delegate = inAppDelegate(prisma)
       if (!delegate) return skipped("provider_not_configured")
 
       const payload = {

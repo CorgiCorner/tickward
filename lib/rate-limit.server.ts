@@ -27,6 +27,8 @@ const RATE_LIMITS = {
   "mcp-connection-management": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:mcp-connection-management" },
   "mcp-oauth-exchange": { limit: 30, window: "60 s", prefix: "tickward:ratelimit:mcp-oauth-exchange" },
   "mcp-oauth-grant": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:mcp-oauth-grant" },
+  "desktop-oauth-exchange": { limit: 30, window: "60 s", prefix: "tickward:ratelimit:desktop-oauth-exchange" },
+  "desktop-oauth-grant": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:desktop-oauth-grant" },
 } as const
 
 type RateLimiter = InstanceType<typeof Ratelimit>

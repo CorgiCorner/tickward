@@ -24,9 +24,9 @@ curl -fsS http://localhost:3000/api/health
 
 Open [http://localhost:3000](http://localhost:3000).
 
-The default Compose stack uses `docker.io/corgicorner/tickward:0.8.0` and
+The default Compose stack uses `docker.io/corgicorner/tickward:0.9.0` and
 starts the app, PostgreSQL, Redis, and a Redis REST proxy. To use the GHCR image
-instead, set `TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.8.0` in `.env`.
+instead, set `TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.9.0` in `.env`.
 To build from the checkout, run `docker compose --env-file .env up --build`.
 
 ## Features
@@ -105,3 +105,10 @@ tickward is released under the GNU Affero General Public License v3.0. See
 
 Public contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md),
 [SECURITY.md](SECURITY.md), and [CHANGELOG.md](CHANGELOG.md).
+
+### Translations
+
+tickward ships in English, Polish, and Italian. Grazie to
+[@albanobattistella](https://github.com/albanobattistella) for contributing
+the Italian translation. To add a language, see the Translations section of
+[CONTRIBUTING.md](CONTRIBUTING.md).

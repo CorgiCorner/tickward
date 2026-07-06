@@ -27,6 +27,7 @@ import { TimerCard } from "@/components/timer-card"
 import { Button } from "@/components/ui/button"
 import { useNow } from "@/components/use-now"
 import { useLocalTimerAlarms } from "@/components/use-local-timer-alarms"
+import { useProjectUrlSync } from "@/hooks/use-project-url-sync"
 import { authClient } from "@/lib/auth/auth-client"
 import { browserTitle } from "@/lib/browser-title"
 import { formatMessage } from "@/lib/i18n/messages"
@@ -215,7 +216,7 @@ function matchesActiveSpace(timer: Timer, activeSpaceId: string | null, spaces: 
   return timer.spaceId === activeSpaceId
 }
 
-type TimerSectionKind = "pinned" | "upcoming" | "archived"
+type TimerSectionKind = "pinned" | "upcoming" | "past" | "archived"
 
 const SortableTimerSection = memo(function SortableTimerSection(
   props: Readonly<{
@@ -232,9 +233,18 @@ const SortableTimerSection = memo(function SortableTimerSection(
     className?: string
     listClassName?: string
     action?: ReactNode
+    sortable?: boolean
   }>,
 ) {
   if (props.timers.length === 0) return null
+
+  const list = (
+    <div data-slot={props.dataSlot} className={cn("grid gap-3", props.listClassName)}>
+      {props.timers.map((timer) => (
+        <TimerCard key={timer.id} timer={timer} nowMs={props.nowMs} sortable={props.sortable} />
+      ))}
+    </div>
+  )
 
   return (
     <section id={props.id} aria-labelledby={props.headingId} className={props.className}>
@@ -248,19 +258,19 @@ const SortableTimerSection = memo(function SortableTimerSection(
         </div>
         {props.action}
       </div>
-      <DndContext
-        sensors={props.sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={(event) => props.onDragEnd(event, props.timers, props.kind)}
-      >
-        <SortableContext items={props.timers.map((timer) => timer.id)} strategy={verticalListSortingStrategy}>
-          <div data-slot={props.dataSlot} className={cn("grid gap-3", props.listClassName)}>
-            {props.timers.map((timer) => (
-              <TimerCard key={timer.id} timer={timer} nowMs={props.nowMs} />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
+      {props.sortable === false ? (
+        list
+      ) : (
+        <DndContext
+          sensors={props.sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={(event) => props.onDragEnd(event, props.timers, props.kind)}
+        >
+          <SortableContext items={props.timers.map((timer) => timer.id)} strategy={verticalListSortingStrategy}>
+            {list}
+          </SortableContext>
+        </DndContext>
+      )}
     </section>
   )
 })
@@ -269,12 +279,13 @@ const ActiveTimerList = memo(function ActiveTimerList(
   props: Readonly<{
     pinnedTimers: Timer[]
     upcomingTimers: Timer[]
+    pastTimers: Timer[]
     nowMs: number
     sensors: ReturnType<typeof useSensors>
     onDragEnd: (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => void
   }>,
 ) {
-  if (props.pinnedTimers.length === 0 && props.upcomingTimers.length === 0) return null
+  if (props.pinnedTimers.length === 0 && props.upcomingTimers.length === 0 && props.pastTimers.length === 0) return null
 
   return (
     <div id="active-timers" data-slot="timer-list" className="grid gap-6 scroll-mt-20">
@@ -296,6 +307,16 @@ const ActiveTimerList = memo(function ActiveTimerList(
         nowMs={props.nowMs}
         sensors={props.sensors}
         onDragEnd={props.onDragEnd}
+      />
+      <SortableTimerSection
+        kind="past"
+        headingId="past-timers-heading"
+        title={formatMessage("home.past")}
+        timers={props.pastTimers}
+        nowMs={props.nowMs}
+        sensors={props.sensors}
+        onDragEnd={props.onDragEnd}
+        sortable={false}
       />
     </div>
   )
@@ -374,6 +395,7 @@ const TimerCollection = memo(function TimerCollection(
     archivedTimers: Timer[]
     pinnedTimers: Timer[]
     upcomingTimers: Timer[]
+    pastTimers: Timer[]
     nowMs: number
     sensors: ReturnType<typeof useSensors>
     onDragEnd: (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => void
@@ -398,6 +420,7 @@ const TimerCollection = memo(function TimerCollection(
         <ActiveTimerList
           pinnedTimers={props.pinnedTimers}
           upcomingTimers={props.upcomingTimers}
+          pastTimers={props.pastTimers}
           nowMs={props.nowMs}
           sensors={props.sensors}
           onDragEnd={props.onDragEnd}
@@ -455,7 +478,12 @@ function HomeTickEffects(
   return <TimerAlarmOverlay alarm={localAlarm.alarm} onDismiss={localAlarm.dismissAlarm} />
 }
 
+function isPastTimer(timer: Timer, nowMs: number) {
+  return timer.recurrence?.enabled !== true && targetMs(timer, nowMs) < nowMs
+}
+
 export function HomeClient() {
+  useProjectUrlSync()
   const hasHydrated = useTimerStore((s) => s.hasHydrated)
   const refreshAccountProjectsFromCloud = useTimerStore((s) => s.refreshAccountProjectsFromCloud)
   const removeAccountProjectsFromDevice = useTimerStore((s) => s.removeAccountProjectsFromDevice)
@@ -493,11 +521,18 @@ export function HomeClient() {
   const upcomingTimers = useMemo(
     () =>
       sortTimers(
-        activeTimers.filter((timer) => !timer.pinned),
+        activeTimers.filter((timer) => !timer.pinned && !isPastTimer(timer, classificationNowMs)),
         sortMode,
         classificationNowMs,
       ),
     [activeTimers, classificationNowMs, sortMode],
+  )
+  const pastTimers = useMemo(
+    () =>
+      activeTimers
+        .filter((timer) => !timer.pinned && isPastTimer(timer, classificationNowMs))
+        .sort((a, b) => targetMs(b, classificationNowMs) - targetMs(a, classificationNowMs)),
+    [activeTimers, classificationNowMs],
   )
   const archivedTimers = useMemo(() => {
     const archived = filteredTimers.filter((timer) => timer.archivedAt)
@@ -553,6 +588,8 @@ export function HomeClient() {
 
   const handleTimerDragEnd = useCallback(
     (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => {
+      if (kind === "past") return
+
       const { active, over } = event
       if (!over || active.id === over.id) return
       const visibleIds = sectionTimers.map((timer) => timer.id)
@@ -607,6 +644,7 @@ export function HomeClient() {
                 archivedTimers={archivedTimers}
                 pinnedTimers={pinnedTimers}
                 upcomingTimers={upcomingTimers}
+                pastTimers={pastTimers}
                 nowMs={classificationNowMs}
                 sensors={sensors}
                 onDragEnd={handleTimerDragEnd}

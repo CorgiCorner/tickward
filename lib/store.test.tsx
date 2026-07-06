@@ -41,6 +41,7 @@ describe("timer store", () => {
     expect(state.hasHydrated).toBe(true)
     expect(state.projects).toEqual([])
     expect(state.activeProjectId).toBeNull()
+    expect(state.sortMode).toBe("soonest")
     expect(state.restoreKey).toBeNull()
     expect(JSON.parse(localStorage.getItem(TD_PROJECTS_STORAGE_KEY) ?? "[]")).toEqual([])
     expect(localStorage.getItem(TD_ACTIVE_PROJECT_STORAGE_KEY)).toBeNull()
@@ -61,7 +62,13 @@ describe("timer store", () => {
     expect(state.activeProjectId).toBe(state.projects[0].id)
     expect(state.restoreKey).toBe(state.projects[0].restoreKey)
     expect(state.projects[0].timerCount).toBe(1)
-    expect(readProjectPayload(state.projects[0].id)?.timers).toEqual([expect.objectContaining({ notify: true })])
+    expect(state.sortMode).toBe("soonest")
+    expect(readProjectPayload(state.projects[0].id)).toEqual(
+      expect.objectContaining({
+        sortMode: "soonest",
+        timers: [expect.objectContaining({ notify: true })],
+      }),
+    )
   })
 
   it("adds, updates, removes, and clears timers while updating project counts", () => {
@@ -98,6 +105,29 @@ describe("timer store", () => {
     })
     store.getState().clearAllTimers()
     expect(store.getState().timers).toEqual([])
+  })
+
+  it("restores a caller-supplied timer id unless it is already taken", () => {
+    const store = createHydratedStore()
+
+    store.getState().addTimer({
+      id: "timer-restored",
+      label: "Ship",
+      targetDate: "2026-05-25T00:00:00.000Z",
+      timezone: "UTC",
+    })
+    expect(store.getState().timers[0].id).toBe("timer-restored")
+
+    store.getState().addTimer({
+      id: "timer-restored",
+      label: "Conflict",
+      targetDate: "2026-05-25T00:00:00.000Z",
+      timezone: "UTC",
+    })
+    const [conflict, restored] = store.getState().timers
+    expect(restored.id).toBe("timer-restored")
+    expect(conflict.label).toBe("Conflict")
+    expect(conflict.id).not.toBe("timer-restored")
   })
 
   it("reports when the timer limit prevents adding another timer", () => {
@@ -183,6 +213,8 @@ describe("timer store", () => {
     store.getState().createProject("Second")
     const projectB = store.getState().activeProjectId as string
     expect(projectB).not.toBe(projectA)
+    expect(store.getState().sortMode).toBe("soonest")
+    expect(readProjectPayload(projectB)?.sortMode).toBe("soonest")
 
     store.getState().switchProject(projectA)
     expect(store.getState().timers.map((timer) => timer.id)).toEqual(["timer-x"])
@@ -521,7 +553,26 @@ describe("timer store", () => {
       ["timer-b", true],
       ["timer-a", undefined],
     ])
-    expect(readProjectPayload(state.projects[0].id)?.timers).toHaveLength(2)
+    expect(state.sortMode).toBe("soonest")
+    expect(readProjectPayload(state.projects[0].id)).toEqual(
+      expect.objectContaining({
+        sortMode: "soonest",
+        timers: expect.arrayContaining([expect.objectContaining({ id: "timer-a" })]),
+      }),
+    )
+  })
+
+  it("keeps an explicitly persisted manual sort mode when restoring an existing project's key", async () => {
+    const store = createHydratedStore({ sortMode: "manual", timers: [makeTimer({ id: "timer-a" })] })
+    await settleInitialCloudCheck()
+    const restoreKey = store.getState().restoreKey as string
+    const remoteProject = makeProjectSnapshot({ name: "Synced", timers: [makeTimer({ id: "timer-b" })] })
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ project: remoteProject, source: "project" }))
+
+    await store.getState().restoreProjectFromCloud(restoreKey)
+
+    expect(store.getState().sortMode).toBe("manual")
+    expect(readProjectPayload(store.getState().projects[0].id)?.sortMode).toBe("manual")
   })
 
   it("records project conflicts on sync 409 responses", async () => {

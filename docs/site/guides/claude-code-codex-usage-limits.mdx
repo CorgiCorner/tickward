@@ -1,0 +1,270 @@
+---
+title: "Claude Code and Codex usage limit timers"
+description: "Track your Claude Code usage limit reset or Codex rate limit reset with an automatic tickward countdown and a reminder before the window reopens."
+---
+
+Claude Code and Codex enforce usage limits over rolling windows, such as a
+five-hour window and a seven-day window. When you hit one, the tools report
+when the window resets. The scripts in this guide turn that reset time into a
+tickward countdown so you know exactly when you can resume work.
+
+## What you get
+
+When Claude Code or Codex usage crosses a threshold (default 80 percent), or a
+turn fails on a rate limit, a script creates a tickward timer that ends exactly
+when the limit window resets. The timer includes a reminder a configurable
+number of minutes before the reset (default 10), delivered in-app and by email.
+One timer is created per reset window, so a five-hour limit and a seven-day
+limit each get their own countdown.
+
+The scripts live in the tickward repository under
+`examples/agent-usage-limits/`:
+
+- `claude-code/usage-limit-hook.mjs` — reads the Claude Code statusline or
+  hook payload from stdin.
+- `codex/usage-limit-watcher.mjs` — polls Codex for current usage on a
+  schedule.
+
+Both are zero-dependency Node scripts (Node 18 or newer) configured entirely
+through environment variables:
+
+| Variable | Meaning | Default |
+| --- | --- | --- |
+| `TICKWARD_BASE_URL` | Your tickward URL, such as `https://tickward.com` or a self-hosted domain | required |
+| `TICKWARD_API_KEY` | API key from tickward settings | required |
+| `TICKWARD_PROJECT_ID` | Project that receives the timers | required |
+| `TICKWARD_REMINDER_MINUTES` | Reminder offset before the reset | `10` |
+| `TICKWARD_USAGE_THRESHOLD` | Usage percent that triggers a timer | `80` |
+| `TICKWARD_DRY_RUN` | Set to `1` to verify credentials and print what would be created without creating timers | unset |
+
+## Prerequisites
+
+- A tickward account.
+- An API key with write access, created in tickward settings.
+- The id of the project that should receive the timers. Copy it from the
+  project section in `Settings` (or the copy icon next to a project in the
+  project switcher), or list your projects with `GET /api/v1/projects` using
+  the API key.
+- Email reminders enabled in `Settings` -> `Notifications` if you want the
+  reminder by email. In-app reminders always work.
+- For the Claude Code statusline trigger: a Claude subscription session.
+  Claude Code exposes `rate_limits` in the statusline payload only for
+  Claude Pro/Max subscribers, after the first response in a session. The
+  `StopFailure` hook works regardless.
+
+## Agent-assisted setup
+
+The fastest path is to let the agent install its own watcher. Paste the
+matching prompt below into Claude Code or Codex and answer its questions.
+
+### Claude Code
+
+```text
+Set up tickward usage limit timers for Claude Code.
+
+1. Create the directory ~/.claude/tickward/.
+2. Save the script from the tickward repository path
+   examples/agent-usage-limits/claude-code/usage-limit-hook.mjs into
+   ~/.claude/tickward/usage-limit-hook.mjs. If you cannot fetch the
+   repository, transcribe the script from the example linked in the
+   tickward docs guide "Claude Code and Codex usage limit timers".
+3. Ask me for my tickward URL and set TICKWARD_BASE_URL in the "env"
+   block of ~/.claude/settings.json, together with TICKWARD_PROJECT_ID
+   (if I know it) or a placeholder. For the API key, add
+   TICKWARD_API_KEY with the placeholder value "PASTE_KEY_HERE" and tell
+   me exactly where to paste the real key myself. Never ask me to type
+   the key into the chat, and never print it in your output, commands,
+   or logs. Run chmod 600 on every file that contains the key.
+4. Merge into ~/.claude/settings.json, preserving my existing settings:
+   a statusLine command entry that runs
+   node ~/.claude/tickward/usage-limit-hook.mjs, and a StopFailure hook
+   with matcher "rate_limit" that runs the same script. If I already have
+   a statusLine configured, show it to me and ask before replacing it —
+   in that case wire only the StopFailure hook.
+5. Wait until I confirm the key is in place. If the project id is still
+   a placeholder, call GET $TICKWARD_BASE_URL/api/v1/projects with the
+   key (never print the key), show me the project names and ids, and set
+   TICKWARD_PROJECT_ID to the one I pick. Then dry-run once: with
+   TICKWARD_DRY_RUN=1 set, pipe a fake statusline payload with
+   rate_limits.five_hour.used_percentage of 99 and resets_at about 15
+   minutes in the future into the script. Expect the printed status line
+   plus a "[tickward] dry-run: would create timer" line and exit code 0.
+   Nothing is created, so there is no test timer to delete.
+6. Remind me to enable email reminders in tickward under
+   Settings -> Notifications so reminders also arrive by email.
+```
+
+### Codex
+
+```text
+Set up tickward usage limit timers for Codex.
+
+1. Create the directory ~/.codex/tickward/.
+2. Save the script from the tickward repository path
+   examples/agent-usage-limits/codex/usage-limit-watcher.mjs into
+   ~/.codex/tickward/usage-limit-watcher.mjs. If you cannot fetch the
+   repository, transcribe the script from the example linked in the
+   tickward docs guide "Claude Code and Codex usage limit timers".
+3. Create ~/.codex/tickward/env with export lines for TICKWARD_BASE_URL,
+   TICKWARD_API_KEY, and TICKWARD_PROJECT_ID. Ask me for the URL and the
+   project id (use a placeholder if I don't know the id), but set the
+   API key to the placeholder value "PASTE_KEY_HERE" and tell me exactly
+   where to paste the real key myself. Never ask me to type the key into
+   the chat, and never print it in your output, commands, or logs. Run
+   chmod 600 on that file.
+4. Install a crontab entry that runs the watcher every 5 minutes by
+   sourcing that env file first:
+   */5 * * * * . "$HOME/.codex/tickward/env" && node "$HOME/.codex/tickward/usage-limit-watcher.mjs"
+5. Wait until I confirm the key is in place. If the project id is still
+   a placeholder, call GET $TICKWARD_BASE_URL/api/v1/projects with the
+   key (never print the key), show me the project names and ids, and set
+   TICKWARD_PROJECT_ID to the one I pick. Then dry-run once: run the
+   watcher a single time with TICKWARD_USAGE_THRESHOLD=0 and
+   TICKWARD_DRY_RUN=1. Expect one "[tickward] dry-run: would create
+   timer" line per current usage window and exit code 0. Nothing is
+   created.
+6. Remind me to enable email reminders in tickward under
+   Settings -> Notifications so reminders also arrive by email.
+```
+
+## Manual setup
+
+### Claude Code
+
+Save `examples/agent-usage-limits/claude-code/usage-limit-hook.mjs` to
+`~/.claude/tickward/usage-limit-hook.mjs`, then wire it into
+`~/.claude/settings.json` in two places.
+
+First, add the environment values the script reads:
+
+```json
+{
+  "env": {
+    "TICKWARD_BASE_URL": "https://tickward.com",
+    "TICKWARD_API_KEY": "tw_your_api_key",
+    "TICKWARD_PROJECT_ID": "your_project_id"
+  }
+}
+```
+
+Second, register the script as the statusline command. The statusline payload
+carries `used_percentage` (0-100) and `resets_at` (Unix seconds) under
+`rate_limits.five_hour` and `rate_limits.seven_day`, so the script can create
+the timer as soon as usage crosses the threshold. It prints a short usage
+summary, so it remains a working statusline:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "node ~/.claude/tickward/usage-limit-hook.mjs"
+  }
+}
+```
+
+Optionally, also register it as a `StopFailure` hook so a turn that fails on a
+rate limit triggers the same script:
+
+```json
+{
+  "hooks": {
+    "StopFailure": [
+      {
+        "matcher": "rate_limit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/tickward/usage-limit-hook.mjs"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The script creates a timer only when the payload includes a reset time. When
+reset fields are missing, it exits silently.
+
+### Codex
+
+Codex has no reliable rate-limit hook, so the watcher polls `codex app-server`
+(`account/rateLimits/read`) for current usage and reset times. Save
+`examples/agent-usage-limits/codex/usage-limit-watcher.mjs` to
+`~/.codex/tickward/usage-limit-watcher.mjs` and run it on a schedule.
+
+Create `<home>/.codex/tickward/env`:
+
+```text
+TICKWARD_BASE_URL=https://tickward.com
+TICKWARD_API_KEY=placeholder
+TICKWARD_PROJECT_ID=placeholder
+```
+
+Cron, every 5 minutes:
+
+```text
+*/5 * * * * set -a; . <home>/.codex/tickward/env; set +a; node "<home>/.codex/tickward/usage-limit-watcher.mjs" >> "<home>/.codex/tickward/watcher.log" 2>&1
+```
+
+On macOS, launchd is an alternative to cron. Save this as
+`~/Library/LaunchAgents/tickward.codex-usage-limits.plist`, replace `<home>`
+with your home directory and `<path-to-node>` with the output of `which node`
+(launchd expands neither `~` nor your shell `PATH`), and load it with
+`launchctl load ~/Library/LaunchAgents/tickward.codex-usage-limits.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>tickward.codex-usage-limits</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string><path-to-node></string>
+    <string><home>/.codex/tickward/usage-limit-watcher.mjs</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TICKWARD_BASE_URL</key>
+    <string>https://tickward.com</string>
+    <key>TICKWARD_API_KEY</key>
+    <string>tw_your_api_key</string>
+    <key>TICKWARD_PROJECT_ID</key>
+    <string>your_project_id</string>
+  </dict>
+  <key>StartInterval</key>
+  <integer>300</integer>
+</dict>
+</plist>
+```
+
+## How duplicates are avoided
+
+The scripts build a deterministic timer id from the window, its reset
+timestamp, and a short project-derived suffix, for example
+`cc-5h-1751700000-x4kq2m`. Every create request sends that id in the body and
+as the `Idempotency-Key` header:
+
+- Within 24 hours, the `Idempotency-Key` makes retries return the original
+  response.
+- Beyond that, the client-supplied timer id is the dedupe. A repeated create
+  for the same reset window fails with "Timer id already exists", which the
+  scripts treat as success.
+
+The idempotency key TTL is 24 hours, so for long windows such as the
+seven-day limit the timer id is what keeps repeated runs safe. The scripts
+also skip windows whose reset time is already in the past.
+
+## Related
+
+- [MCP setup](/guides/mcp) — connect Claude, ChatGPT, or local agents to
+  tickward over MCP.
+- [Agent Usage](/guides/agent-usage) — how agents should call the tickward
+  API safely.
+- [API Quickstart](/guides/api-quickstart) — create an API key and call the
+  versioned API.
+- [Claude Code usage limit timer](https://tickward.com/en/use-cases/claude-code-usage-limit-timer)
+  — the use-case overview on tickward.com.

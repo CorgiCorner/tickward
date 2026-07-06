@@ -60,7 +60,9 @@ describe("TimerDefaultsSettingsPanel", () => {
     mocks.updatePreferences.mockResolvedValue({
       object: "account_preferences",
       default_timezone: null,
+      email_reminders: false,
       full_page_alarm: false,
+      in_app_notifications: true,
       notification_sound: "none",
     })
     vi.mocked(toast.success).mockReset()

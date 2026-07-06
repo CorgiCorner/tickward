@@ -72,8 +72,22 @@ export function reminderEmailDailyCapPerUser() {
   return nonNegativeIntEnv("TICKWARD_REMINDER_EMAIL_DAILY_CAP_PER_USER", DEFAULT_EMAIL_DAILY_CAP_PER_USER)
 }
 
-export function timerReminderTransactionId(timerId: string, offsetMinutes: number, occurrenceIso: string) {
-  return `timer-reminder:${timerId}:${offsetMinutes}m:${occurrenceIso}`
+export function timerReminderTransactionId(
+  projectId: string,
+  timerId: string,
+  offsetMinutes: number,
+  occurrenceIso: string,
+) {
+  // Timer ids are only unique per project, so the project id keeps
+  // transaction ids (globally unique in the outbox) from colliding across
+  // projects that picked the same timer id.
+  return `timer-reminder:${projectId}:${timerId}:${offsetMinutes}m:${occurrenceIso}`
+}
+
+// Scopes reminder-outbox filters to one project's timer. The outbox has no
+// projectId column, but every reminder payload records it.
+function reminderProjectFilter(projectId: string) {
+  return { payload: { path: ["projectId"], equals: projectId } } as const
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -111,7 +125,7 @@ function desiredReminderIntent(args: {
   if (scheduledFor.getTime() < Date.now() - REMINDER_GRACE_MS) return null
 
   return {
-    transactionId: timerReminderTransactionId(args.timer.id, args.offsetMinutes, args.occurrenceIso),
+    transactionId: timerReminderTransactionId(args.projectId, args.timer.id, args.offsetMinutes, args.occurrenceIso),
     scheduledFor,
     payload: reminderPayload({
       projectId: args.projectId,
@@ -171,13 +185,14 @@ async function writeScheduledReminderIntent(
 
 export async function cancelScheduledTimerReminderIntentsForTimer(
   tx: Prisma.TransactionClient,
-  args: { timerId: string },
+  args: { projectId: string; timerId: string },
 ) {
   await tx.notificationOutboxItem.updateMany({
     where: {
       timerId: args.timerId,
       workflowIdentifier: NOTIFICATION_WORKFLOWS.timerReminder,
       status: "scheduled",
+      ...reminderProjectFilter(args.projectId),
     },
     data: { cancelledAt: new Date(), status: "cancelled" },
   })
@@ -185,7 +200,7 @@ export async function cancelScheduledTimerReminderIntentsForTimer(
 
 export async function cancelScheduledTimerReminderIntentsForTimers(
   tx: Prisma.TransactionClient,
-  args: { timerIds: string[] },
+  args: { projectId: string; timerIds: string[] },
 ) {
   if (args.timerIds.length === 0) return
   await tx.notificationOutboxItem.updateMany({
@@ -193,6 +208,7 @@ export async function cancelScheduledTimerReminderIntentsForTimers(
       timerId: { in: args.timerIds },
       workflowIdentifier: NOTIFICATION_WORKFLOWS.timerReminder,
       status: "scheduled",
+      ...reminderProjectFilter(args.projectId),
     },
     data: { cancelledAt: new Date(), status: "cancelled" },
   })
@@ -204,7 +220,7 @@ export async function reconcileTimerReminders(
 ) {
   const reminders = args.timer.reminders ?? []
   if (!args.project.ownerId || args.timer.archivedAt || reminders.length === 0) {
-    await cancelScheduledTimerReminderIntentsForTimer(tx, { timerId: args.timer.id })
+    await cancelScheduledTimerReminderIntentsForTimer(tx, { projectId: args.project.id, timerId: args.timer.id })
     return
   }
 
@@ -226,6 +242,7 @@ export async function reconcileTimerReminders(
       workflowIdentifier: NOTIFICATION_WORKFLOWS.timerReminder,
       status: "scheduled",
       transactionId: { notIn: desiredIds },
+      ...reminderProjectFilter(args.project.id),
     },
     data: { cancelledAt: new Date(), status: "cancelled" },
   })
@@ -367,7 +384,29 @@ async function markReminderIntentResult(
 
 async function loadTimerForReminder(item: ReminderOutboxRow) {
   if (!item.timerId) return null
-  return reminderPrisma().timer.findUnique({
+  // Timer ids are unique per project. The reminder payload carries the
+  // project id; rows created before it was recorded predate per-project ids,
+  // so for them the timer id alone is still unambiguous.
+  const payload = item.payload as { projectId?: unknown } | null
+  const projectId = typeof payload?.projectId === "string" ? payload.projectId : undefined
+  if (projectId) {
+    return reminderPrisma().timer.findFirst({
+      where: { id: item.timerId, projectId },
+      include: {
+        project: {
+          include: {
+            owner: {
+              include: { preference: true },
+            },
+          },
+        },
+      },
+    })
+  }
+  // Rows without a recorded project id: only deliver when the timer id still
+  // maps to exactly one row, otherwise a colliding id from another project
+  // could notify the wrong user.
+  const rows = await reminderPrisma().timer.findMany({
     where: { id: item.timerId },
     include: {
       project: {
@@ -378,7 +417,9 @@ async function loadTimerForReminder(item: ReminderOutboxRow) {
         },
       },
     },
+    take: 2,
   })
+  return rows.length === 1 ? rows[0] : null
 }
 
 async function trackReminderResults(command: TimerReminderDeliveryCommand, results: DeliveryResult[]) {
@@ -457,7 +498,8 @@ async function deliverTimerReminderIntent(item: ReminderOutboxRow): Promise<"sen
           ? null
           : emailCapSkippedResult()
         : null
-    const channels: NotificationChannel[] = ["in_app"]
+    const inAppNotificationsEnabled = owner.preference?.inAppNotifications !== false
+    const channels: NotificationChannel[] = inAppNotificationsEnabled ? ["in_app"] : []
     if (owner.preference?.emailReminders === true && owner.email && !capResult) channels.push("email")
 
     const command: TimerReminderDeliveryCommand = {
@@ -474,9 +516,11 @@ async function deliverTimerReminderIntent(item: ReminderOutboxRow): Promise<"sen
       },
       offsetMinutes: payload.offsetMinutes,
       occurrenceAt: payload.occurrenceAt,
+      inAppNotificationsEnabled,
     }
 
-    const providerResults = await getServerAdapters().notificationDeliveryProvider.sendTimerReminder(command)
+    const providerResults =
+      channels.length > 0 ? await getServerAdapters().notificationDeliveryProvider.sendTimerReminder(command) : []
     const results = capResult ? [...providerResults, capResult] : providerResults
     await trackReminderResults(command, results)
     const status = intentStatusFromDeliveryResults(results)

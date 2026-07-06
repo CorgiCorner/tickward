@@ -1,6 +1,6 @@
 // Locale registry kept free of catalog imports so the proxy (middleware) can
 // use it without bundling every message catalog.
-export const SUPPORTED_LOCALES = ["en", "pl"] as const
+export const SUPPORTED_LOCALES = ["en", "pl", "it"] as const
 
 export type Locale = (typeof SUPPORTED_LOCALES)[number]
 
@@ -20,6 +20,7 @@ export function localeHref(locale: Locale, path: string): string {
 const OG_LOCALES: Record<Locale, string> = {
   en: "en_US",
   pl: "pl_PL",
+  it: "it_IT",
 }
 
 export function ogLocale(locale: Locale): string {

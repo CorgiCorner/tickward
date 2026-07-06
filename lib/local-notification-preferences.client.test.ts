@@ -5,6 +5,7 @@ import {
   readLocalNotificationPreferences,
   setLocalBrowserNotificationsEnabled,
   setLocalFullPageAlarmEnabled,
+  setLocalInAppNotificationsEnabled,
   setLocalNotificationSound,
 } from "./local-notification-preferences.client"
 
@@ -13,6 +14,7 @@ describe("local notification preferences", () => {
     expect(readLocalNotificationPreferences()).toEqual({
       browserNotificationsEnabled: false,
       fullPageAlarm: false,
+      inAppNotifications: true,
       sound: "none",
       localAlarmEnabled: false,
     })
@@ -30,17 +32,30 @@ describe("local notification preferences", () => {
     expect(readLocalNotificationPreferences()).toEqual({
       browserNotificationsEnabled: true,
       fullPageAlarm: true,
+      inAppNotifications: true,
       sound: "polite",
       localAlarmEnabled: true,
     })
 
+    setLocalInAppNotificationsEnabled(false)
+
+    expect(readLocalNotificationPreferences()).toEqual({
+      browserNotificationsEnabled: true,
+      fullPageAlarm: true,
+      inAppNotifications: false,
+      sound: "polite",
+      localAlarmEnabled: false,
+    })
+
     setLocalBrowserNotificationsEnabled(false)
     setLocalFullPageAlarmEnabled(false)
+    setLocalInAppNotificationsEnabled(true)
     setLocalNotificationSound("none")
 
     expect(readLocalNotificationPreferences()).toEqual({
       browserNotificationsEnabled: false,
       fullPageAlarm: false,
+      inAppNotifications: true,
       sound: "none",
       localAlarmEnabled: false,
     })

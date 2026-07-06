@@ -22,6 +22,7 @@ const preferences = {
   default_timezone: "Europe/Warsaw",
   email_reminders: false,
   full_page_alarm: true,
+  in_app_notifications: true,
   notification_sound: "polite",
 }
 
@@ -53,6 +54,7 @@ describe("/api/account/preferences", () => {
       default_timezone: null,
       email_reminders: true,
       full_page_alarm: false,
+      in_app_notifications: false,
       notification_sound: "glass",
     }
 

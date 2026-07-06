@@ -38,6 +38,7 @@ describe("docs config", () => {
       "/docs/guides/webhooks",
       "/docs/guides/mcp",
       "/docs/guides/agent-usage",
+      "/docs/guides/claude-code-codex-usage-limits",
       "/docs/concepts/countdown-accuracy",
       "/docs/concepts/recurrence",
       "/docs/concepts/notifications-and-alarms",

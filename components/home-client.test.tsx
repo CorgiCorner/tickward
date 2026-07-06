@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import type { ReactNode } from "react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { HomeClient } from "@/components/home-client"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -63,7 +63,7 @@ vi.mock("@/components/timer-alarm-overlay", () => ({
 }))
 
 vi.mock("@/components/timer-card", () => ({
-  TimerCard: () => <article>Timer card</article>,
+  TimerCard: ({ timer }: { timer: { label: string } }) => <article>{timer.label}</article>,
 }))
 
 vi.mock("@/components/use-local-timer-alarms", () => ({
@@ -112,8 +112,17 @@ function renderHomeClient() {
   )
 }
 
+function sectionForHeading(name: string) {
+  const section = screen.getByText(name).closest("section")
+  expect(section).not.toBeNull()
+  return section as HTMLElement
+}
+
 describe("HomeClient", () => {
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-05-24T00:00:00.000Z"))
+
     storeState = {
       activeProjectId: null,
       activeSpaceId: null,
@@ -128,7 +137,7 @@ describe("HomeClient", () => {
       removeAccountProjectsFromDevice: vi.fn(),
       reorderVisibleTimers: vi.fn(),
       restoreKey: null,
-      sortMode: "manual",
+      sortMode: "soonest",
       spaces: [],
       isSyncing: false,
       lastSyncAt: null,
@@ -137,6 +146,10 @@ describe("HomeClient", () => {
       timers: [],
       useCloudProjectVersion: vi.fn(),
     }
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it("hides the onboarding banner until the user has a timer or space", () => {
@@ -188,6 +201,129 @@ describe("HomeClient", () => {
 
     expect(screen.getByText("Upcoming")).toBeInTheDocument()
     expect(container.querySelector('[data-slot="timer-list"]')).not.toHaveClass("-mx-4", "md:mx-0")
+  })
+
+  it("renders elapsed one-time timers under Past instead of Upcoming", () => {
+    storeState.timers = [
+      makeTimer({
+        id: "timer-past",
+        label: "Finished launch",
+        targetDate: "2026-05-23T12:00:00.000Z",
+        timezone: "UTC",
+      }),
+      makeTimer({
+        id: "timer-future",
+        label: "Future launch",
+        targetDate: "2026-05-25T12:00:00.000Z",
+        timezone: "UTC",
+      }),
+    ]
+
+    renderHomeClient()
+
+    const upcomingSection = sectionForHeading("Upcoming")
+    const pastSection = sectionForHeading("Past")
+    expect(within(upcomingSection).getByText("Future launch")).toBeVisible()
+    expect(within(upcomingSection).queryByText("Finished launch")).not.toBeInTheDocument()
+    expect(within(pastSection).getByText("Finished launch")).toBeVisible()
+  })
+
+  it("keeps recurring timers with elapsed anchors under Upcoming", () => {
+    storeState.timers = [
+      makeTimer({
+        id: "timer-recurring",
+        label: "Daily check",
+        targetDate: "2026-05-23T12:00:00.000Z",
+        timezone: "UTC",
+        recurrence: { enabled: true, type: "daily" },
+      }),
+    ]
+
+    renderHomeClient()
+
+    const upcomingSection = sectionForHeading("Upcoming")
+    expect(within(upcomingSection).getByText("Daily check")).toBeVisible()
+    expect(screen.queryByText("Past")).not.toBeInTheDocument()
+  })
+
+  it("keeps archived elapsed timers under Archived", () => {
+    storeState.timers = [
+      makeTimer({
+        id: "timer-archived",
+        label: "Archived launch",
+        targetDate: "2026-05-23T12:00:00.000Z",
+        timezone: "UTC",
+        archivedAt: "2026-05-23T13:00:00.000Z",
+      }),
+    ]
+
+    renderHomeClient()
+
+    const archivedSection = sectionForHeading("Archived")
+    expect(within(archivedSection).getByText("Archived launch")).toBeVisible()
+    expect(screen.queryByText("Past")).not.toBeInTheDocument()
+  })
+
+  it("sorts past timers by most recently elapsed first", () => {
+    storeState.sortMode = "name_asc"
+    storeState.timers = [
+      makeTimer({
+        id: "timer-older",
+        label: "A older finish",
+        targetDate: "2026-05-21T12:00:00.000Z",
+        timezone: "UTC",
+      }),
+      makeTimer({
+        id: "timer-recent",
+        label: "Z recent finish",
+        targetDate: "2026-05-23T12:00:00.000Z",
+        timezone: "UTC",
+      }),
+    ]
+
+    renderHomeClient()
+
+    const pastSection = sectionForHeading("Past")
+    expect(
+      within(pastSection)
+        .getAllByRole("article")
+        .map((article) => article.textContent),
+    ).toEqual(["Z recent finish", "A older finish"])
+  })
+
+  it("keeps a timer at its exact target instant under Upcoming", () => {
+    storeState.timers = [
+      makeTimer({
+        id: "timer-boundary",
+        label: "Boundary launch",
+        targetDate: "2026-05-24T00:00:00.000Z",
+        timezone: "UTC",
+      }),
+    ]
+
+    renderHomeClient()
+
+    const upcomingSection = sectionForHeading("Upcoming")
+    expect(within(upcomingSection).getByText("Boundary launch")).toBeVisible()
+    expect(screen.queryByText("Past")).not.toBeInTheDocument()
+  })
+
+  it("keeps pinned elapsed timers under Pinned instead of Past", () => {
+    storeState.timers = [
+      makeTimer({
+        id: "timer-pinned-elapsed",
+        label: "Pinned finish",
+        targetDate: "2026-05-23T12:00:00.000Z",
+        timezone: "UTC",
+        pinned: true,
+      }),
+    ]
+
+    renderHomeClient()
+
+    const pinnedSection = sectionForHeading("Pinned")
+    expect(within(pinnedSection).getByText("Pinned finish")).toBeVisible()
+    expect(screen.queryByText("Past")).not.toBeInTheDocument()
   })
 
   it("shows the onboarding banner when the user has a space", () => {

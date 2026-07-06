@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest"
 
 import { getHomeFaqs } from "@/lib/home-faqs"
-import type { Locale } from "@/lib/i18n/messages"
-
-const locales = ["en", "pl"] as const satisfies readonly Locale[]
+import { SUPPORTED_LOCALES } from "@/lib/i18n/messages"
 
 describe("home FAQs", () => {
   it("resolves a complete FAQ set for every locale", () => {
-    for (const locale of locales) {
+    for (const locale of SUPPORTED_LOCALES) {
       const faqs = getHomeFaqs(locale)
       const questions = faqs.map((faq) => faq.question)
 

@@ -178,6 +178,37 @@ function LocalAlarmsSection(
   )
 }
 
+function InAppNotificationsSection(
+  props: Readonly<{
+    disabled: boolean
+    inAppNotifications: boolean
+    onInAppNotificationsChange: (enabled: boolean) => void
+  }>,
+) {
+  return (
+    <section className="grid gap-3 rounded-lg bg-muted/30 p-3">
+      <div className="flex items-start justify-between gap-3 rounded-lg border p-3 text-sm">
+        <div className="flex min-w-0 gap-3">
+          <BellIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <div className="grid gap-1">
+            <Label htmlFor="inAppNotifications">{formatMessage("settings.alerts.inAppNotifications.title")}</Label>
+            <div className="text-xs text-muted-foreground">
+              {formatMessage("settings.alerts.inAppNotifications.description")}
+            </div>
+          </div>
+        </div>
+        <Switch
+          id="inAppNotifications"
+          aria-label={formatMessage("settings.alerts.inAppNotifications.title")}
+          checked={props.inAppNotifications}
+          disabled={props.disabled}
+          onCheckedChange={props.onInAppNotificationsChange}
+        />
+      </div>
+    </section>
+  )
+}
+
 function EmailRemindersSection(
   props: Readonly<{
     disabled: boolean
@@ -222,6 +253,13 @@ export function NotificationSettingsPanel() {
         <h2 className="text-base font-semibold">{formatMessage("settings.alerts")}</h2>
         <p className="text-sm text-muted-foreground">{formatMessage("settings.alertsDescription")}</p>
       </div>
+      <InAppNotificationsSection
+        disabled={accountControlsDisabled}
+        inAppNotifications={preferences.in_app_notifications}
+        onInAppNotificationsChange={(enabled) =>
+          void saveAccountAlertPreferences({ in_app_notifications: enabled }, updatePreferences)
+        }
+      />
       <DeviceNotificationsSection
         disabled={deviceControlsDisabled}
         systemAlertsEnabled={systemAlertsEnabled}

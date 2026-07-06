@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { getServiceStatusLevel } from "@/lib/status-summary"
 
 export const runtime = "nodejs"
-export const revalidate = 60
+export const dynamic = "force-dynamic"
 
 // Same-origin proxy for the footer status dot: the public status page has no
 // CORS headers, so the browser can't read it directly. Cached for 60s.

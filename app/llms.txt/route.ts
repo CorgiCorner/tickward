@@ -31,7 +31,7 @@ function buildLlmsText() {
     "## Agent Guidance",
     "",
     "- Use the OpenAPI document and docs for REST API details before calling endpoints.",
-    "- Use locale-prefixed marketing URLs such as /en/press and /pl/press; the bare homepage is the default English home page.",
+    "- Use locale-prefixed marketing URLs such as /en/press, /pl/press, and /it/press; the bare homepage is the default English home page.",
     "- Treat public share and embed URLs as read-only visitor surfaces unless the API documentation says otherwise.",
     "- Do not infer account data from public pages; signed-in project access requires the documented authentication flow.",
     "",

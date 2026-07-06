@@ -294,10 +294,20 @@ describe("prisma project repository", () => {
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function))
     expect(prisma.timer.findMany).toHaveBeenCalledWith({ where: { projectId: "project_123" }, select: { id: true } })
     expect(prisma.notificationOutboxItem.deleteMany).toHaveBeenCalledWith({
-      where: { timerId: { in: ["timer_123", "timer_456"] } },
+      where: {
+        timerId: { in: ["timer_123", "timer_456"] },
+        payload: { path: ["projectId"], equals: "project_123" },
+      },
     })
     expect(prisma.notificationDeliveryLog.deleteMany).toHaveBeenCalledWith({
-      where: { timerId: { in: ["timer_123", "timer_456"] } },
+      where: {
+        timerId: { in: ["timer_123", "timer_456"] },
+        OR: [
+          { transactionId: { startsWith: "timer-reminder:project_123:" } },
+          { transactionId: { startsWith: "timer-reminder:timer_123:" } },
+          { transactionId: { startsWith: "timer-reminder:timer_456:" } },
+        ],
+      },
     })
     expect(prisma.webPushSubscription.deleteMany).toHaveBeenCalledWith({
       where: { restoreKeyHash: hashRestoreKeyToken("restoreKey_123") },
@@ -536,6 +546,7 @@ describe("prisma project repository", () => {
         timerId: "timer-a",
         workflowIdentifier: "timer.reminder",
         status: "scheduled",
+        payload: { path: ["projectId"], equals: "project_123" },
       },
       data: { cancelledAt: expect.any(Date), status: "cancelled" },
     })
@@ -619,10 +630,19 @@ describe("prisma project repository", () => {
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function))
     expect(prisma.timer.findMany).toHaveBeenCalledWith({ where: { projectId: "project_123" }, select: { id: true } })
     expect(prisma.notificationOutboxItem.deleteMany).toHaveBeenCalledWith({
-      where: { timerId: { in: ["timer_123"] } },
+      where: {
+        timerId: { in: ["timer_123"] },
+        payload: { path: ["projectId"], equals: "project_123" },
+      },
     })
     expect(prisma.notificationDeliveryLog.deleteMany).toHaveBeenCalledWith({
-      where: { timerId: { in: ["timer_123"] } },
+      where: {
+        timerId: { in: ["timer_123"] },
+        OR: [
+          { transactionId: { startsWith: "timer-reminder:project_123:" } },
+          { transactionId: { startsWith: "timer-reminder:timer_123:" } },
+        ],
+      },
     })
     expect(prisma.webPushSubscription.deleteMany).not.toHaveBeenCalled()
     expect(prisma.share.deleteMany).toHaveBeenCalledWith({ where: { projectId: "project_123" } })

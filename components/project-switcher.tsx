@@ -1,6 +1,15 @@
 "use client"
 
-import { ArrowRightIcon, CheckIcon, ChevronDownIcon, FolderIcon, LayersIcon, PlusIcon, TimerIcon } from "lucide-react"
+import {
+  ArrowRightIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  CopyIcon,
+  FolderIcon,
+  LayersIcon,
+  PlusIcon,
+  TimerIcon,
+} from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
@@ -8,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { SettingsSheet } from "@/components/settings-sheet"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
 import { formatMessage } from "@/lib/i18n/messages"
@@ -115,61 +125,86 @@ export function ProjectSwitcher() {
             })
 
             return (
-              <button
+              <div
                 key={project.id}
-                type="button"
-                aria-current={selected ? "true" : undefined}
                 className={cn(
-                  "flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left outline-none transition-colors focus-visible:bg-muted focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+                  "flex items-center rounded-md transition-colors",
                   selected ? "bg-muted" : "hover:bg-muted",
                 )}
-                onClick={() => {
-                  switchProject(project.id)
-                  setOpen(false)
-                }}
               >
-                <span className="grid size-7 shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground">
-                  {selected ? <CheckIcon className="size-4 text-foreground" /> : <FolderIcon className="size-4" />}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <span className="min-w-0 truncate text-sm font-medium" title={project.name}>
-                      {project.name}
-                    </span>
-                    {!project.cloudProjectId ? (
-                      <span className="shrink-0 rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase leading-none text-muted-foreground">
-                        {formatMessage("project.local")}
-                      </span>
-                    ) : null}
+                <button
+                  type="button"
+                  aria-current={selected ? "true" : undefined}
+                  className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-2 text-left outline-none focus-visible:bg-muted focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                  onClick={() => {
+                    switchProject(project.id)
+                    setOpen(false)
+                  }}
+                >
+                  <span className="grid size-7 shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground">
+                    {selected ? <CheckIcon className="size-4 text-foreground" /> : <FolderIcon className="size-4" />}
                   </span>
-                  <span className="mt-0.5 flex items-center gap-2.5 text-[11px] text-muted-foreground">
-                    <span
-                      className="inline-flex items-center gap-1"
-                      aria-label={formatMessage("project.timerUsage", {
-                        count: timerCount,
-                        max: LIMITS.timersPerProject,
-                      })}
-                    >
-                      <TimerIcon className="size-3" />
-                      <span className="tabular-nums">
-                        {formatMessage("project.usageFraction", { count: timerCount, max: LIMITS.timersPerProject })}
+                  <span className="min-w-0 flex-1">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="min-w-0 truncate text-sm font-medium" title={project.name}>
+                        {project.name}
                       </span>
+                      {!project.cloudProjectId ? (
+                        <span className="shrink-0 rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase leading-none text-muted-foreground">
+                          {formatMessage("project.local")}
+                        </span>
+                      ) : null}
                     </span>
-                    <span
-                      className="inline-flex items-center gap-1"
-                      aria-label={formatMessage("project.spaceUsage", {
-                        count: spaceCount,
-                        max: LIMITS.spacesPerProject,
-                      })}
-                    >
-                      <LayersIcon className="size-3" />
-                      <span className="tabular-nums">
-                        {formatMessage("project.usageFraction", { count: spaceCount, max: LIMITS.spacesPerProject })}
+                    <span className="mt-0.5 flex items-center gap-2.5 text-[11px] text-muted-foreground">
+                      <span
+                        className="inline-flex items-center gap-1"
+                        aria-label={formatMessage("project.timerUsage", {
+                          count: timerCount,
+                          max: LIMITS.timersPerProject,
+                        })}
+                      >
+                        <TimerIcon className="size-3" />
+                        <span className="tabular-nums">
+                          {formatMessage("project.usageFraction", { count: timerCount, max: LIMITS.timersPerProject })}
+                        </span>
+                      </span>
+                      <span
+                        className="inline-flex items-center gap-1"
+                        aria-label={formatMessage("project.spaceUsage", {
+                          count: spaceCount,
+                          max: LIMITS.spacesPerProject,
+                        })}
+                      >
+                        <LayersIcon className="size-3" />
+                        <span className="tabular-nums">
+                          {formatMessage("project.usageFraction", { count: spaceCount, max: LIMITS.spacesPerProject })}
+                        </span>
                       </span>
                     </span>
                   </span>
-                </span>
-              </button>
+                </button>
+                {project.cloudProjectId ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="mr-1 size-7 shrink-0 text-muted-foreground hover:text-foreground"
+                        aria-label={formatMessage("project.copyId")}
+                        onClick={async () => {
+                          if (!project.cloudProjectId) return
+                          await navigator.clipboard.writeText(project.cloudProjectId)
+                          toast.success(formatMessage("project.idCopied"))
+                        }}
+                      >
+                        <CopyIcon className="size-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{formatMessage("project.copyId")}</TooltipContent>
+                  </Tooltip>
+                ) : null}
+              </div>
             )
           })}
         </div>

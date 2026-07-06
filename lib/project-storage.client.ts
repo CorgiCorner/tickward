@@ -8,7 +8,7 @@ import {
   normalizeProjectName,
 } from "@/lib/project-model"
 import { getEntitlements } from "@/lib/entitlements"
-import { safeTimerFilters } from "@/lib/stores/timer-store-domain"
+import { DEFAULT_TIMER_SORT_MODE, safeTimerFilters } from "@/lib/stores/timer-store-domain"
 import type { Space, Timer, TimerSortMode } from "@/lib/types"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
 import { isSpaceArray, isTimerArray } from "@/lib/validate"
@@ -29,7 +29,9 @@ function safeParse<T>(raw: string | null): T | null {
 }
 
 function normalizeSortMode(value: unknown): TimerSortMode {
-  return typeof value === "string" && TIMER_SORT_MODES.has(value as TimerSortMode) ? (value as TimerSortMode) : "manual"
+  return typeof value === "string" && TIMER_SORT_MODES.has(value as TimerSortMode)
+    ? (value as TimerSortMode)
+    : DEFAULT_TIMER_SORT_MODE
 }
 
 function normalizeTimerSpaceIds(timers: Timer[], spaces: Space[]) {

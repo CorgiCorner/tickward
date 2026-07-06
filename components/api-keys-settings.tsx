@@ -323,26 +323,38 @@ export function ApiKeysSettingsPanel(
               <DialogDescription>{formatMessage("apiKeys.createDescription")}</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4">
-              {created ? <CreatedTokenPanel created={created} /> : null}
-              <div className="grid gap-2">
-                <Label htmlFor="api-key-name">{formatMessage("apiKeys.name")}</Label>
-                <Input
-                  id="api-key-name"
-                  value={name}
-                  maxLength={80}
-                  placeholder={formatMessage("apiKeys.namePlaceholder")}
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </div>
-              <PermissionChoice permission={permission} setPermission={setPermission} />
+              {created ? (
+                <CreatedTokenPanel created={created} />
+              ) : (
+                <>
+                  <div className="grid gap-2">
+                    <Label htmlFor="api-key-name">{formatMessage("apiKeys.name")}</Label>
+                    <Input
+                      id="api-key-name"
+                      value={name}
+                      maxLength={80}
+                      placeholder={formatMessage("apiKeys.namePlaceholder")}
+                      onChange={(event) => setName(event.target.value)}
+                    />
+                  </div>
+                  <PermissionChoice permission={permission} setPermission={setPermission} />
+                </>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => handleCreateOpenChange(false)}>
                 {formatMessage("common.done")}
               </Button>
-              <Button type="button" loading={createLoading} disabled={!name.trim()} onClick={() => void submitCreate()}>
-                {formatMessage("apiKeys.create")}
-              </Button>
+              {created ? null : (
+                <Button
+                  type="button"
+                  loading={createLoading}
+                  disabled={!name.trim()}
+                  onClick={() => void submitCreate()}
+                >
+                  {formatMessage("apiKeys.create")}
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

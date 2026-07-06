@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { AccountButton, AccountPageClient } from "@/components/account-auth"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { LOCAL_NOTIFICATION_STORAGE_KEYS } from "@/lib/notification-preferences"
 
 const mocks = vi.hoisted(() => ({
   useSession: vi.fn(),
@@ -117,6 +118,7 @@ describe("AccountButton", () => {
 
   it("signs out from the account popover", async () => {
     const user = userEvent.setup()
+    localStorage.setItem(LOCAL_NOTIFICATION_STORAGE_KEYS.inAppNotifications, "0")
     mocks.useSession.mockReturnValue({
       data: { user: { email: "ada@example.com" } },
       refetch: mocks.refetch,
@@ -129,6 +131,9 @@ describe("AccountButton", () => {
 
     await waitFor(() => expect(mocks.signOut).toHaveBeenCalled())
     expect(mocks.removeAccountProjectsFromDevice).toHaveBeenCalledTimes(1)
+    // The account-level in-app master toggle mirror resets to the signed-out
+    // default so local-only use is not silently suppressed afterwards.
+    expect(localStorage.getItem(LOCAL_NOTIFICATION_STORAGE_KEYS.inAppNotifications)).toBe("1")
     expect(mocks.refetch).toHaveBeenCalled()
   })
 })

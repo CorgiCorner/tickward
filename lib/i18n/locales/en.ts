@@ -281,6 +281,7 @@ export const enMessages = {
   "entry.byCountryHeading": "Calendars by country",
   "entry.indexAll": "All calendars",
   "entry.indexTitle": "Ready-made calendars",
+  "entry.limitReachedToast": "You already have the maximum number of active timers. Remove one to add more.",
   "error.back": "Back",
   "error.description": "This page couldn't load. Reload to try again, or go back.",
   "error.reference": "Error ID: {id}",
@@ -428,6 +429,7 @@ export const enMessages = {
   "home.faq.timezones.answer":
     "You pick the time zone the event happens in, and the timer counts to that exact moment. Someone opening the same countdown from another country sees the same moment, not a shifted copy.",
   "home.faq.timezones.question": "How does the countdown handle time zones?",
+  "home.past": "Past",
   "home.upcoming": "Upcoming",
   "home.useCases.heading": "Popular countdown timers",
   "ios.install.description": "Tap Share, then {action} for notifications and full-screen mode.",
@@ -559,6 +561,7 @@ export const enMessages = {
   "project.accountStorageDescription":
     "This project is linked to your account and comes back after sign-in on this or another device.",
   "project.accountStorageTitle": "Saved to your account",
+  "project.copyId": "Copy project id",
   "project.copyRestoreKey": "Copy restore key",
   "project.created": "Project created.",
   "project.current": "Project",
@@ -571,6 +574,10 @@ export const enMessages = {
   "project.deleteDescription": "Deletes this project from cloud storage and removes it from this device.",
   "project.deleteTitle": "Delete this project?",
   "project.deleteWarning": "The restore key stops working and this project is removed from this device.",
+  "project.idAnonymousHint": "Sign in and sync this project to get a project id for the API and MCP.",
+  "project.idCopied": "Copied project id.",
+  "project.idDescription": "Use it as the project_id when calling the API or MCP.",
+  "project.idLabel": "Project id",
   "project.keyCopied": "Copied restore key.",
   "project.listHeading": "Projects {count}/{max}",
   "project.local": "Local",
@@ -632,6 +639,9 @@ export const enMessages = {
   "settings.alerts.emailReminders.description":
     "Reminders arrive in-app and by email when enabled, with a daily cap on email delivery.",
   "settings.alerts.emailReminders.title": "Email reminders",
+  "settings.alerts.inAppNotifications.description":
+    "Show reminders in the notification bell and allow timer alarms in the app.",
+  "settings.alerts.inAppNotifications.title": "In-app notifications",
   "settings.confirmProjectName": 'Type "{project}" to confirm.',
   "settings.defaultTimezone": "Default timezone",
   "settings.defaultTimezoneDescription": "New timers use this timezone. Your browser timezone is {timezone}.",
@@ -721,6 +731,9 @@ export const enMessages = {
   "timer.countdown.secondsShort": "s",
   "timer.countdown.since": "Since",
   "timer.delete": "Delete timer",
+  "timer.deleteShared.title": "Delete shared timer?",
+  "timer.deleteShared.description":
+    "This timer has a public link. Deleting it will stop the link and any embeds on other websites from working.",
   "timer.deleted": "Timer deleted.",
   "timer.defaultLabel": "Timer {n}",
   "timer.duplicated": "Duplicated timer.",

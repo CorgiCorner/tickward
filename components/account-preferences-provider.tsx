@@ -11,7 +11,11 @@ import {
 import { readApiJson } from "@/lib/client-api"
 import { resetDefaultTimeZonePreference, setDefaultTimeZonePreference } from "@/lib/default-timezone.client"
 import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
-import { setLocalFullPageAlarmEnabled, setLocalNotificationSound } from "@/lib/local-notification-preferences.client"
+import {
+  setLocalFullPageAlarmEnabled,
+  setLocalInAppNotificationsEnabled,
+  setLocalNotificationSound,
+} from "@/lib/local-notification-preferences.client"
 
 type AccountPreferencesContextValue = {
   dismissError: () => void
@@ -33,6 +37,7 @@ export function applyAccountPreferencesToDevice(preferences: AccountPreferencesR
   }
 
   setLocalFullPageAlarmEnabled(preferences.full_page_alarm)
+  setLocalInAppNotificationsEnabled(preferences.in_app_notifications)
   setLocalNotificationSound(preferences.notification_sound)
 }
 
