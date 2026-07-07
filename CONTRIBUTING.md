@@ -8,10 +8,13 @@ Public issues and pull requests are welcome. The maintainer reviews accepted
 changes for inclusion in a future release.
 
 Accepted pull requests are integrated by the maintainer rather than merged
-directly: your commits are applied with your authorship preserved (or credited
-with a `Co-authored-by` trailer), often together with follow-up fixes, and the
-result ships with the next release. Your PR is then closed with a comment
-linking to the release that contains your change.
+directly. When the shipped change materially includes your commits, your Git
+author metadata is preserved wherever practical, often together with follow-up
+fixes in separate maintainer commits. If an accepted change must be
+substantially rewritten, the maintainer credits the contribution explicitly and
+explains the authorship handling in the PR reply. The result ships with the
+next release, and your PR is then closed with a comment linking to the release
+that contains your change.
 
 ## Translations
 

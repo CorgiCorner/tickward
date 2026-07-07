@@ -1,7 +1,20 @@
 import { render, screen, within } from "@testing-library/react"
+import type { AnchorHTMLAttributes, ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { FooterFull } from "@/components/footer-full"
+
+vi.mock("next/link", () => ({
+  default: ({
+    children,
+    href,
+    ...props
+  }: AnchorHTMLAttributes<HTMLAnchorElement> & { children: ReactNode; href: string }) => (
+    <a {...props} data-next-link="true" href={href}>
+      {children}
+    </a>
+  ),
+}))
 
 vi.mock("@/lib/app-extensions", () => ({
   appExtensions: {
@@ -65,11 +78,13 @@ describe("FooterFull", () => {
       screen.getAllByRole("link").filter((link) => link.getAttribute("href")?.startsWith("/en/use-cases")),
     ).toHaveLength(3)
     expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "/docs")
+    expect(screen.getByRole("link", { name: "Docs" })).not.toHaveAttribute("data-next-link")
     expect(screen.getByRole("link", { name: "GitHub" })).toHaveAttribute(
       "href",
       "https://github.com/CorgiCorner/tickward",
     )
     expect(screen.getByRole("link", { name: "Press kit" })).toHaveAttribute("href", "/en/press")
+    expect(screen.getByRole("link", { name: "Press kit" })).toHaveAttribute("data-next-link", "true")
     expect(screen.getByRole("link", { name: "Status" })).toHaveAttribute("href", "https://status.tickward.com")
     expect(screen.queryByRole("link", { name: "Sitemap" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Robots" })).not.toBeInTheDocument()

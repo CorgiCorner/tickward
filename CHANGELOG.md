@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.1 - 2026-07-07
+
+### Fixed
+
+- Stopped the footer Docs link from triggering Next.js RSC prefetch requests to
+  the redirect-only `/docs` endpoint.
+
 ## 0.9.0 - 2026-07-06
 
 ### Added

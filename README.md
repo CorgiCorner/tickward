@@ -24,9 +24,9 @@ curl -fsS http://localhost:3000/api/health
 
 Open [http://localhost:3000](http://localhost:3000).
 
-The default Compose stack uses `docker.io/corgicorner/tickward:0.9.0` and
+The default Compose stack uses `docker.io/corgicorner/tickward:0.9.1` and
 starts the app, PostgreSQL, Redis, and a Redis REST proxy. To use the GHCR image
-instead, set `TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.9.0` in `.env`.
+instead, set `TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.9.1` in `.env`.
 To build from the checkout, run `docker compose --env-file .env up --build`.
 
 ## Features

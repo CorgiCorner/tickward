@@ -92,9 +92,10 @@ function FooterProductColumn(props: Readonly<{ docsHref?: string | null; locale:
       <ul className="grid gap-1.5">
         {props.docsHref ? (
           <li>
-            <Link className={FOOTER_LINK_CLASS} href={props.docsHref}>
+            {/* Docs URLs are redirect/document endpoints, not app-router pages; avoid RSC prefetch. */}
+            <a className={FOOTER_LINK_CLASS} href={props.docsHref}>
               {formatMessage("footer.docs", {}, props.locale)}
-            </Link>
+            </a>
           </li>
         ) : null}
         <li>
