@@ -185,7 +185,9 @@ describe("TimerCard", () => {
     const focusButton = screen.getAllByRole("button", { name: "Focus timer" })[0]
     await user.click(focusButton)
 
-    expect(await screen.findByRole("dialog", { name: "Launch" })).toBeVisible()
+    const dialog = await screen.findByRole("dialog", { name: "Launch" })
+    expect(dialog).toBeVisible()
+    expect(dialog.querySelector(".font-mono.tabular-nums")).toBeInTheDocument()
     await waitFor(() => expect(document.body.style.overflow).toBe("hidden"))
 
     const exitButton = screen.getByRole("button", { name: "Exit focus mode" })
@@ -240,8 +242,8 @@ describe("TimerCard", () => {
 
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: "Launch" })).not.toBeInTheDocument()
+      expect(document.body.style.overflow).toBe("")
     })
-    expect(document.body.style.overflow).toBe("")
   })
 
   it("persists focus mode background selection to localStorage", async () => {

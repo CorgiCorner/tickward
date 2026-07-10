@@ -46,6 +46,14 @@ them to reconnect the MCP client with that scope.
 7. Confirm before deleting any project, timer, space, or share link.
 8. Send `Idempotency-Key` on write requests that may be retried.
 
+## Full sync reads
+
+For a full read of everything the key can access, call `GET /sync` once
+instead of listing projects and fanning out to per-project timers and spaces
+requests. Save the returned `ETag`; on later polls send it as
+`If-None-Match`. Treat `304 Not Modified` as nothing changed. On `429`, wait
+for the `Retry-After` value before retrying.
+
 ## Constraints
 
 - Public API base URL: `https://tickward.com/api/v1`.

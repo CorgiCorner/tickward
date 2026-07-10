@@ -9,6 +9,7 @@ import { Controller, useController, useForm, useWatch, type Control } from "reac
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { DatePresetChips } from "@/components/ui/date-picker"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -482,6 +483,11 @@ export function QuickAddTimer(props: Readonly<QuickAddTimerProps>) {
                   render={({ field }) => <QuickAddCalendar value={field.value} onChange={field.onChange} />}
                 />
               </div>
+              <Controller
+                control={form.control}
+                name="date"
+                render={({ field }) => <DatePresetChips className="mt-3" onChange={field.onChange} />}
+              />
               <div className="-mx-3 mt-3 space-y-2 border-t border-border px-3 pt-3">
                 <div className="grid gap-2 md:flex md:items-center">
                   <div className="hidden md:block">

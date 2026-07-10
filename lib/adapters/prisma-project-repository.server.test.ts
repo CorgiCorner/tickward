@@ -468,6 +468,7 @@ describe("prisma project repository", () => {
         claimedAt: new Date("2026-06-06T20:32:51.016Z"),
         createdAt: new Date("2026-06-05T20:50:40.519Z"),
         updatedAt: new Date("2026-06-05T21:11:37.795Z"),
+        overLimitSince: null,
         _count: { timers: 16, spaces: 1 },
       },
     ])
@@ -487,6 +488,8 @@ describe("prisma project repository", () => {
         updatedAt: "2026-06-05T21:11:37.795Z",
         timerCount: 16,
         spaceCount: 1,
+        overLimitSince: undefined,
+        overLimitPurgeAt: undefined,
       },
     ])
 
@@ -501,8 +504,78 @@ describe("prisma project repository", () => {
         claimedAt: true,
         createdAt: true,
         updatedAt: true,
+        overLimitSince: true,
         _count: { select: { timers: true, spaces: true } },
       },
+    })
+  })
+
+  describe("admin session tenant scoping", () => {
+    // The internal web-app project routes are the signed-in user's own data
+    // plane. An admin session must stay owner-scoped here; cross-tenant admin
+    // reads exist only in the public API behind an explicit scope=all.
+    const adminUser = { id: "user_admin", role: "admin" as const }
+
+    it("scopes the account project list to the admin's own projects", async () => {
+      const { prismaProjectRepository } = await import("./prisma-project-repository.server")
+      const prisma = prismaMock()
+      prisma.project.findMany.mockResolvedValue([])
+      mocks.requirePrismaClient.mockReturnValue(prisma)
+
+      await expect(prismaProjectRepository.listUserProjects?.({ user: adminUser })).resolves.toEqual([])
+
+      expect(prisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { ownerId: "user_admin" } }),
+      )
+    })
+
+    it("scopes account project loads to the admin's own projects", async () => {
+      const { prismaProjectRepository } = await import("./prisma-project-repository.server")
+      const prisma = prismaMock()
+      prisma.project.findFirst.mockResolvedValue(null)
+      mocks.requirePrismaClient.mockReturnValue(prisma)
+
+      await expect(
+        prismaProjectRepository.loadUserProject?.({ projectId: "project_foreign", user: adminUser }),
+      ).resolves.toBeNull()
+
+      expect(prisma.project.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: "project_foreign", ownerId: "user_admin" } }),
+      )
+    })
+
+    it("scopes account project saves to the admin's own projects", async () => {
+      const { prismaProjectRepository } = await import("./prisma-project-repository.server")
+      const prisma = prismaMock()
+      prisma.project.findFirst.mockResolvedValue(null)
+      mocks.requirePrismaClient.mockReturnValue(prisma)
+
+      await expect(
+        prismaProjectRepository.saveUserProject?.({
+          projectId: "project_foreign",
+          user: adminUser,
+          project: makeProjectSnapshot(),
+        }),
+      ).resolves.toBe(false)
+
+      expect(prisma.project.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: "project_foreign", ownerId: "user_admin" } }),
+      )
+    })
+
+    it("scopes account project clears to the admin's own projects", async () => {
+      const { prismaProjectRepository } = await import("./prisma-project-repository.server")
+      const prisma = prismaMock()
+      prisma.project.findFirst.mockResolvedValue(null)
+      mocks.requirePrismaClient.mockReturnValue(prisma)
+
+      await expect(
+        prismaProjectRepository.clearUserProject?.({ projectId: "project_foreign", user: adminUser }),
+      ).resolves.toBe(false)
+
+      expect(prisma.project.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: "project_foreign", ownerId: "user_admin" } }),
+      )
     })
   })
 

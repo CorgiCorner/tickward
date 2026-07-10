@@ -104,9 +104,19 @@ function FooterProductColumn(props: Readonly<{ docsHref?: string | null; locale:
           </a>
         </li>
         <li>
+          <Link className={FOOTER_LINK_CLASS} href={localeHref(props.locale, "/download")}>
+            {formatMessage("footer.downloadMac", {}, props.locale)}
+          </Link>
+        </li>
+        <li>
           <Link className={FOOTER_LINK_CLASS} href={localeHref(props.locale, "/press")}>
             {formatMessage("footer.press", {}, props.locale)}
           </Link>
+        </li>
+        <li>
+          <a className={FOOTER_LINK_CLASS} href="mailto:contact@tickward.com">
+            {formatMessage("footer.contact", {}, props.locale)}
+          </a>
         </li>
         <li>
           <a

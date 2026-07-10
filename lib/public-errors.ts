@@ -20,6 +20,7 @@ export const PUBLIC_ERROR_CODES = {
   missingApiKey: "missing_api_key",
   missingPhotoId: "missing_photo_id",
   notFound: "not_found",
+  projectReadOnly: "project_read_only",
   rateLimitUnavailable: "rate_limit_unavailable",
   rateLimited: "rate_limited",
   restrictedApiKey: "restricted_api_key",

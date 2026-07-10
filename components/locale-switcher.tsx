@@ -15,6 +15,7 @@ const LOCALE_LABELS: Record<Locale, string> = {
   en: "English",
   pl: "Polski",
   it: "Italiano",
+  de: "Deutsch",
 }
 
 function stripLocalePrefix(pathname: string): string {

@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google"
 import { notFound } from "next/navigation"
 import Script from "next/script"
 import "../globals.css"
+import { AccountMenuLinksProvider } from "@/components/account-button"
 import { LocaleProvider } from "@/components/locale-provider"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
@@ -109,8 +110,10 @@ export default async function RootLayout({
         <LocaleProvider locale={locale}>
           <ThemeProvider>
             <TooltipProvider delayDuration={150}>
-              {children}
-              <Toaster />
+              <AccountMenuLinksProvider value={appExtensions.accountMenuLinks?.(locale) ?? []}>
+                {children}
+                <Toaster />
+              </AccountMenuLinksProvider>
             </TooltipProvider>
           </ThemeProvider>
         </LocaleProvider>

@@ -1,6 +1,8 @@
 "use client"
 
-import { GithubIcon, StarIcon } from "lucide-react"
+import { StarIcon } from "lucide-react"
+
+import { GithubIcon } from "@/components/icons/github-icon"
 
 import { useLocale } from "@/components/locale-provider"
 import { Button } from "@/components/ui/button"

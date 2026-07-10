@@ -22,6 +22,20 @@ const eslintConfig = defineConfig([
     // source and must not gate lint/release.
     "design/**",
   ]),
+  {
+    // Future API server files that read tenant models should be added here.
+    files: ["lib/public-api-v1.server.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(findMany|findFirst|findUnique|count|aggregate)$/][callee.object.type='MemberExpression'][callee.object.property.name=/^(project|timer|space)$/]",
+          message: "use tenantDb(user) from lib/tenant-db.server.ts",
+        },
+      ],
+    },
+  },
 ])
 
 export default eslintConfig

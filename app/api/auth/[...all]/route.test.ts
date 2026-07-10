@@ -8,7 +8,19 @@ const mocks = vi.hoisted(() => ({
   getTickwardAuth: vi.fn(),
   isEmailOtpSendRequest: vi.fn(),
   postHandler: vi.fn(),
+  recordAuditEvent: vi.fn(),
   toNextJsHandler: vi.fn(),
+}))
+
+vi.mock("@/lib/audit-log.server", () => ({
+  auditRequestContext: (input: Request | Headers) => {
+    const headers = input instanceof Request ? input.headers : input
+    return {
+      ip: headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim() ?? null,
+      userAgent: headers.get("user-agent")?.trim() ?? null,
+    }
+  },
+  recordAuditEvent: mocks.recordAuditEvent,
 }))
 
 vi.mock("@/lib/auth/auth.server", () => ({
@@ -34,6 +46,7 @@ describe("/api/auth/[...all]", () => {
     mocks.isEmailOtpSendRequest.mockReturnValue(false)
     mocks.postHandler.mockReset()
     mocks.postHandler.mockResolvedValue(Response.json({ ok: true }))
+    mocks.recordAuditEvent.mockReset()
     mocks.toNextJsHandler.mockReset()
     mocks.toNextJsHandler.mockReturnValue({ POST: mocks.postHandler })
   })
@@ -94,5 +107,67 @@ describe("/api/auth/[...all]", () => {
     expect(res.status).toBe(200)
     expect(mocks.enforceEmailOtpSendRateLimit).toHaveBeenCalled()
     expect(mocks.postHandler).toHaveBeenCalled()
+  })
+
+  it("audits failed OTP verification without logging the OTP code", async () => {
+    const { POST } = await import("./route")
+    mocks.getTickwardAuth.mockReturnValue({ auth: true })
+    mocks.postHandler.mockResolvedValue(Response.json({ error: "invalid" }, { status: 401 }))
+
+    const res = await POST(
+      new Request("https://tickward.test/api/auth/sign-in/email-otp", {
+        body: JSON.stringify({ email: "ada@example.com", otp: "123456" }),
+        headers: {
+          "content-type": "application/json",
+          "user-agent": "Test Browser",
+          "x-forwarded-for": "203.0.113.10, 10.0.0.1",
+        },
+        method: "POST",
+      }),
+    )
+
+    expect(res.status).toBe(401)
+    await vi.waitFor(() => {
+      expect(mocks.recordAuditEvent).toHaveBeenCalledWith({
+        action: "auth.otp.failed",
+        actorEmail: "ada@example.com",
+        ip: "203.0.113.10",
+        metadata: { path: "/sign-in/email-otp", type: "sign-in" },
+        targetType: "auth_otp",
+        userAgent: "Test Browser",
+      })
+    })
+    expect(JSON.stringify(mocks.recordAuditEvent.mock.calls[0]?.[0])).not.toContain("123456")
+  })
+
+  it("audits successful admin ban operations by target user", async () => {
+    const { POST } = await import("./route")
+    mocks.getTickwardAuth.mockReturnValue({ auth: true })
+
+    const res = await POST(
+      new Request("https://tickward.test/api/auth/admin/ban-user", {
+        body: JSON.stringify({ banExpiresIn: 3600, banReason: "policy", userId: "user_456" }),
+        headers: {
+          "content-type": "application/json",
+          "user-agent": "Test Browser",
+          "x-forwarded-for": "203.0.113.10",
+        },
+        method: "POST",
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    await vi.waitFor(() => {
+      expect(mocks.recordAuditEvent).toHaveBeenCalledWith({
+        action: "admin.user.banned",
+        actorEmail: null,
+        actorId: null,
+        ip: "203.0.113.10",
+        metadata: { ban_expires_in_seconds: 3600, has_reason: true },
+        targetId: "user_456",
+        targetType: "user",
+        userAgent: "Test Browser",
+      })
+    })
   })
 })

@@ -1,6 +1,8 @@
 "use client"
 
-import { GithubIcon, StarIcon } from "lucide-react"
+import { StarIcon } from "lucide-react"
+
+import { GithubIcon } from "@/components/icons/github-icon"
 
 import { Button } from "@/components/ui/button"
 import { GITHUB_REPO_URL, useGitHubStars } from "@/hooks/use-github-stars"

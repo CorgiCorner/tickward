@@ -26,21 +26,19 @@ env:
   DOCKERHUB_IMAGE: docker.io/corgicorner/tickward
 
 jobs:
-  publish:
-    name: Build and publish
+  prepare:
+    name: Prepare image metadata
     if: github.repository == 'CorgiCorner/tickward'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      dockerhub_enabled: ${{ steps.dockerhub.outputs.enabled }}
+      ghcr_enabled: ${{ steps.ghcr.outputs.enabled }}
+      images: ${{ steps.images.outputs.names }}
+      labels: ${{ steps.meta.outputs.labels }}
+      tags: ${{ steps.meta.outputs.tags }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Check GHCR credentials
         id: ghcr
         env:
@@ -58,7 +56,7 @@ jobs:
 
       - name: Log in to GHCR
         if: steps.ghcr.outputs.enabled == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ secrets.GHCR_USERNAME || github.actor }}
@@ -82,7 +80,7 @@ jobs:
 
       - name: Log in to Docker Hub
         if: steps.dockerhub.outputs.enabled == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -111,7 +109,7 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ steps.images.outputs.names }}
           tags: |
@@ -129,13 +127,170 @@ jobs:
             org.opencontainers.image.source=https://github.com/CorgiCorner/tickward
             org.opencontainers.image.documentation=https://tickward.com/docs/guides/self-hosting
 
-      - name: Build and push image
-        uses: docker/build-push-action@v6
+  build-amd64:
+    name: Build amd64 image
+    if: github.repository == 'CorgiCorner/tickward'
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: needs.prepare.outputs.ghcr_enabled == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME || github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: needs.prepare.outputs.dockerhub_enabled == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push amd64 image digest
+        id: build
+        uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          tags: ${{ needs.prepare.outputs.tags }}
+          labels: ${{ needs.prepare.outputs.labels }}
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
+
+      - name: Export amd64 digest
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - name: Upload amd64 digest
+        uses: actions/upload-artifact@v6
+        with:
+          name: digests-amd64
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  build-arm64:
+    name: Build arm64 image
+    if: github.repository == 'CorgiCorner/tickward'
+    needs: prepare
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: needs.prepare.outputs.ghcr_enabled == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME || github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: needs.prepare.outputs.dockerhub_enabled == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push arm64 image digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          tags: ${{ needs.prepare.outputs.tags }}
+          labels: ${{ needs.prepare.outputs.labels }}
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=max,scope=arm64
+
+      - name: Export arm64 digest
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - name: Upload arm64 digest
+        uses: actions/upload-artifact@v6
+        with:
+          name: digests-arm64
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Create multi-arch manifest
+    if: github.repository == 'CorgiCorner/tickward'
+    needs:
+      - prepare
+      - build-amd64
+      - build-arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: needs.prepare.outputs.ghcr_enabled == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME || github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: needs.prepare.outputs.dockerhub_enabled == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Download digests
+        uses: actions/download-artifact@v6
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Create and push manifest lists
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE_NAMES: ${{ needs.prepare.outputs.images }}
+          IMAGE_TAGS: ${{ needs.prepare.outputs.tags }}
+        run: |
+          for image in ${IMAGE_NAMES}; do
+            tag_args=()
+            while IFS= read -r tag; do
+              if [ -n "${tag}" ] && [ "${tag#${image}:}" != "${tag}" ]; then
+                tag_args+=("-t" "${tag}")
+              fi
+            done <<< "${IMAGE_TAGS}"
+
+            source_args=()
+            for digest in *; do
+              source_args+=("${image}@sha256:${digest}")
+            done
+
+            docker buildx imagetools create "${tag_args[@]}" "${source_args[@]}"
+          done

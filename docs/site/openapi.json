@@ -3,7 +3,7 @@
   "info": {
     "title": "tickward API",
     "summary": "Versioned API for tickward projects, timers, spaces, share links, and webhooks.",
-    "description": "The tickward API lets users automate countdown projects, timers, spaces, public share links, and webhook endpoints. Use Bearer API keys created in tickward settings. Read-only keys can inspect data. Full-access keys can create, update, and delete resources. Agents should prefer read-only keys for answering questions, ask for explicit confirmation before destructive changes, and use ISO 8601 datetimes plus IANA timezones when creating timers.",
+    "description": "The tickward API lets users automate countdown projects, timers, spaces, public share links, and webhook endpoints. Use Bearer API keys created in tickward settings. Read-only keys can inspect data. Full-access keys can create, update, and delete resources. Agents should prefer read-only keys for answering questions, ask for explicit confirmation before destructive changes, and use ISO 8601 datetimes plus IANA timezones when creating timers. All v1 data operations are owner-scoped by default, including admin keys. Documented read operations accept `scope=all` only for admin keys; successful use is audited. Mutating requests reject `scope=all`.",
     "version": "1.0.0",
     "license": {
       "name": "AGPL-3.0-only",
@@ -58,6 +58,9 @@
           },
           {
             "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/ScopeAll"
           }
         ],
         "responses": {
@@ -80,10 +83,10 @@
             "$ref": "#/components/responses/StorageUnavailableError"
           }
         },
-        "description": "List projects owned by the API key user. Use this first when an agent needs to resolve which project the user means. Supports cursor pagination with `after`, `before`, and `limit`.",
+        "description": "List projects owned by the API key user. Use this first when an agent needs to resolve which project the user means. Supports cursor pagination with `after`, `before`, and `limit`. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited.",
         "x-mint": {
           "metadata": {
-            "description": "List projects owned by the API key user. Use this first when an agent needs to resolve which project the user means. Supports cursor pagination with `after`, `before`, and `limit`."
+            "description": "List projects owned by the API key user. Use this first when an agent needs to resolve which project the user means. Supports cursor pagination with `after`, `before`, and `limit`. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited."
           }
         }
       },
@@ -140,6 +143,55 @@
         }
       }
     },
+    "/sync": {
+      "get": {
+        "operationId": "getSync",
+        "summary": "Sync projects, spaces, and timers",
+        "description": "Return the authenticated user's own projects, spaces, and timers in one response. Clients should poll this endpoint with If-None-Match and reuse the returned ETag to receive 304 when nothing changed. This endpoint replaces the projects, timers, and spaces fan-out for keeping a local cache current. MCP OAuth connections require projects:read, spaces:read, and timers:read.",
+        "tags": ["Projects"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IfNoneMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SyncResponse"
+          },
+          "304": {
+            "$ref": "#/components/responses/SyncNotModifiedResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenError"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowedError"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StorageUnavailableError"
+          }
+        },
+        "x-mint": {
+          "metadata": {
+            "description": "Return the authenticated user's own projects, spaces, and timers in one response. Clients should poll this endpoint with If-None-Match and reuse the returned ETag to receive 304 when nothing changed. This endpoint replaces the projects, timers, and spaces fan-out for keeping a local cache current. MCP OAuth connections require projects:read, spaces:read, and timers:read."
+          }
+        },
+        "x-agent-hints": {
+          "safety": "read_only",
+          "required_scopes": ["projects:read", "spaces:read", "timers:read"],
+          "polling": {
+            "request_header": "If-None-Match",
+            "response_header": "ETag"
+          }
+        }
+      }
+    },
     "/projects/{project_id}": {
       "get": {
         "operationId": "getProject",
@@ -148,6 +200,9 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/ScopeAll"
           }
         ],
         "responses": {
@@ -170,10 +225,10 @@
             "$ref": "#/components/responses/StorageUnavailableError"
           }
         },
-        "description": "Retrieve project metadata and counts. Use timers and spaces endpoints to inspect project contents.",
+        "description": "Retrieve project metadata and counts. Use timers and spaces endpoints to inspect project contents. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited.",
         "x-mint": {
           "metadata": {
-            "description": "Retrieve project metadata and counts. Use timers and spaces endpoints to inspect project contents."
+            "description": "Retrieve project metadata and counts. Use timers and spaces endpoints to inspect project contents. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited."
           }
         }
       },
@@ -292,6 +347,9 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/ScopeAll"
           }
         ],
         "responses": {
@@ -314,10 +372,10 @@
             "$ref": "#/components/responses/StorageUnavailableError"
           }
         },
-        "description": "List all timers in a project. Use this to answer questions about deadlines, archived timers, notification state, and shared timers. For recurring timers, use effective_target_date as the current countdown date and target_date as the original schedule anchor.",
+        "description": "List all timers in a project. Use this to answer questions about deadlines, archived timers, notification state, and shared timers. For recurring timers, use effective_target_date as the current countdown date and target_date as the original schedule anchor. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited.",
         "x-mint": {
           "metadata": {
-            "description": "List all timers in a project. Use this to answer questions about deadlines, archived timers, notification state, and shared timers. For recurring timers, use effective_target_date as the current countdown date and target_date as the original schedule anchor."
+            "description": "List all timers in a project. Use this to answer questions about deadlines, archived timers, notification state, and shared timers. For recurring timers, use effective_target_date as the current countdown date and target_date as the original schedule anchor. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited."
           }
         }
       },
@@ -381,6 +439,9 @@
           },
           {
             "$ref": "#/components/parameters/TimerId"
+          },
+          {
+            "$ref": "#/components/parameters/ScopeAll"
           }
         ],
         "responses": {
@@ -403,10 +464,10 @@
             "$ref": "#/components/responses/StorageUnavailableError"
           }
         },
-        "description": "Retrieve one timer by id.",
+        "description": "Retrieve one timer by id. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited.",
         "x-mint": {
           "metadata": {
-            "description": "Retrieve one timer by id."
+            "description": "Retrieve one timer by id. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited."
           }
         }
       },
@@ -515,6 +576,9 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/ScopeAll"
           }
         ],
         "responses": {
@@ -537,10 +601,10 @@
             "$ref": "#/components/responses/StorageUnavailableError"
           }
         },
-        "description": "List spaces in a project. Spaces are lightweight categories for organizing timers.",
+        "description": "List spaces in a project. Spaces are lightweight categories for organizing timers. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited.",
         "x-mint": {
           "metadata": {
-            "description": "List spaces in a project. Spaces are lightweight categories for organizing timers."
+            "description": "List spaces in a project. Spaces are lightweight categories for organizing timers. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited."
           }
         }
       },
@@ -604,6 +668,9 @@
           },
           {
             "$ref": "#/components/parameters/SpaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ScopeAll"
           }
         ],
         "responses": {
@@ -626,10 +693,10 @@
             "$ref": "#/components/responses/StorageUnavailableError"
           }
         },
-        "description": "Retrieve one space by id.",
+        "description": "Retrieve one space by id. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited.",
         "x-mint": {
           "metadata": {
-            "description": "Retrieve one space by id."
+            "description": "Retrieve one space by id. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited."
           }
         }
       },
@@ -754,6 +821,9 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/ProjectId"
+          },
+          {
+            "$ref": "#/components/parameters/ScopeAll"
           }
         ],
         "responses": {
@@ -776,10 +846,10 @@
             "$ref": "#/components/responses/StorageUnavailableError"
           }
         },
-        "description": "Returns the public share links that have been created for timers in this project.",
+        "description": "Returns the public share links that have been created for timers in this project. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited.",
         "x-mint": {
           "metadata": {
-            "description": "Returns the public share links that have been created for timers in this project."
+            "description": "Returns the public share links that have been created for timers in this project. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited."
           }
         }
       },
@@ -843,6 +913,9 @@
           },
           {
             "$ref": "#/components/parameters/ShareId"
+          },
+          {
+            "$ref": "#/components/parameters/ScopeAll"
           }
         ],
         "responses": {
@@ -865,10 +938,10 @@
             "$ref": "#/components/responses/StorageUnavailableError"
           }
         },
-        "description": "Retrieve one public timer link by share id.",
+        "description": "Retrieve one public timer link by share id. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited.",
         "x-mint": {
           "metadata": {
-            "description": "Retrieve one public timer link by share id."
+            "description": "Retrieve one public timer link by share id. By default, the response is limited to the API key owner's data. Admin API keys may add `scope=all` to include all users' data; successful use is audited."
           }
         }
       },
@@ -1326,6 +1399,16 @@
         },
         "description": "Optional for POST, PATCH, and DELETE requests. Generate a random UUID with an operation prefix, for example timer-create-${crypto.randomUUID()}. Reuse the same key with the same method, path, query, and JSON body to safely retry one logical write for up to 24 hours. Reusing it with a different request returns 409. The server stores only a hash of the key."
       },
+      "IfNoneMatch": {
+        "name": "If-None-Match",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "example": "\"sha256:7f1a0c6b1a7e0a7237918ec31e6a03ca690ad802d6f28d62101a3f27819cb622\""
+        },
+        "description": "ETag from a previous GET /sync response. Send it to receive 304 when the sync payload has not changed."
+      },
       "DryRun": {
         "name": "dry_run",
         "in": "query",
@@ -1344,6 +1427,16 @@
           "type": "string"
         },
         "description": "Webhook endpoint id."
+      },
+      "ScopeAll": {
+        "name": "scope",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": ["all"]
+        },
+        "description": "Set `scope=all` to request global read visibility. Only admin API keys may use it; non-admin callers receive `insufficient_scope`. Omit it for the default owner-scoped response. Mutating requests reject `scope=all`."
       }
     },
     "headers": {
@@ -1369,6 +1462,13 @@
         "description": "Seconds to wait before retrying.",
         "schema": {
           "type": "integer"
+        }
+      },
+      "ETag": {
+        "description": "Strong validator for the sync payload. The value changes when projects, spaces, or timers change.",
+        "schema": {
+          "type": "string",
+          "example": "\"sha256:7f1a0c6b1a7e0a7237918ec31e6a03ca690ad802d6f28d62101a3f27819cb622\""
         }
       },
       "IdempotencyReplayed": {
@@ -1712,6 +1812,59 @@
           }
         }
       },
+      "SyncResponse": {
+        "description": "Current sync snapshot.",
+        "headers": {
+          "ETag": {
+            "$ref": "#/components/headers/ETag"
+          },
+          "ratelimit-limit": {
+            "$ref": "#/components/headers/RateLimitLimit"
+          },
+          "ratelimit-remaining": {
+            "$ref": "#/components/headers/RateLimitRemaining"
+          },
+          "ratelimit-reset": {
+            "$ref": "#/components/headers/RateLimitReset"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Sync"
+            }
+          }
+        }
+      },
+      "SyncNotModifiedResponse": {
+        "description": "Sync payload has not changed. No response body is returned.",
+        "headers": {
+          "ETag": {
+            "$ref": "#/components/headers/ETag"
+          },
+          "ratelimit-limit": {
+            "$ref": "#/components/headers/RateLimitLimit"
+          },
+          "ratelimit-remaining": {
+            "$ref": "#/components/headers/RateLimitRemaining"
+          },
+          "ratelimit-reset": {
+            "$ref": "#/components/headers/RateLimitReset"
+          },
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
       "ShareListResponse": {
         "description": "Share list.",
         "content": {
@@ -1827,7 +1980,7 @@
         }
       },
       "UnauthorizedError": {
-        "description": "Missing bearer credential, insufficient scope, or read-only credential used for a write request.",
+        "description": "Missing bearer credential or read-only credential used for a write request.",
         "content": {
           "application/json": {
             "schema": {
@@ -1845,7 +1998,7 @@
         }
       },
       "ForbiddenError": {
-        "description": "Invalid or revoked API key.",
+        "description": "Invalid or revoked API key, missing required MCP OAuth scope, or `scope=all` without an admin API key.",
         "content": {
           "application/json": {
             "schema": {
@@ -1898,10 +2051,37 @@
           }
         }
       },
+      "MethodNotAllowedError": {
+        "description": "HTTP method is not allowed for the requested path.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "headers": {
+          "request-id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "correlation-id": {
+            "$ref": "#/components/headers/CorrelationId"
+          }
+        }
+      },
       "RateLimitedError": {
         "description": "Too many requests.",
         "headers": {
-          "retry-after": {
+          "ratelimit-limit": {
+            "$ref": "#/components/headers/RateLimitLimit"
+          },
+          "ratelimit-remaining": {
+            "$ref": "#/components/headers/RateLimitRemaining"
+          },
+          "ratelimit-reset": {
+            "$ref": "#/components/headers/RateLimitReset"
+          },
+          "Retry-After": {
             "$ref": "#/components/headers/RetryAfter"
           },
           "request-id": {
@@ -1968,7 +2148,7 @@
           "idempotency-key-expires-at": {
             "$ref": "#/components/headers/IdempotencyKeyExpiresAt"
           },
-          "retry-after": {
+          "Retry-After": {
             "$ref": "#/components/headers/RetryAfter"
           },
           "request-id": {
@@ -2253,7 +2433,8 @@
                   "storage_unavailable",
                   "unauthorized",
                   "validation_error",
-                  "plan_hash_mismatch"
+                  "plan_hash_mismatch",
+                  "limit_exceeded"
                 ]
               },
               "message": {
@@ -2351,6 +2532,39 @@
       },
       "ShareList": {
         "$ref": "#/components/schemas/ListShare"
+      },
+      "Sync": {
+        "type": "object",
+        "required": ["object", "synced_at", "projects", "spaces", "timers"],
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "sync"
+          },
+          "synced_at": {
+            "$ref": "#/components/schemas/IsoDateTime",
+            "description": "Server time when this response was generated. This field is not part of the ETag calculation."
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            }
+          },
+          "spaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Space"
+            }
+          },
+          "timers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Timer"
+            }
+          }
+        },
+        "description": "Full read snapshot for clients that need to keep a local cache current."
       },
       "ListProject": {
         "type": "object",

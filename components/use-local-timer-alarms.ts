@@ -108,7 +108,6 @@ function timerAlarmCandidate(
 
   const fullPageAlarm = preferences.fullPageAlarm
   const sound = preferences.sound
-  if (!preferences.inAppNotifications) return null
   if (!browserNotificationAllowed(preferences) && !fullPageAlarm && sound === "none") return null
 
   return { boundary, firedKey, fullPageAlarm, sound, timer }
@@ -190,7 +189,6 @@ export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
 
     // Re-read fresh prefs at fire time (fixes issue #4: stale arm-time snapshot).
     const freshPrefs = readLocalNotificationPreferences()
-    if (!freshPrefs.inAppNotifications) return
 
     // Update candidate fields with fresh prefs so the notification/overlay
     // respect current user settings.
@@ -230,14 +228,6 @@ export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
   useEffect(() => {
     if (globalThis.window === undefined) return
     const preferences = readLocalNotificationPreferences()
-    if (!preferences.inAppNotifications) {
-      for (const entry of scheduledRef.current.values()) {
-        entry.cancelSound?.()
-        clearTimeout(entry.timeoutId)
-      }
-      scheduledRef.current.clear()
-      return
-    }
     const now = Date.now()
 
     const wantedKeys = new Set<string>()

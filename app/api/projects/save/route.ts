@@ -93,6 +93,11 @@ function savedProjectResponse(result: Awaited<ReturnType<typeof saveProject>>) {
   if (result.status === "not_found") {
     return apiErrorResponse(PUBLIC_ERROR_CODES.notFound, "errors.notFound", { status: 404 })
   }
+  // read_only cannot occur on the anonymous restore-key path, but the shared
+  // SaveProjectResult type includes it for the user path; guard to satisfy TS.
+  if (result.status === "read_only") {
+    return apiErrorResponse(PUBLIC_ERROR_CODES.projectReadOnly, "errors.projectReadOnly", { status: 403 })
+  }
   if (result.status === "conflict") {
     return NextResponse.json({ conflict: true, project: result.project, source: result.source }, { status: 409 })
   }
@@ -111,6 +116,9 @@ function savedUserProjectResponse(result: Awaited<ReturnType<typeof saveUserProj
   }
   if (result.data.status === "not_found") {
     return apiErrorResponse(PUBLIC_ERROR_CODES.notFound, "errors.notFound", { status: 404 })
+  }
+  if (result.data.status === "read_only") {
+    return apiErrorResponse(PUBLIC_ERROR_CODES.projectReadOnly, "errors.projectReadOnly", { status: 403 })
   }
   if (result.data.status === "conflict") {
     return NextResponse.json(

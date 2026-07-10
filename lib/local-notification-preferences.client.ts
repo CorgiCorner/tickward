@@ -44,7 +44,7 @@ function preferencesFromSnapshot(snapshot: string): LocalNotificationPreferences
     fullPageAlarm: fullPageEnabled,
     inAppNotifications: inAppEnabled,
     sound: normalizedSound,
-    localAlarmEnabled: inAppEnabled && (fullPageEnabled || normalizedSound !== "none"),
+    localAlarmEnabled: fullPageEnabled || normalizedSound !== "none",
   }
 }
 
@@ -88,7 +88,7 @@ export function readLocalNotificationPreferences(storage = browserStorage()): Lo
     fullPageAlarm,
     inAppNotifications,
     sound,
-    localAlarmEnabled: inAppNotifications && (fullPageAlarm || sound !== "none"),
+    localAlarmEnabled: fullPageAlarm || sound !== "none",
   }
 }
 

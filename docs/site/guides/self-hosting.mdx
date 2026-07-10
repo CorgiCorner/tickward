@@ -88,6 +88,8 @@ Use host-reachable URLs in `.env` when you run services outside Compose.
 | `TICKWARD_MCP_REMOTE_URL`                   |       No | Remote MCP endpoint shown in account settings when configured.                      |
 | `TICKWARD_ENVIRONMENT`                      |       No | Environment label included in webhook payloads.                                     |
 | `TICKWARD_SCHEDULER_SECRET`                 |       No | Bearer secret for `/api/internal/scheduler/tick` when webhooks are enabled.         |
+| `TICKWARD_OWNERLESS_PROJECT_RETENTION_DAYS` |       No | Deletes ownerless projects older than this many days during scheduler ticks.        |
+| `TICKWARD_ENCRYPTION_KEY`                   |       No | Base64-encoded 32-byte key for encrypting webhook signing secrets at rest.          |
 | `TICKWARD_WEBHOOK_ALLOW_PRIVATE_NETWORKS`   |       No | Set to `true` only when a self-hosted deployment must call trusted internal URLs.   |
 | `SEED_ADMIN_EMAIL`                          |       No | Email used by seed scripts to create or promote an admin account.                   |
 | `SEED_ADMIN_NAME`                           |       No | Optional display name for the seeded admin account.                                 |
@@ -113,6 +115,23 @@ bundles. Rebuild the app after changing them.
 Webhook delivery needs a scheduler caller in production. See
 [Webhooks and scheduler](/guides/webhooks) for the Cloudflare Cron, EventBridge,
 and VPS cron options.
+
+Set `TICKWARD_OWNERLESS_PROJECT_RETENTION_DAYS` to a positive day count when
+you want scheduler ticks to remove anonymous or orphaned projects after that
+retention period. Leave it unset or set it to `0` to keep cleanup disabled.
+
+## Webhook signing secret encryption
+
+Set `TICKWARD_ENCRYPTION_KEY` to a base64-encoded 32-byte key to encrypt webhook
+endpoint signing secrets at rest. Generate one with:
+
+```bash
+openssl rand -base64 32
+```
+
+This setting is optional. When it is omitted, tickward keeps storing webhook
+signing secrets as plaintext. Existing plaintext rows are upgraded
+automatically the next time they are read.
 
 ## Accounts and email
 

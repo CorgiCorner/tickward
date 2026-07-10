@@ -42,6 +42,22 @@ Values are validated as integers from 1 to 1000; invalid values fall back to
 the defaults. The snapshot cap has no override. See
 [Self-Hosting](/guides/self-hosting) for the full deployment configuration.
 
+## Projects over the limit
+
+Claiming a project always succeeds — your data is never stranded. If claiming
+pushes your account over the project limit, the newest projects become
+read-only: you can still view and delete them, but edits are blocked until you
+are back within the limit. Deleting any project immediately unblocks the
+others.
+
+When the server is configured with a retention window
+(`TICKWARD_OVER_LIMIT_PROJECT_RETENTION_DAYS`), projects that have been
+read-only for longer than that window are deleted automatically. You will
+receive an email with the scheduled date before deletion happens.
+
+For higher limits without these constraints, self-host tickward and set
+`NEXT_PUBLIC_TICKWARD_MAX_PROJECTS` to the value you need.
+
 ## Why limits at all?
 
 The hosted app is free and works without an account, so the limits are what

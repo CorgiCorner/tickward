@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  recordAuditEvent: vi.fn(),
   requirePrismaClient: vi.fn(),
+}))
+
+vi.mock("@/lib/audit-log.server", () => ({
+  recordAuditEvent: mocks.recordAuditEvent,
 }))
 
 vi.mock("@/lib/db/prisma.server", () => ({
@@ -10,6 +15,7 @@ vi.mock("@/lib/db/prisma.server", () => ({
 
 describe("MCP OAuth storage", () => {
   beforeEach(() => {
+    mocks.recordAuditEvent.mockReset()
     mocks.requirePrismaClient.mockReset()
   })
 
@@ -99,5 +105,49 @@ describe("MCP OAuth storage", () => {
 
     await expect(exchangeMcpAuthorizationGrant("mcpg_secret")).resolves.toBeNull()
     expect(tx.apiKey.create).not.toHaveBeenCalled()
+  })
+
+  it("emits an audit event when an MCP connection is revoked", async () => {
+    const { revokeMcpConnectionForUser } = await import("@/lib/mcp-oauth.server")
+    const updatedAt = new Date("2026-07-07T20:00:00.000Z")
+    mocks.requirePrismaClient.mockReturnValue({
+      apiKey: {
+        updateManyAndReturn: vi.fn().mockResolvedValue([
+          {
+            clientName: "Desktop",
+            createdAt: updatedAt,
+            id: "connection_123",
+            keyLast4: "last",
+            keyPrefix: "tw_mcp_test",
+            lastUsedAt: null,
+            name: "MCP: Desktop",
+            permission: "read",
+            revokedAt: updatedAt,
+            scopes: ["projects:read"],
+            updatedAt,
+          },
+        ]),
+      },
+    })
+
+    await expect(
+      revokeMcpConnectionForUser({
+        id: "connection_123",
+        user: { email: "ada@example.com", id: "user_123", role: "user" },
+      }),
+    ).resolves.toMatchObject({ id: "connection_123", object: "mcp_connection" })
+
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith({
+      action: "mcp.connection.revoked",
+      actorEmail: "ada@example.com",
+      actorId: "user_123",
+      metadata: {
+        client_name: "Desktop",
+        key_prefix: "tw_mcp_test",
+        scopes: ["projects:read"],
+      },
+      targetId: "connection_123",
+      targetType: "mcp_connection",
+    })
   })
 })

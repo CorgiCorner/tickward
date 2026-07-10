@@ -30,6 +30,8 @@ import { useLocalTimerAlarms } from "@/components/use-local-timer-alarms"
 import { useProjectUrlSync } from "@/hooks/use-project-url-sync"
 import { authClient } from "@/lib/auth/auth-client"
 import { browserTitle } from "@/lib/browser-title"
+import { logClientError } from "@/lib/client-errors"
+import { getEntitlements } from "@/lib/entitlements"
 import { formatMessage } from "@/lib/i18n/messages"
 import { useTimerStore } from "@/lib/store"
 import { timerMatchesFilters } from "@/lib/timer-filters"
@@ -146,6 +148,39 @@ function ProjectConflictBanner() {
               {formatMessage("home.conflict.overwriteCloud")}
             </Button>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ProjectReadOnlyBanner() {
+  const readOnly = useTimerStore((s) => s.isActiveProjectReadOnly)
+  const activeProjectId = useTimerStore((s) => s.activeProjectId)
+  const projects = useTimerStore((s) => s.projects)
+
+  if (!readOnly) return null
+
+  const activeProject = projects.find((p) => p.id === activeProjectId)
+  const purgeAt = activeProject?.overLimitPurgeAt ?? null
+  const { maxProjects } = getEntitlements()
+
+  return (
+    <div className="mb-4 rounded-2xl border border-amber-500/40 bg-amber-50 p-4 text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
+      <div className="flex gap-3">
+        <AlertTriangleIcon className="mt-0.5 size-5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">{formatMessage("project.readOnly.banner.title")}</div>
+          <div className="mt-1 text-xs opacity-80">
+            {formatMessage("project.readOnly.banner.description", { max: String(maxProjects) })}
+          </div>
+          {purgeAt ? (
+            <div className="mt-1 text-xs opacity-80">
+              {formatMessage("project.readOnly.banner.purgeScheduled", {
+                date: new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(purgeAt)),
+              })}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -486,6 +521,7 @@ export function HomeClient() {
   useProjectUrlSync()
   const hasHydrated = useTimerStore((s) => s.hasHydrated)
   const refreshAccountProjectsFromCloud = useTimerStore((s) => s.refreshAccountProjectsFromCloud)
+  const maybeAutoClaimActiveProject = useTimerStore((s) => s.maybeAutoClaimActiveProject)
   const removeAccountProjectsFromDevice = useTimerStore((s) => s.removeAccountProjectsFromDevice)
   const projects = useTimerStore((s) => s.projects)
   const activeProjectId = useTimerStore((s) => s.activeProjectId)
@@ -548,10 +584,27 @@ export function HomeClient() {
     if (!hasHydrated || sessionPending) return
     if (signedInUserKey) {
       void refreshAccountProjectsFromCloud()
+        .then(() => maybeAutoClaimActiveProject())
+        .then((status) => {
+          if (status === "claimed") toast.success(formatMessage("auth.claim.claimed"))
+          if (status === "claimed_read_only")
+            toast(formatMessage("auth.claim.claimedReadOnly", { max: String(getEntitlements().maxProjects) }))
+        })
+        .catch((error) => {
+          // Silent failure: the manual claim toast stays as the fallback.
+          logClientError("home.autoClaimActiveProject", error)
+        })
       return
     }
     removeAccountProjectsFromDevice()
-  }, [hasHydrated, refreshAccountProjectsFromCloud, removeAccountProjectsFromDevice, sessionPending, signedInUserKey])
+  }, [
+    hasHydrated,
+    maybeAutoClaimActiveProject,
+    refreshAccountProjectsFromCloud,
+    removeAccountProjectsFromDevice,
+    sessionPending,
+    signedInUserKey,
+  ])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock refresh so changed data classifies against current time, not the last boundary
@@ -628,6 +681,7 @@ export function HomeClient() {
           {hasHydrated ? (
             <>
               <ProjectConflictBanner />
+              <ProjectReadOnlyBanner />
               <ProjectClaimToast
                 projectId={activeProject?.id}
                 projectName={activeProject?.name ?? ""}

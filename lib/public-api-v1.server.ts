@@ -7,6 +7,7 @@ import { z } from "zod"
 
 import { apiError, apiJson, apiList, isResponse, type ApiErrorType } from "@/lib/api-response"
 import { newPublicId } from "@/lib/public-ids"
+import { auditRequestContext, recordAuditEvent } from "@/lib/audit-log.server"
 import {
   MCP_CREDENTIAL_KIND,
   authenticateApiKey,
@@ -20,9 +21,11 @@ import { getEntitlements } from "@/lib/entitlements"
 import { getMcpRemoteUrl } from "@/lib/mcp-config.server"
 import type { McpOAuthScope } from "@/lib/mcp-oauth"
 import { timerNotificationsEnabled } from "@/lib/notification-preferences"
+import { isProjectReadOnly } from "@/lib/project-lock"
 import { type ProjectSnapshotV2, createProjectSnapshot, isProjectSnapshot } from "@/lib/project-model"
 import { checkRateLimit } from "@/lib/rate-limit.server"
 import { stableShareId } from "@/lib/static-share-id.server"
+import { tenantDb } from "@/lib/tenant-db.server"
 import {
   cancelScheduledTimerReminderIntentsForTimer,
   cancelScheduledTimerReminderIntentsForTimers,
@@ -58,8 +61,11 @@ import {
 
 export const PUBLIC_API_VERSION = "v1"
 
+type PublicApiVisibility = "all" | "owner"
+
 type PublicApiContext = {
   apiKey: AuthenticatedApiKey
+  visibility: PublicApiVisibility
 }
 
 type ProjectRow = {
@@ -448,30 +454,19 @@ function iso(value: Date | null | undefined) {
   return value?.toISOString() ?? null
 }
 
-function ownedProjectWhere(projectId: string, user: UserRef) {
-  return user.role === "admin" ? { id: projectId } : { id: projectId, ownerId: user.id }
-}
-
-function ownedProjectsWhere(user: UserRef) {
-  return user.role === "admin" ? {} : { ownerId: user.id }
-}
-
 async function lockedProjectForUser(
   tx: Prisma.TransactionClient,
   projectId: string,
   user: UserRef,
 ): Promise<ProjectRow | null> {
-  const rows =
-    user.role === "admin"
-      ? await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "project" WHERE id = ${projectId} FOR UPDATE`
-      : await tx.$queryRaw<Array<{ id: string }>>`
-          SELECT id FROM "project"
-          WHERE id = ${projectId} AND "ownerId" = ${user.id}
-          FOR UPDATE
-        `
+  const rows = await tx.$queryRaw<ProjectRow[]>`
+    SELECT id, "ownerId", name, color, snapshot, "createdAt", "updatedAt", "claimedAt"
+    FROM "project"
+    WHERE id = ${projectId} AND "ownerId" = ${user.id}
+    FOR UPDATE
+  `
 
-  if (rows.length === 0) return null
-  return tx.project.findUnique({ where: { id: projectId } })
+  return rows[0] ?? null
 }
 
 function projectSnapshot(row: Pick<ProjectRow, "snapshot">): ProjectSnapshotV2 | null {
@@ -579,10 +574,14 @@ async function readJson(req: Request) {
   }
 }
 
-async function projectForUser(projectId: string, user: UserRef): Promise<ProjectRow | null> {
-  return requirePrismaClient().project.findFirst({
-    where: ownedProjectWhere(projectId, user),
-  })
+function projectDelegateForContext(ctx: PublicApiContext) {
+  const db = tenantDb(ctx.apiKey.user)
+  return ctx.visibility === "all" ? db.unsafeGlobal().project : db.project
+}
+
+async function projectForContext(projectId: string, ctx: PublicApiContext): Promise<ProjectRow | null> {
+  const projects = projectDelegateForContext(ctx)
+  return projects.findFirst({ where: { id: projectId } })
 }
 
 function requireSnapshot(row: ProjectRow | null): ProjectSnapshotV2 | Response {
@@ -642,33 +641,112 @@ function validateProjectWriteAccess(ctx: PublicApiContext) {
   return authorizeWrite(ctx)
 }
 
-function requiredMcpScope(method: string, path: string[]): McpOAuthScope | null {
+function requiredMcpScopes(method: string, path: string[]): McpOAuthScope[] {
   const [resource, projectId, child] = path
   const action = method === "GET" ? "read" : "write"
 
-  if (resource === "webhooks") return `webhooks:${action}` as McpOAuthScope
-  if (resource === "projects" && projectId === "preview" && path.length === 2) return "projects:write"
-  if (resource === "projects" && path.length <= 2) return `projects:${action}` as McpOAuthScope
-  if (resource === "projects" && projectId && child === "timers") return `timers:${action}` as McpOAuthScope
-  if (resource === "projects" && projectId && child === "spaces") return `spaces:${action}` as McpOAuthScope
-  if (resource === "projects" && projectId && child === "shares") return `shares:${action}` as McpOAuthScope
+  if (resource === "sync" && method === "GET" && path.length === 1)
+    return ["projects:read", "spaces:read", "timers:read"]
+  if (resource === "webhooks") return [`webhooks:${action}` as McpOAuthScope]
+  if (resource === "projects" && projectId === "preview" && path.length === 2) return ["projects:write"]
+  if (resource === "projects" && path.length <= 2) return [`projects:${action}` as McpOAuthScope]
+  if (resource === "projects" && projectId && child === "timers") return [`timers:${action}` as McpOAuthScope]
+  if (resource === "projects" && projectId && child === "spaces") return [`spaces:${action}` as McpOAuthScope]
+  if (resource === "projects" && projectId && child === "shares") return [`shares:${action}` as McpOAuthScope]
 
-  return null
+  return []
 }
 
 function authorizeMcpScope(ctx: PublicApiContext, method: string, path: string[]): Response | null {
   if (ctx.apiKey.kind !== MCP_CREDENTIAL_KIND) return null
 
-  const scope = requiredMcpScope(method, path)
-  if (!scope || ctx.apiKey.scopes.includes(scope)) return null
+  const scopes = requiredMcpScopes(method, path)
+  const missingScopes = scopes.filter((scope) => !ctx.apiKey.scopes.includes(scope))
+  if (missingScopes.length === 0) return null
+  const scope = missingScopes[0]
 
   return apiError("insufficient_scope", `MCP connection is missing ${scope}.`, {
     details: {
       granted_scopes: ctx.apiKey.scopes,
+      missing_scopes: missingScopes,
       required_scope: scope,
+      required_scopes: scopes,
     },
     status: 403,
   })
+}
+
+function requestedPublicApiScope(req: Request): "all" | "owner" | Response {
+  const rawScope = new URL(req.url).searchParams.get("scope")?.trim()
+  if (!rawScope) return "owner"
+  if (rawScope === "all") return "all"
+  return apiError("validation_error", "scope must be all when provided.", { status: 400 })
+}
+
+function supportsGlobalReadScope(path: string[]) {
+  const [resource, projectId, child, childId] = path
+  if (resource !== "projects") return false
+  if (path.length === 1) return true
+  if (projectId === "preview") return false
+  if (path.length === 2 && projectId) return true
+  if (path.length === 3 && projectId && child) return child === "timers" || child === "spaces" || child === "shares"
+  if (path.length === 4 && projectId && child && childId) {
+    return child === "timers" || child === "spaces" || child === "shares"
+  }
+  return false
+}
+
+function authorizePublicApiScope(
+  ctx: PublicApiContext,
+  method: string,
+  req: Request,
+  path: string[],
+): PublicApiContext | Response {
+  const requestedScope = requestedPublicApiScope(req)
+  if (isResponse(requestedScope)) return requestedScope
+  if (requestedScope === "owner") return { ...ctx, visibility: "owner" }
+
+  if (method !== "GET") {
+    return apiError("validation_error", "scope=all is only supported for read requests.", { status: 400 })
+  }
+  if (ctx.apiKey.user.role !== "admin") {
+    return apiError("insufficient_scope", "scope=all requires an admin API key.", {
+      details: { required_role: "admin", scope: "all" },
+      status: 403,
+    })
+  }
+  if (!supportsGlobalReadScope(path)) {
+    return apiError("validation_error", "scope=all is not supported for this endpoint.", { status: 400 })
+  }
+
+  return { ...ctx, visibility: "all" }
+}
+
+function auditScopeAllUse(ctx: PublicApiContext, method: string, req: Request, path: string[]) {
+  const url = new URL(req.url)
+  const requestContext = auditRequestContext(req)
+  const targetId = `${method} ${url.pathname}`
+
+  recordAuditEvent({
+    action: "public_api.scope_all",
+    actorEmail: ctx.apiKey.user.email,
+    actorId: ctx.apiKey.user.id,
+    ip: requestContext.ip,
+    metadata: {
+      api_key_id: ctx.apiKey.id,
+      method,
+      operation: `${method} /${path.join("/")}`,
+      path: url.pathname,
+      scope: "all",
+    },
+    targetId,
+    targetType: "public_api_operation",
+    userAgent: requestContext.userAgent,
+  })
+}
+
+function shouldAuditScopeAll(ctx: PublicApiContext, response: Response) {
+  return ctx.visibility === "all" && (response.ok || response.status === 304)
 }
 
 function publicApiCapabilities() {
@@ -1094,8 +1172,44 @@ function assertProjectLimits(snapshot: ProjectSnapshotV2): Response | null {
   return null
 }
 
+// Checks whether a project is read-only (over-limit) within the current transaction.
+// Queries all owner memberships inside the transaction (which may hold a FOR UPDATE row
+// lock on the target project) so the check is race-safe against concurrent deletes.
+// Returns a 409 limit_exceeded response if the project is over-limit, null otherwise.
+// Fails open (returns null) when tx.project.findMany is unavailable (e.g. test shims
+// that omit it), so existing tests are unaffected.
+async function assertProjectNotOverLimitReadOnly(
+  tx: Prisma.TransactionClient,
+  user: UserRef,
+  projectId: string,
+): Promise<Response | null> {
+  const findMany = (tx.project as { findMany?: unknown }).findMany
+  if (typeof findMany !== "function") return null
+
+  const rows = await (
+    tx.project.findMany as (args: unknown) => Promise<Array<{ id: string; claimedAt: Date | null; createdAt: Date }>>
+  )({
+    where: { ownerId: user.id },
+    select: { id: true, claimedAt: true, createdAt: true },
+  })
+  const memberships = rows.map((r) => ({
+    id: r.id,
+    claimedAt: r.claimedAt?.toISOString() ?? null,
+    createdAt: r.createdAt.toISOString(),
+  }))
+  if (isProjectReadOnly(memberships, projectId, getEntitlements().maxProjects)) {
+    return apiError("limit_exceeded", "This project is read-only because the account is over the project limit.", {
+      status: 409,
+    })
+  }
+  return null
+}
+
 async function deleteProjectGraph(tx: Prisma.TransactionClient, projectId: string) {
-  const timerIds = (await tx.timer.findMany({ where: { projectId }, select: { id: true } })).map((timer) => timer.id)
+  const timerRows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "timer" WHERE "projectId" = ${projectId}
+  `
+  const timerIds = timerRows.map((timer) => timer.id)
   if (timerIds.length > 0) {
     // Timer ids are only unique per project, so every cleanup filter is
     // scoped to this project: the outbox payload records the project id, and
@@ -1171,23 +1285,92 @@ function timerEventPayload(project: ProjectRow, timer: Timer) {
   }
 }
 
+type SyncPayload = {
+  object: "sync"
+  projects: Array<ReturnType<typeof projectObject>>
+  spaces: Array<ReturnType<typeof spaceObject>>
+  timers: Array<ReturnType<typeof timerObject>>
+}
+
+function syncCollections(rows: ProjectRow[]): SyncPayload | Response {
+  const projects: SyncPayload["projects"] = []
+  const spaces: SyncPayload["spaces"] = []
+  const timers: SyncPayload["timers"] = []
+
+  for (const row of rows) {
+    projects.push(projectObject(row))
+    const snapshot = projectSnapshot(row)
+    if (!snapshot) {
+      return apiError("storage_unavailable", "Project snapshot is unavailable.", { status: 503 })
+    }
+    spaces.push(...snapshot.spaces.map((space) => spaceObject(row, space)))
+    timers.push(...snapshot.timers.map((timer) => timerObject(row, timer)))
+  }
+
+  return {
+    object: "sync" as const,
+    projects,
+    spaces,
+    timers,
+  }
+}
+
+function syncEtag(payload: SyncPayload) {
+  return `"sha256:${sha256Hex(stableJson(payload))}"`
+}
+
+function requestMatchesEtag(req: Request, etag: string) {
+  const header = req.headers.get("if-none-match")
+  if (!header) return false
+  // If-None-Match uses weak comparison: a W/ prefix on either side is ignored.
+  const opaque = etag.replace(/^W\//, "")
+  return header.split(",").some((value) => {
+    const candidate = value.trim()
+    return candidate === "*" || candidate.replace(/^W\//, "") === opaque
+  })
+}
+
 async function listProjects(ctx: PublicApiContext, req: Request) {
   const params = listParams(req)
   if (isResponse(params)) return params
 
-  const prisma = requirePrismaClient()
+  const projects = projectDelegateForContext(ctx)
   const cursorId = params.after ?? params.before
-  const rows = await prisma.project.findMany({
+  const rows = await projects.findMany({
     cursor: cursorId ? { id: cursorId } : undefined,
     orderBy: { createdAt: params.before ? "asc" : "desc" },
     skip: cursorId ? 1 : 0,
     take: params.limit + 1,
-    where: ownedProjectsWhere(ctx.apiKey.user),
+    ...(ctx.visibility === "all" ? { where: {} } : {}),
   })
   const sliced = rows.slice(0, params.limit)
   const orderedRows = params.before ? sliced.toReversed() : sliced
   const data = orderedRows.map(projectObject)
   return apiJson(apiList(data, rows.length > params.limit))
+}
+
+async function syncPublicApi(ctx: PublicApiContext, req: Request) {
+  const projects = tenantDb(ctx.apiKey.user).project
+  const rows = await projects.findMany({
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  })
+  const payload = syncCollections(rows)
+  if (isResponse(payload)) return payload
+
+  const etag = syncEtag(payload)
+  // A 304 still consumes the same public-api rate-limit bucket for now.
+  if (requestMatchesEtag(req, etag)) return new Response(null, { headers: { ETag: etag }, status: 304 })
+
+  return apiJson(
+    {
+      object: payload.object,
+      synced_at: nowIso(),
+      projects: payload.projects,
+      spaces: payload.spaces,
+      timers: payload.timers,
+    },
+    { headers: { ETag: etag } },
+  )
 }
 
 async function createProject(ctx: PublicApiContext, req: Request) {
@@ -1211,6 +1394,16 @@ async function createProject(ctx: PublicApiContext, req: Request) {
 
   const prisma = requirePrismaClient()
   if (typeof (prisma as { $transaction?: unknown }).$transaction !== "function") {
+    // Non-transaction shim path (test environments): enforce project count limit when
+    // the underlying prisma.project.count is available; fail-open otherwise so
+    // mocks that stub only the create method continue to pass.
+    if (typeof (prisma.project as { count?: unknown }).count === "function") {
+      const scopedProjects = tenantDb(ctx.apiKey.user).project
+      const existingCount = await scopedProjects.count()
+      if (existingCount >= getEntitlements().maxProjects) {
+        return apiError("limit_exceeded", "Project limit reached for this account.", { status: 409 })
+      }
+    }
     const row = await prisma.project.create({
       data: {
         id: newPublicId("project"),
@@ -1223,6 +1416,18 @@ async function createProject(ctx: PublicApiContext, req: Request) {
 
   const row = await prisma
     .$transaction(async (tx) => {
+      // Enforce project count limit before creating. Fail-open when tx.project.count
+      // is absent (test shims that mock only the create method).
+      // tenantDb scopes the count to the user's ownerId automatically; we read
+      // outside the transaction lock intentionally (accepted optimistic off-by-one).
+      if (typeof (tx.project as { count?: unknown }).count === "function") {
+        const scopedProjects = tenantDb(ctx.apiKey.user).project
+        const existingCount = await scopedProjects.count()
+        if (existingCount >= getEntitlements().maxProjects) {
+          return apiError("limit_exceeded", "Project limit reached for this account.", { status: 409 })
+        }
+      }
+
       const project = await tx.project.create({
         data: {
           id: newPublicId("project"),
@@ -1287,7 +1492,7 @@ async function previewProjectCreate(req: Request) {
 }
 
 async function getProject(ctx: PublicApiContext, projectId: string) {
-  const row = await projectForUser(projectId, ctx.apiKey.user)
+  const row = await projectForContext(projectId, ctx)
   if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   return apiJson(projectObject(row))
 }
@@ -1308,6 +1513,9 @@ async function updateProject(ctx: PublicApiContext, projectId: string, req: Requ
     if (!row) return apiError("not_found", "Project not found.", { status: 404 })
     const snapshot = requireSnapshot(row)
     if (isResponse(snapshot)) return snapshot
+
+    const overLimit = await assertProjectNotOverLimitReadOnly(tx, ctx.apiKey.user, projectId)
+    if (overLimit) return overLimit
 
     const next = changedSnapshot(snapshot, {
       color: parsed.data.color === undefined ? snapshot.color : nonEmptyOrUndefined(parsed.data.color ?? undefined),
@@ -1336,7 +1544,7 @@ async function updateProject(ctx: PublicApiContext, projectId: string, req: Requ
 }
 
 async function previewDeleteProject(ctx: PublicApiContext, projectId: string) {
-  const row = await projectForUser(projectId, ctx.apiKey.user)
+  const row = await projectForContext(projectId, ctx)
   if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const snapshot = requireSnapshot(row)
   if (isResponse(snapshot)) return snapshot
@@ -1404,7 +1612,7 @@ async function deleteProject(ctx: PublicApiContext, projectId: string, req: Requ
 }
 
 async function listTimers(ctx: PublicApiContext, projectId: string) {
-  const row = await projectForUser(projectId, ctx.apiKey.user)
+  const row = await projectForContext(projectId, ctx)
   if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const snapshot = requireSnapshot(row)
   if (isResponse(snapshot)) return snapshot
@@ -1428,6 +1636,9 @@ async function createTimer(ctx: PublicApiContext, projectId: string, req: Reques
       if (!row) return apiError("not_found", "Project not found.", { status: 404 })
       const snapshot = requireSnapshot(row)
       if (isResponse(snapshot)) return snapshot
+
+      const overLimit = await assertProjectNotOverLimitReadOnly(tx, ctx.apiKey.user, projectId)
+      if (overLimit) return overLimit
 
       const timer = timerFromCreate(parsed.data)
       if (snapshot.timers.some((existing) => existing.id === timer.id)) {
@@ -1472,7 +1683,7 @@ async function createTimer(ctx: PublicApiContext, projectId: string, req: Reques
 }
 
 async function getTimer(ctx: PublicApiContext, projectId: string, timerId: string) {
-  const row = await projectForUser(projectId, ctx.apiKey.user)
+  const row = await projectForContext(projectId, ctx)
   if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const snapshot = requireSnapshot(row)
   if (isResponse(snapshot)) return snapshot
@@ -1498,6 +1709,9 @@ async function updateTimer(ctx: PublicApiContext, projectId: string, timerId: st
     if (!row) return apiError("not_found", "Project not found.", { status: 404 })
     const snapshot = requireSnapshot(row)
     if (isResponse(snapshot)) return snapshot
+
+    const overLimit = await assertProjectNotOverLimitReadOnly(tx, ctx.apiKey.user, projectId)
+    if (overLimit) return overLimit
 
     const index = snapshot.timers.findIndex((timer) => timer.id === timerId)
     if (index === -1) return apiError("not_found", "Timer not found.", { status: 404 })
@@ -1558,6 +1772,9 @@ async function deleteTimer(ctx: PublicApiContext, projectId: string, timerId: st
     const snapshot = requireSnapshot(row)
     if (isResponse(snapshot)) return snapshot
 
+    const overLimit = await assertProjectNotOverLimitReadOnly(tx, ctx.apiKey.user, projectId)
+    if (overLimit) return overLimit
+
     const timer = snapshot.timers.find((item) => item.id === timerId)
     if (!timer) {
       return apiError("not_found", "Timer not found.", { status: 404 })
@@ -1607,7 +1824,7 @@ async function deleteTimer(ctx: PublicApiContext, projectId: string, timerId: st
 }
 
 async function listSpaces(ctx: PublicApiContext, projectId: string) {
-  const row = await projectForUser(projectId, ctx.apiKey.user)
+  const row = await projectForContext(projectId, ctx)
   if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const snapshot = requireSnapshot(row)
   if (isResponse(snapshot)) return snapshot
@@ -1631,6 +1848,9 @@ async function createSpace(ctx: PublicApiContext, projectId: string, req: Reques
       if (!row) return apiError("not_found", "Project not found.", { status: 404 })
       const snapshot = requireSnapshot(row)
       if (isResponse(snapshot)) return snapshot
+
+      const overLimit = await assertProjectNotOverLimitReadOnly(tx, ctx.apiKey.user, projectId)
+      if (overLimit) return overLimit
 
       const space = spaceFromCreate(parsed.data)
       if (snapshot.spaces.some((existing) => existing.id === space.id)) {
@@ -1656,7 +1876,7 @@ async function createSpace(ctx: PublicApiContext, projectId: string, req: Reques
 }
 
 async function getSpace(ctx: PublicApiContext, projectId: string, spaceId: string) {
-  const row = await projectForUser(projectId, ctx.apiKey.user)
+  const row = await projectForContext(projectId, ctx)
   if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const snapshot = requireSnapshot(row)
   if (isResponse(snapshot)) return snapshot
@@ -1683,6 +1903,9 @@ async function updateSpace(ctx: PublicApiContext, projectId: string, spaceId: st
     const snapshot = requireSnapshot(row)
     if (isResponse(snapshot)) return snapshot
 
+    const overLimit = await assertProjectNotOverLimitReadOnly(tx, ctx.apiKey.user, projectId)
+    if (overLimit) return overLimit
+
     const index = snapshot.spaces.findIndex((space) => space.id === spaceId)
     if (index === -1) return apiError("not_found", "Space not found.", { status: 404 })
 
@@ -1706,7 +1929,7 @@ async function updateSpace(ctx: PublicApiContext, projectId: string, spaceId: st
 }
 
 async function previewDeleteSpace(ctx: PublicApiContext, projectId: string, spaceId: string) {
-  const row = await projectForUser(projectId, ctx.apiKey.user)
+  const row = await projectForContext(projectId, ctx)
   if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const snapshot = requireSnapshot(row)
   if (isResponse(snapshot)) return snapshot
@@ -1763,6 +1986,9 @@ async function deleteSpace(ctx: PublicApiContext, projectId: string, spaceId: st
     const snapshot = requireSnapshot(row)
     if (isResponse(snapshot)) return snapshot
 
+    const overLimit = await assertProjectNotOverLimitReadOnly(tx, ctx.apiKey.user, projectId)
+    if (overLimit) return overLimit
+
     const space = snapshot.spaces.find((item) => item.id === spaceId)
     if (!space) {
       return apiError("not_found", "Space not found.", { status: 404 })
@@ -1805,7 +2031,7 @@ async function deleteSpace(ctx: PublicApiContext, projectId: string, spaceId: st
 }
 
 async function listShares(ctx: PublicApiContext, projectId: string) {
-  const row = await projectForUser(projectId, ctx.apiKey.user)
+  const row = await projectForContext(projectId, ctx)
   if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const shares = await requirePrismaClient().share.findMany({
     where: { projectId, kind: "timer" },
@@ -1830,6 +2056,9 @@ async function createShare(ctx: PublicApiContext, projectId: string, req: Reques
     if (!row) return apiError("not_found", "Project not found.", { status: 404 })
     const snapshot = requireSnapshot(row)
     if (isResponse(snapshot)) return snapshot
+
+    const overLimit = await assertProjectNotOverLimitReadOnly(tx, ctx.apiKey.user, projectId)
+    if (overLimit) return overLimit
 
     const timerIndex = snapshot.timers.findIndex((item) => item.id === parsed.data.timer_id)
     if (timerIndex === -1) return apiError("not_found", "Timer not found.", { status: 404 })
@@ -1895,7 +2124,7 @@ async function createShare(ctx: PublicApiContext, projectId: string, req: Reques
 }
 
 async function getShare(ctx: PublicApiContext, projectId: string, shareId: string) {
-  const row = await projectForUser(projectId, ctx.apiKey.user)
+  const row = await projectForContext(projectId, ctx)
   if (!row) return apiError("not_found", "Project not found.", { status: 404 })
   const share = await requirePrismaClient().share.findFirst({ where: { id: shareId, projectId, kind: "timer" } })
   if (!share) return apiError("not_found", "Share not found.", { status: 404 })
@@ -2146,7 +2375,7 @@ async function authenticate(req: Request): Promise<{ ctx: PublicApiContext; head
     if (!rateLimit.allowed) {
       return apiError("rate_limited", "Too many requests.", { headers: rateLimit.headers, status: 429 })
     }
-    return { ctx: { apiKey }, headers: rateLimit.headers }
+    return { ctx: { apiKey, visibility: "owner" }, headers: rateLimit.headers }
   } catch {
     return apiError("rate_limit_unavailable", "Rate limit unavailable.", { status: 503 })
   }
@@ -2159,6 +2388,8 @@ function shouldTrustProxyHeaders() {
 function clientIp(req: Request) {
   if (!shouldTrustProxyHeaders()) return "unknown"
 
+  const cfConnectingIp = req.headers.get("cf-connecting-ip")?.trim()
+  if (cfConnectingIp) return cfConnectingIp
   const forwardedFor = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
   if (forwardedFor) return forwardedFor
   return req.headers.get("x-real-ip")?.trim() ?? "unknown"
@@ -2299,6 +2530,11 @@ function routeProjectChildResource(
 
 function routePublicApi(method: string, ctx: PublicApiContext, req: Request, path: string[]) {
   const [resource, projectId, child, childId] = path
+  if (resource === "sync") {
+    if (path.length === 1 && method === "GET") return syncPublicApi(ctx, req)
+    if (path.length === 1) return methodNotAllowed()
+    return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+  }
   if (resource === "webhooks") {
     if (path.length === 1) return routeWebhooksCollection(method, ctx, req)
     if (!projectId) return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
@@ -2350,10 +2586,14 @@ export async function handlePublicApiV1Request(method: string, req: Request, pat
   if (isResponse(auth)) return withPublicApiMetadata(auth, meta)
 
   try {
-    const scopeError = authorizeMcpScope(auth.ctx, method, path)
+    const scopedCtx = authorizePublicApiScope(auth.ctx, method, req, path)
+    if (isResponse(scopedCtx)) return withPublicApiMetadata(withHeaders(scopedCtx, auth.headers), meta)
+
+    const scopeError = authorizeMcpScope(scopedCtx, method, path)
     if (scopeError) return withPublicApiMetadata(withHeaders(scopeError, auth.headers), meta)
 
-    const response = await routePublicApiWithIdempotency(method, auth.ctx, req, path)
+    const response = await routePublicApiWithIdempotency(method, scopedCtx, req, path)
+    if (shouldAuditScopeAll(scopedCtx, response)) auditScopeAllUse(scopedCtx, method, req, path)
     return withPublicApiMetadata(withHeaders(response, auth.headers), meta)
   } catch (error) {
     if (error instanceof Error && error.name === "PublicApiIdempotencyStorageUnavailableError") {

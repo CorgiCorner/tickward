@@ -100,4 +100,23 @@ describe("POST /api/projects/claim", () => {
     await expect(res.json()).resolves.toEqual({ ok: true, project: claimed })
     expect(mocks.claimProject).toHaveBeenCalledWith({ actor: userActor, restoreKey: "restoreKey_123" })
   })
+
+  it("returns 200 with overLimit:true in body when claim succeeds but account is over the project limit", async () => {
+    const { POST } = await import("./route")
+    const claimed = {
+      projectId: "project_over_limit",
+      project: makeProjectSnapshot(),
+      owner: { id: "user_123", email: "ada@example.com" },
+      claimedAt: "2026-06-05T00:00:00.000Z",
+    }
+    // Service layer returns overLimit:true alongside the claimed project
+    mocks.claimProject.mockResolvedValue({ status: "claimed", project: claimed, overLimit: true })
+
+    const res = await POST(jsonRequest("https://tickward.test/api/projects/claim", { restoreKey: "restoreKey_123" }))
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    // The route must forward overLimit into the response body
+    expect(body).toEqual({ ok: true, project: { ...claimed, overLimit: true } })
+  })
 })

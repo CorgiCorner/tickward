@@ -36,5 +36,8 @@ export async function POST(req: Request) {
     return apiErrorResponse(PUBLIC_ERROR_CODES.notFound, "errors.notFound", { status: 404 })
   }
 
-  return NextResponse.json({ ok: true, project: result.project })
+  return NextResponse.json({
+    ok: true,
+    project: result.overLimit ? { ...result.project, overLimit: true } : result.project,
+  })
 }

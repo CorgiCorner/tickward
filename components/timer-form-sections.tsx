@@ -6,7 +6,7 @@ import { Controller, useController, type Control, type UseFormRegister } from "r
 import { TimerRemindersField } from "@/components/timer-reminders-field"
 import { TimezoneSelect } from "@/components/timezone-select"
 import { UnsplashPicker } from "@/components/unsplash-picker"
-import { DatePicker } from "@/components/ui/date-picker"
+import { DatePicker, DatePresetChips } from "@/components/ui/date-picker"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -264,6 +264,12 @@ export function TimerScheduleSection(
               )}
             />
           </div>
+
+          <Controller
+            control={control}
+            name="date"
+            render={({ field }) => <DatePresetChips onChange={field.onChange} />}
+          />
 
           <Controller
             control={control}

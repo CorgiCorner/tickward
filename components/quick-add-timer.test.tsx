@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { QuickAddTimer } from "@/components/quick-add-timer"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -92,6 +92,10 @@ describe("QuickAddTimer", () => {
       timers: [],
       addTimer: vi.fn(() => true),
     }
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it("submits a trimmed timer through the form schema", async () => {
@@ -293,6 +297,36 @@ describe("QuickAddTimer", () => {
     await waitFor(() => expect(queryPopoverAddButtons()).toHaveLength(0))
   })
 
+  it("uses date quick picks without changing the selected time", async () => {
+    const user = userEvent.setup()
+    renderQuickAddTimer()
+
+    await user.click(screen.getByRole("button", { name: "Schedule" }))
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "14:45" } })
+
+    vi.useFakeTimers()
+    // Local-time constructor: the quick picks use the local calendar day, so a
+    // UTC string would make the expected date drift in negative-offset zones.
+    vi.setSystemTime(new Date(2026, 5, 5, 8, 0, 0))
+    fireEvent.click(screen.getByRole("button", { name: "In 7 days" }))
+    vi.useRealTimers()
+
+    expect(screen.getByLabelText("Date")).toHaveValue("2026-06-12")
+    expect(screen.getByLabelText("Time")).toHaveValue("14:45")
+
+    const addButton = getPopoverAddButton()
+    await waitFor(() => expect(addButton).toBeEnabled())
+    await user.click(addButton)
+
+    expect(storeState.addTimer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        label: "Timer 1",
+        targetDate: "2026-06-12T14:45:00.000Z",
+        timezone: "UTC",
+      }),
+    )
+  })
+
   it("creates a duration-mode timer from quick add", async () => {
     const user = userEvent.setup()
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(new Date("2026-06-05T08:00:00.000Z").getTime())
@@ -302,19 +336,19 @@ describe("QuickAddTimer", () => {
 
       await user.click(screen.getByRole("button", { name: "Schedule" }))
       await user.click(screen.getByRole("button", { name: "Duration" }))
-      await user.click(screen.getByRole("button", { name: "7 d" }))
+      await user.click(screen.getByRole("button", { name: "1 h" }))
 
-      expect(screen.getByLabelText("Days")).toHaveValue("07")
-      expect(screen.getByLabelText("Hours")).toHaveValue("00")
+      expect(screen.getByLabelText("Days")).toHaveValue("00")
+      expect(screen.getByLabelText("Hours")).toHaveValue("01")
       expect(screen.getByLabelText("Minutes")).toHaveValue("00")
       expect(screen.getByLabelText("Seconds")).toHaveValue("00")
-      expect(screen.getByText("in 7 d")).toBeVisible()
+      expect(screen.getByText("in 1:00:00")).toBeVisible()
       await user.click(getPopoverAddButton())
 
       expect(storeState.addTimer).toHaveBeenCalledWith(
         expect.objectContaining({
           label: "Timer 1",
-          targetDate: "2026-06-12T08:00:00.000Z",
+          targetDate: "2026-06-05T09:00:00.000Z",
           timezone: "Europe/Warsaw",
         }),
       )

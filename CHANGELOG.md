@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.0 - 2026-07-09
+
+### Added
+
+- Made over-limit projects read-only with scheduled cleanup instead of
+  deleting them outright.
+
+### Fixed
+
+- Signed-in users now auto-claim their anonymous projects, and sign-out races
+  no longer drop project data.
+- Stopped re-uploading an account project after a 404 refresh and fixed the
+  read-only badge overflow in the project switcher.
+- Scoped project listing and sync reads through the API to the key owner's
+  own data.
+- Fixed the focus-mode countdown font.
+
 ## 0.9.1 - 2026-07-07
 
 ### Fixed

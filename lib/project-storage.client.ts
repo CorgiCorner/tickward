@@ -80,14 +80,21 @@ export function readProjectRegistry(): ProjectMeta[] {
   if (!Array.isArray(raw)) return []
 
   const seenKeys = new Set<string>()
-  const projects: ProjectMeta[] = []
+  const accountProjects: ProjectMeta[] = []
+  const localProjects: ProjectMeta[] = []
   for (const item of raw) {
     const project = normalizeProjectMeta(item)
     if (!project || seenKeys.has(project.restoreKey)) continue
     seenKeys.add(project.restoreKey)
-    projects.push(project)
+    if (project.cloudProjectId) {
+      accountProjects.push(project)
+    } else {
+      localProjects.push(project)
+    }
   }
-  return projects.slice(0, MAX_PROJECTS)
+  // Account projects are kept in full (the server list is authoritative for the cap).
+  // Local projects are capped at MAX_PROJECTS as a guard against corrupted storage.
+  return [...accountProjects, ...localProjects.slice(0, MAX_PROJECTS)]
 }
 
 export function writeProjectRegistry(projects: ProjectMeta[]) {

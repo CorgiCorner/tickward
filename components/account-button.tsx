@@ -1,8 +1,8 @@
 "use client"
 
-import { LogOutIcon, SettingsIcon } from "lucide-react"
+import { LogOutIcon, SettingsIcon, ShieldIcon } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
+import { createContext, useContext, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 
 import { SignInDialog } from "@/components/sign-in-auth"
@@ -11,12 +11,29 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useLocale } from "@/components/locale-provider"
+import type { AccountMenuLink, AccountMenuLinkIcon } from "@/lib/app-extension-points"
 import { authClient } from "@/lib/auth/auth-client"
 import { authErrorMessage } from "@/lib/auth/auth-client-errors"
 import { formatMessage, localeHref } from "@/lib/i18n/messages"
 import { setLocalInAppNotificationsEnabled } from "@/lib/local-notification-preferences.client"
 import { useTimerStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
+
+const AccountMenuLinksContext = createContext<AccountMenuLink[]>([])
+
+const accountMenuLinkIcons: Record<AccountMenuLinkIcon, typeof ShieldIcon> = {
+  shield: ShieldIcon,
+}
+
+export function AccountMenuLinksProvider({
+  children,
+  value,
+}: Readonly<{
+  children: ReactNode
+  value: AccountMenuLink[]
+}>) {
+  return <AccountMenuLinksContext.Provider value={value}>{children}</AccountMenuLinksContext.Provider>
+}
 
 export type AccountUser = {
   name?: string | null
@@ -60,12 +77,8 @@ export function AccountAvatar(props: Readonly<{ className?: string; user: Accoun
   )
 }
 
-export function AccountButton() {
-  const locale = useLocale()
-  const session = authClient.useSession()
+export function useAccountSignOut(session: ReturnType<typeof authClient.useSession>) {
   const removeAccountProjectsFromDevice = useTimerStore((s) => s.removeAccountProjectsFromDevice)
-  const user = session.data?.user
-  const displayName = cleanUserName(user?.name)
   const [loading, setLoading] = useState(false)
 
   async function signOut() {
@@ -86,9 +99,24 @@ export function AccountButton() {
     }
   }
 
+  return { loading, signOut }
+}
+
+export function AccountButton() {
+  const locale = useLocale()
+  const session = authClient.useSession()
+  const accountMenuLinks = useContext(AccountMenuLinksContext)
+  const user = session.data?.user
+  const displayName = cleanUserName(user?.name)
+  const signOutAction = useAccountSignOut(session)
+
   if (!user) {
     return <SignInDialog onCompleted={() => void session.refetch?.()} />
   }
+
+  const visibleAccountMenuLinks = accountMenuLinks.filter(
+    (link) => !link.requiredRole || user.role === link.requiredRole,
+  )
 
   return (
     <Popover>
@@ -119,14 +147,31 @@ export function AccountButton() {
             {formatMessage("auth.accountSettings")}
           </Link>
         </Button>
+        {visibleAccountMenuLinks.map((link) => {
+          const LinkIcon = link.icon ? accountMenuLinkIcons[link.icon] : null
+          return (
+            <Button
+              key={`${link.href}:${link.label}`}
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start"
+              asChild
+            >
+              <Link href={link.href}>
+                {LinkIcon ? <LinkIcon className="size-4" /> : <span aria-hidden="true" className="size-4" />}
+                {link.label}
+              </Link>
+            </Button>
+          )
+        })}
         <Button
           variant="ghost"
           size="sm"
           className="w-full justify-start"
-          loading={loading}
-          onClick={() => void signOut()}
+          loading={signOutAction.loading}
+          onClick={() => void signOutAction.signOut()}
         >
-          {!loading && <LogOutIcon className="size-4" />}
+          {!signOutAction.loading && <LogOutIcon className="size-4" />}
           {formatMessage("auth.signOut")}
         </Button>
       </PopoverContent>

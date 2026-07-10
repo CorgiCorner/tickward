@@ -19,7 +19,7 @@ function isResponse(value: unknown): value is Response {
 
 function restoredProjectResponse(restored: ProjectRestoreResponse) {
   return NextResponse.json(restored, {
-    headers: { "Cache-Control": "private, max-age=10, stale-while-revalidate=30" },
+    headers: { "Cache-Control": "private, no-store" },
   })
 }
 

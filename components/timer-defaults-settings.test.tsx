@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { toast } from "sonner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { TimerDefaultsSettingsPanel } from "@/components/timer-defaults-settings"
+import { DefaultTimezoneSettingsRow } from "@/components/timer-defaults-settings"
 
 const mocks = vi.hoisted(() => ({
   accountState: {
@@ -25,9 +25,14 @@ vi.mock("@/components/account-preferences-provider", () => ({
 }))
 
 vi.mock("@/components/timezone-select", () => ({
-  TimezoneSelect: (props: { disabled?: boolean; value: string; onChange: (value: string) => void }) => (
+  TimezoneSelect: (props: {
+    "aria-label"?: string
+    disabled?: boolean
+    value: string
+    onChange: (value: string) => void
+  }) => (
     <select
-      aria-label="Default timezone"
+      aria-label={props["aria-label"] ?? "Default timezone"}
       disabled={props.disabled}
       value={props.value}
       onChange={(event) => props.onChange(event.target.value)}
@@ -39,13 +44,17 @@ vi.mock("@/components/timezone-select", () => ({
   ),
 }))
 
+vi.mock("@/lib/default-timezone.client", () => ({
+  useBrowserTimeZone: () => "Europe/Warsaw",
+}))
+
 vi.mock("sonner", () => ({
   toast: {
     success: vi.fn(),
   },
 }))
 
-describe("TimerDefaultsSettingsPanel", () => {
+describe("DefaultTimezoneSettingsRow", () => {
   beforeEach(() => {
     localStorage.clear()
     Object.assign(mocks.accountState, {
@@ -70,7 +79,7 @@ describe("TimerDefaultsSettingsPanel", () => {
 
   it("saves the account default timezone used by new timers", async () => {
     const user = userEvent.setup()
-    render(<TimerDefaultsSettingsPanel />)
+    render(<DefaultTimezoneSettingsRow />)
 
     await user.selectOptions(screen.getByLabelText("Default timezone"), "America/New_York")
 
@@ -81,20 +90,20 @@ describe("TimerDefaultsSettingsPanel", () => {
   it("keeps timezone controls usable after a previous settings error", async () => {
     const user = userEvent.setup()
     mocks.accountState.error = "We couldn't update your settings."
-    render(<TimerDefaultsSettingsPanel />)
+    render(<DefaultTimezoneSettingsRow />)
 
     expect(screen.getByLabelText("Default timezone")).toBeEnabled()
 
-    await user.selectOptions(screen.getByLabelText("Default timezone"), "Europe/Warsaw")
+    await user.selectOptions(screen.getByLabelText("Default timezone"), "America/New_York")
 
-    expect(mocks.updatePreferences).toHaveBeenCalledWith({ default_timezone: "Europe/Warsaw" })
+    expect(mocks.updatePreferences).toHaveBeenCalledWith({ default_timezone: "America/New_York" })
   })
 
-  it("can reset the account default timezone to the browser timezone", async () => {
+  it("resets the account default timezone when selecting the browser timezone", async () => {
     const user = userEvent.setup()
-    render(<TimerDefaultsSettingsPanel />)
+    render(<DefaultTimezoneSettingsRow />)
 
-    await user.click(screen.getByRole("button", { name: "Use browser timezone" }))
+    await user.selectOptions(screen.getByLabelText("Default timezone"), "Europe/Warsaw")
 
     expect(mocks.updatePreferences).toHaveBeenCalledWith({ default_timezone: null })
     expect(toast.success).toHaveBeenCalledWith("Default timezone reset.")

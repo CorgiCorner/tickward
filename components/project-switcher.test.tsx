@@ -289,4 +289,71 @@ describe("ProjectSwitcher", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Restore failed."))
     expect(toast.error).not.toHaveBeenCalledWith("raw restore token failed")
   })
+
+  it("shows a Read-only badge on over-limit project rows but not on editable ones", async () => {
+    const user = userEvent.setup()
+    // Env limit = 1 so 2 account projects → second is over-limit
+    vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_PROJECTS", "1")
+
+    storeState.projects = [
+      {
+        id: "project-older",
+        name: "Older project",
+        restoreKey: "restoreKey_older",
+        cloudProjectId: "project_older",
+        ownerId: "user_123",
+        claimedAt: "2026-01-01T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "project-newer",
+        name: "Newer project",
+        restoreKey: "restoreKey_newer",
+        cloudProjectId: "project_newer",
+        ownerId: "user_123",
+        claimedAt: "2026-06-01T00:00:00.000Z",
+        createdAt: "2026-06-01T00:00:00.000Z",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+      },
+    ]
+    storeState.activeProjectId = "project-older"
+
+    renderSwitcher()
+    await user.click(screen.getByRole("button", { name: "Switch project" }))
+
+    // The over-limit (newer) row must display the Read-only badge
+    expect(screen.getByText("Read-only")).toBeInTheDocument()
+
+    // The editable (older) row must NOT display it — only one badge in total
+    expect(screen.getAllByText("Read-only")).toHaveLength(1)
+
+    vi.unstubAllEnvs()
+  })
+
+  it("does not show any Read-only badge when all projects are within the limit", async () => {
+    const user = userEvent.setup()
+    vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_PROJECTS", "10")
+
+    storeState.projects = [
+      {
+        id: "project-a",
+        name: "Alpha",
+        restoreKey: "restoreKey_alpha",
+        cloudProjectId: "project_a",
+        ownerId: "user_123",
+        claimedAt: "2026-01-01T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]
+    storeState.activeProjectId = "project-a"
+
+    renderSwitcher()
+    await user.click(screen.getByRole("button", { name: "Switch project" }))
+
+    expect(screen.queryByText("Read-only")).not.toBeInTheDocument()
+
+    vi.unstubAllEnvs()
+  })
 })

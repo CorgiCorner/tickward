@@ -2,6 +2,7 @@ import "server-only"
 
 import { createHash, randomBytes } from "node:crypto"
 
+import { recordAuditEvent } from "@/lib/audit-log.server"
 import type { UserRef } from "@/lib/contracts"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
 import type { Prisma } from "@/lib/generated/prisma/client"
@@ -156,6 +157,15 @@ export async function createApiKeyForUser(args: {
     })
   })
 
+  recordAuditEvent({
+    action: "api_key.created",
+    actorEmail: args.user.email,
+    actorId: args.user.id,
+    metadata: { key_prefix: row.keyPrefix, permission: row.permission },
+    targetId: row.id,
+    targetType: "api_key",
+  })
+
   return { ...publicApiCredentialRecord(row), token }
 }
 
@@ -185,6 +195,17 @@ export async function revokeApiKeyForUser(args: { id: string; user: UserRef }): 
     where: { id: args.id, kind: API_KEY_KIND, userId: args.user.id, revokedAt: null },
     data: { revokedAt },
   })
+
+  if (updated[0]) {
+    recordAuditEvent({
+      action: "api_key.revoked",
+      actorEmail: args.user.email,
+      actorId: args.user.id,
+      metadata: { key_prefix: updated[0].keyPrefix, permission: updated[0].permission },
+      targetId: updated[0].id,
+      targetType: "api_key",
+    })
+  }
 
   return updated[0] ? publicApiCredentialRecord(updated[0]) : null
 }

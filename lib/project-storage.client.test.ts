@@ -14,8 +14,36 @@ import {
   writeProjectPayload,
   writeProjectRegistry,
 } from "@/lib/project-storage.client"
+import { MAX_PROJECTS } from "@/lib/project-model"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
 import { makeSpace, makeTimer } from "@/test/factories"
+
+function makeAccountEntry(overrides: Record<string, unknown> = {}) {
+  return {
+    id: `project-acc-${Math.random().toString(36).slice(2)}`,
+    name: "Account project",
+    restoreKey: `restoreKey_${Math.random().toString(36).slice(2)}`,
+    cloudProjectId: `project_${Math.random().toString(36).slice(2)}`,
+    ownerId: "user_123",
+    claimedAt: "2026-05-20T00:00:00.000Z",
+    createdAt: "2026-05-20T00:00:00.000Z",
+    updatedAt: "2026-05-20T00:00:00.000Z",
+    hasUnsyncedChanges: false,
+    ...overrides,
+  }
+}
+
+function makeLocalEntry(overrides: Record<string, unknown> = {}) {
+  return {
+    id: `project-local-${Math.random().toString(36).slice(2)}`,
+    name: "Local project",
+    restoreKey: `restoreKey_${Math.random().toString(36).slice(2)}`,
+    createdAt: "2026-05-20T00:00:00.000Z",
+    updatedAt: "2026-05-20T00:00:00.000Z",
+    hasUnsyncedChanges: false,
+    ...overrides,
+  }
+}
 
 describe("local project storage", () => {
   it("round-trips project registry and dedupes duplicate restore keys", () => {
@@ -150,5 +178,29 @@ describe("local project storage", () => {
     removeProjectPayload("project-a")
 
     expect(readProjectPayload("project-a")).toBeNull()
+  })
+
+  it("readProjectRegistry keeps more than MAX_PROJECTS account metas (no slice on account entries)", () => {
+    // Account metas mirror the server list and must never be capped by the
+    // device registry read; only local entries are bounded.
+    const entries = Array.from({ length: MAX_PROJECTS + 2 }, () => makeAccountEntry())
+    localStorage.setItem(TD_PROJECTS_STORAGE_KEY, JSON.stringify(entries))
+
+    const registry = readProjectRegistry()
+
+    expect(registry).toHaveLength(MAX_PROJECTS + 2)
+    expect(registry.every((p) => p.cloudProjectId !== undefined)).toBe(true)
+  })
+
+  it("pathological all-local registry is still capped at MAX_PROJECTS", () => {
+    // Write MAX_PROJECTS+2 purely local projects — cap must still apply after fix.
+    // Before fix: the global slice already caps, so this would pass, BUT the fix
+    // changes the logic to only cap locals — this verifies the cap is preserved.
+    const entries = Array.from({ length: MAX_PROJECTS + 2 }, () => makeLocalEntry())
+    localStorage.setItem(TD_PROJECTS_STORAGE_KEY, JSON.stringify(entries))
+
+    const registry = readProjectRegistry()
+
+    expect(registry).toHaveLength(MAX_PROJECTS)
   })
 })

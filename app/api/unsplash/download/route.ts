@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { apiErrorResponse } from "@/lib/api-error-response"
+import { optionalServerEnv } from "@/lib/env.server"
 import { PUBLIC_ERROR_CODES } from "@/lib/public-errors"
 
 export const runtime = "edge"
@@ -21,7 +22,7 @@ export async function POST(req: Request) {
     return apiErrorResponse(PUBLIC_ERROR_CODES.invalidPhotoId, "errors.invalidPhotoId", { status: 400 })
   }
 
-  const key = process.env.UNSPLASH_ACCESS_KEY
+  const key = optionalServerEnv("UNSPLASH_ACCESS_KEY")
   if (!key) {
     return apiErrorResponse(PUBLIC_ERROR_CODES.unsplashNotConfigured, "errors.unsplashNotConfigured", { status: 500 })
   }

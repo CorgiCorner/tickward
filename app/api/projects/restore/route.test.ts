@@ -82,7 +82,7 @@ describe("GET /api/projects/restore", () => {
     const res = await GET(new Request("https://tickward.test/api/projects/restore?key=restoreKey_123"))
 
     expect(res.status).toBe(200)
-    expect(res.headers.get("cache-control")).toBe("private, max-age=10, stale-while-revalidate=30")
+    expect(res.headers.get("cache-control")).toBe("private, no-store")
     await expect(res.json()).resolves.toEqual(restored)
     expect(mocks.getCurrentActor).toHaveBeenCalledWith({
       restoreKey: "restoreKey_123",

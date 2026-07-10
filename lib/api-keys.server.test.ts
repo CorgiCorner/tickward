@@ -1,15 +1,35 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  recordAuditEvent: vi.fn(),
+  requirePrismaClient: vi.fn(),
+}))
+
+vi.mock("@/lib/audit-log.server", () => ({
+  recordAuditEvent: mocks.recordAuditEvent,
+}))
+
+vi.mock("@/lib/db/prisma.server", () => ({
+  requirePrismaClient: mocks.requirePrismaClient,
+}))
 
 import {
   API_KEY_PREFIX,
+  createApiKeyForUser,
   createApiKeyToken,
   hashApiKeyToken,
   normalizeApiKeyName,
   normalizeApiKeyPermission,
   readBearerApiKey,
+  revokeApiKeyForUser,
 } from "@/lib/api-keys.server"
 
 describe("api key helpers", () => {
+  beforeEach(() => {
+    mocks.recordAuditEvent.mockReset()
+    mocks.requirePrismaClient.mockReset()
+  })
+
   it("generates prefixed secrets and stores only deterministic hashes", () => {
     const token = createApiKeyToken()
 
@@ -37,5 +57,76 @@ describe("api key helpers", () => {
       readBearerApiKey(new Request("https://tickward.test", { headers: { authorization: "Basic nope" } })),
     ).toBeNull()
     expect(readBearerApiKey(new Request("https://tickward.test"))).toBeNull()
+  })
+
+  it("emits an audit event when an API key is created", async () => {
+    const createdAt = new Date("2026-07-07T20:00:00.000Z")
+    const tx = {
+      apiKey: {
+        create: vi.fn(async ({ data }) => ({
+          ...data,
+          createdAt,
+          id: "key_123",
+          lastUsedAt: null,
+          revokedAt: null,
+          updatedAt: createdAt,
+        })),
+      },
+      user: { upsert: vi.fn().mockResolvedValue({}) },
+    }
+    mocks.requirePrismaClient.mockReturnValue({
+      $transaction: (fn: (txArg: typeof tx) => unknown) => fn(tx),
+    })
+
+    const result = await createApiKeyForUser({
+      name: "Production",
+      permission: "read",
+      user: { email: "ada@example.com", id: "user_123", role: "user" },
+    })
+
+    expect(result.token).toMatch(/^tw_/)
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith({
+      action: "api_key.created",
+      actorEmail: "ada@example.com",
+      actorId: "user_123",
+      metadata: { key_prefix: expect.stringMatching(/^tw_/), permission: "read" },
+      targetId: "key_123",
+      targetType: "api_key",
+    })
+    expect(JSON.stringify(mocks.recordAuditEvent.mock.calls[0]?.[0])).not.toContain(result.token)
+  })
+
+  it("emits an audit event when an API key is revoked", async () => {
+    const updatedAt = new Date("2026-07-07T20:00:00.000Z")
+    mocks.requirePrismaClient.mockReturnValue({
+      apiKey: {
+        updateManyAndReturn: vi.fn().mockResolvedValue([
+          {
+            createdAt: updatedAt,
+            id: "key_123",
+            keyLast4: "abcd",
+            keyPrefix: "tw_test",
+            lastUsedAt: null,
+            name: "Production",
+            permission: "read",
+            revokedAt: updatedAt,
+            updatedAt,
+          },
+        ]),
+      },
+    })
+
+    await expect(
+      revokeApiKeyForUser({ id: "key_123", user: { email: "ada@example.com", id: "user_123" } }),
+    ).resolves.toMatchObject({ id: "key_123", revoked_at: updatedAt.toISOString() })
+
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith({
+      action: "api_key.revoked",
+      actorEmail: "ada@example.com",
+      actorId: "user_123",
+      metadata: { key_prefix: "tw_test", permission: "read" },
+      targetId: "key_123",
+      targetType: "api_key",
+    })
   })
 })

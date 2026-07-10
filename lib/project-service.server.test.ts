@@ -15,7 +15,10 @@ const mocks = vi.hoisted(() => ({
     loadUserProject: vi.fn(),
     saveUserProject: vi.fn(),
     clearUserProject: vi.fn(),
+    // New optional method for read-only rule
+    listProjectMemberships: vi.fn(),
   },
+  getEntitlements: vi.fn(),
 }))
 
 vi.mock("@/lib/server-adapters.server", () => ({
@@ -23,6 +26,14 @@ vi.mock("@/lib/server-adapters.server", () => ({
     projectRepository: mocks.projectRepository,
   }),
 }))
+
+vi.mock("@/lib/entitlements", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/entitlements")>()
+  return {
+    ...actual,
+    getEntitlements: mocks.getEntitlements,
+  }
+})
 
 describe("project service", () => {
   beforeEach(() => {
@@ -35,6 +46,16 @@ describe("project service", () => {
     mocks.projectRepository.loadUserProject.mockReset()
     mocks.projectRepository.saveUserProject.mockReset()
     mocks.projectRepository.clearUserProject.mockReset()
+    // Re-initialize after tests that remove the optional method
+    mocks.projectRepository.listProjectMemberships = vi.fn().mockResolvedValue([])
+    // Default entitlements: maxProjects = 2
+    mocks.getEntitlements.mockReturnValue({
+      maxProjects: 2,
+      maxSnapshotTimers: 50,
+      maxSpaces: 2,
+      maxTimers: 20,
+      maxTimersPerSpace: 5,
+    })
   })
 
   it("loads projects through the repository", async () => {
@@ -261,5 +282,157 @@ describe("project service", () => {
       }),
     ).resolves.toEqual({ status: "ok", data: { status: "saved", project } })
     await expect(clearUserProject(userActor, "project_123")).resolves.toEqual({ status: "ok", data: true })
+  })
+
+  describe("read-only enforcement in saveUserProject", () => {
+    it("returns read_only data status when owner memberships mark target project over-limit", async () => {
+      const { saveUserProject } = await import("./project-service.server")
+      const userActor: Actor = { kind: "user", user: { id: "user_123" } }
+      const project = makeProjectSnapshot()
+      mocks.projectRepository.loadUserProject.mockResolvedValue({
+        project,
+        source: "project",
+        projectId: "project_newer",
+        ownerId: "user_123",
+      })
+      // Simulate owner having 2 projects: older is editable, newer is over-limit (limit=1)
+      mocks.getEntitlements.mockReturnValue({
+        maxProjects: 1,
+        maxSnapshotTimers: 50,
+        maxSpaces: 2,
+        maxTimers: 20,
+        maxTimersPerSpace: 5,
+      })
+      mocks.projectRepository.listProjectMemberships.mockResolvedValue([
+        { id: "project_older", claimedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "project_newer", claimedAt: "2026-06-01T00:00:00.000Z", createdAt: "2026-06-01T00:00:00.000Z" },
+      ])
+
+      const result = await saveUserProject(userActor, "project_newer", {
+        project,
+        baseUpdatedAt: null,
+        force: false,
+      })
+
+      expect(result).toEqual({ status: "ok", data: { status: "read_only" } })
+      expect(mocks.projectRepository.saveUserProject).not.toHaveBeenCalled()
+    })
+
+    it("allows save on the oldest (editable) project even when owner is over-limit", async () => {
+      const { saveUserProject } = await import("./project-service.server")
+      const userActor: Actor = { kind: "user", user: { id: "user_123" } }
+      const project = makeProjectSnapshot()
+      mocks.projectRepository.loadUserProject.mockResolvedValue({
+        project,
+        source: "project",
+        projectId: "project_older",
+        ownerId: "user_123",
+      })
+      mocks.getEntitlements.mockReturnValue({
+        maxProjects: 1,
+        maxSnapshotTimers: 50,
+        maxSpaces: 2,
+        maxTimers: 20,
+        maxTimersPerSpace: 5,
+      })
+      mocks.projectRepository.listProjectMemberships.mockResolvedValue([
+        { id: "project_older", claimedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "project_newer", claimedAt: "2026-06-01T00:00:00.000Z", createdAt: "2026-06-01T00:00:00.000Z" },
+      ])
+      mocks.projectRepository.saveUserProject.mockResolvedValue(true)
+
+      const result = await saveUserProject(userActor, "project_older", {
+        project,
+        baseUpdatedAt: project.updatedAt,
+        force: false,
+      })
+
+      expect(result).toEqual({ status: "ok", data: { status: "saved", project } })
+    })
+
+    it("fails open (proceeds with save) when repository lacks listProjectMemberships", async () => {
+      const { saveUserProject } = await import("./project-service.server")
+      const userActor: Actor = { kind: "user", user: { id: "user_123" } }
+      const project = makeProjectSnapshot()
+      mocks.projectRepository.loadUserProject.mockResolvedValue({
+        project,
+        source: "project",
+        projectId: "project_123",
+        ownerId: "user_123",
+      })
+      mocks.projectRepository.saveUserProject.mockResolvedValue(true)
+      // Remove the optional method from the repo
+      const repoWithoutMemberships = mocks.projectRepository as Partial<typeof mocks.projectRepository>
+      repoWithoutMemberships.listProjectMemberships = undefined
+
+      const result = await saveUserProject(userActor, "project_123", {
+        project,
+        baseUpdatedAt: project.updatedAt,
+        force: false,
+      })
+
+      expect(result).toEqual({ status: "ok", data: { status: "saved", project } })
+    })
+  })
+
+  describe("claimProject over-limit", () => {
+    it("returns overLimit:true in result when account has more projects than the limit after claim", async () => {
+      const { claimProject } = await import("./project-service.server")
+      const userActor: Actor = { kind: "user", user: { id: "user_123" } }
+      const claimedProject = {
+        projectId: "project_new",
+        project: makeProjectSnapshot(),
+        owner: { id: "user_123", email: "ada@example.com" },
+        claimedAt: "2026-06-05T08:00:00.000Z",
+      }
+      mocks.projectRepository.claimAnonymousProject = vi.fn().mockResolvedValue(claimedProject)
+      mocks.getEntitlements.mockReturnValue({
+        maxProjects: 1,
+        maxSnapshotTimers: 50,
+        maxSpaces: 2,
+        maxTimers: 20,
+        maxTimersPerSpace: 5,
+      })
+      // After claim, owner has 2 memberships but limit is 1 → new one is read-only
+      mocks.projectRepository.listProjectMemberships.mockResolvedValue([
+        { id: "project_existing", claimedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "project_new", claimedAt: "2026-06-05T08:00:00.000Z", createdAt: "2026-06-05T08:00:00.000Z" },
+      ])
+
+      const result = await claimProject({ actor: userActor, restoreKey: "restoreKey_123" })
+
+      expect(result.status).toBe("claimed")
+      // The result must carry overLimit: true so the client knows to show the read-only toast
+      expect((result as { status: "claimed"; project: unknown; overLimit?: boolean }).overLimit).toBe(true)
+    })
+
+    it("never refuses a claim based on count — always attempts even at the limit", async () => {
+      const { claimProject } = await import("./project-service.server")
+      const userActor: Actor = { kind: "user", user: { id: "user_123" } }
+      const claimedProject = {
+        projectId: "project_new",
+        project: makeProjectSnapshot(),
+        owner: { id: "user_123", email: "ada@example.com" },
+        claimedAt: "2026-06-05T08:00:00.000Z",
+      }
+      mocks.projectRepository.claimAnonymousProject = vi.fn().mockResolvedValue(claimedProject)
+      mocks.getEntitlements.mockReturnValue({
+        maxProjects: 1,
+        maxSnapshotTimers: 50,
+        maxSpaces: 2,
+        maxTimers: 20,
+        maxTimersPerSpace: 5,
+      })
+      mocks.projectRepository.listProjectMemberships.mockResolvedValue([
+        { id: "project_existing", claimedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "project_new", claimedAt: "2026-06-05T08:00:00.000Z", createdAt: "2026-06-05T08:00:00.000Z" },
+      ])
+
+      const result = await claimProject({ actor: userActor, restoreKey: "restoreKey_123" })
+
+      // Must have actually called claimAnonymousProject, not short-circuited
+      expect(mocks.projectRepository.claimAnonymousProject).toHaveBeenCalled()
+      expect(result.status).toBe("claimed")
+    })
   })
 })

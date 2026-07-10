@@ -44,7 +44,7 @@ describe("local notification preferences", () => {
       fullPageAlarm: true,
       inAppNotifications: false,
       sound: "polite",
-      localAlarmEnabled: false,
+      localAlarmEnabled: true,
     })
 
     setLocalBrowserNotificationsEnabled(false)

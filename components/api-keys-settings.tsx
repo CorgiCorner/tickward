@@ -1,13 +1,22 @@
 "use client"
 
-import { KeyRoundIcon, PlusIcon, Trash2Icon } from "lucide-react"
+import { EllipsisIcon, PlusIcon, Trash2Icon } from "lucide-react"
 import type { ReactNode } from "react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
-import { ConfirmActionButton } from "@/components/confirm-action-button"
 import { SecretRevealField } from "@/components/secret-reveal-field"
-import { SettingsDateMetadata } from "@/components/settings-metadata"
+import { formatSettingsDate } from "@/components/settings-metadata"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -18,6 +27,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { apiUnavailableErrorMessage, readApiJson } from "@/lib/client-api"
@@ -43,7 +53,7 @@ type CreatedApiKey = ApiKeyRecord & {
 }
 
 function apiKeyLabel(record: ApiKeyRecord) {
-  return `${record.key_prefix}...${record.key_last4}`
+  return `${record.key_prefix}…${record.key_last4}`
 }
 
 function withoutRawToken(record: CreatedApiKey): ApiKeyRecord {
@@ -136,43 +146,65 @@ function ApiKeyRow(
   }>,
 ) {
   const revoked = Boolean(props.record.revoked_at)
+  const [revokeOpen, setRevokeOpen] = useState(false)
   return (
-    <div className="grid gap-3 rounded-lg border p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <div className="truncate text-sm font-medium">{props.record.name}</div>
-            <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-              {formatMessage(
-                props.record.permission === "read" ? "apiKeys.permission.read" : "apiKeys.permission.fullAccess",
-              )}
+    <div className="flex items-center gap-3 px-3 py-2.5">
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="truncate text-sm font-medium">{props.record.name}</div>
+          <span className="rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase text-muted-foreground">
+            {formatMessage(
+              props.record.permission === "read" ? "apiKeys.permission.read" : "apiKeys.permission.fullAccess",
+            )}
+          </span>
+          {revoked ? (
+            <span className="rounded border border-destructive/30 px-1 py-0.5 text-[9px] font-medium uppercase text-destructive">
+              {formatMessage("apiKeys.revoked")}
             </span>
-            {revoked ? (
-              <span className="rounded-full border border-destructive/30 px-2 py-0.5 text-[11px] text-destructive">
-                {formatMessage("apiKeys.revoked")}
-              </span>
-            ) : null}
-          </div>
-          <div className="mt-1 font-mono text-xs text-muted-foreground">{apiKeyLabel(props.record)}</div>
+          ) : null}
         </div>
-        <div className="shrink-0">
-          <ConfirmActionButton
-            actionLabel={formatMessage("apiKeys.revokeAction")}
-            confirmAction={() => props.onRevoke(props.record.id)}
-            description={formatMessage("apiKeys.revokeConfirmDescription")}
-            icon={<Trash2Icon className="size-4" />}
-            loading={props.revokeLoading === props.record.id}
-            disabled={revoked}
-            title={formatMessage("apiKeys.revokeConfirmTitle")}
-          >
-            {formatMessage("apiKeys.revokeKey")}
-          </ConfirmActionButton>
+        <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+          {formatMessage("apiKeys.keyUsage", {
+            date: formatSettingsDate(props.record.last_used_at),
+            key: apiKeyLabel(props.record),
+          })}
         </div>
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
-        <SettingsDateMetadata label={formatMessage("apiKeys.createdLabel")} value={props.record.created_at} />
-        <SettingsDateMetadata label={formatMessage("apiKeys.lastUsedLabel")} value={props.record.last_used_at} />
-      </div>
+      <AlertDialog open={revokeOpen} onOpenChange={setRevokeOpen}>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label={formatMessage("apiKeys.actions")}
+              className="size-7 text-muted-foreground/60 hover:text-foreground"
+              loading={props.revokeLoading === props.record.id}
+              disabled={revoked}
+            >
+              <EllipsisIcon className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem variant="destructive" onSelect={() => setRevokeOpen(true)}>
+              <Trash2Icon className="mr-2 size-4" />
+              {formatMessage("apiKeys.revokeKey")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{formatMessage("apiKeys.revokeConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{formatMessage("apiKeys.revokeConfirmDescription")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{formatMessage("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => props.onRevoke(props.record.id)}>
+              {formatMessage("apiKeys.revokeAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -287,7 +319,7 @@ export function ApiKeysSettingsPanel(
     )
   } else {
     apiKeysContent = (
-      <div className="grid gap-3">
+      <div className="divide-y divide-border rounded-lg border border-border">
         {activeKeys.map((record) => (
           <ApiKeyRow
             key={record.id}
@@ -301,19 +333,19 @@ export function ApiKeysSettingsPanel(
   }
 
   return (
-    <section id="api-keys" className="grid scroll-mt-6 gap-4 rounded-lg border p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="grid gap-1">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <KeyRoundIcon className="size-4 text-muted-foreground" />
+    <section id="api-keys" className="grid scroll-mt-28 gap-0">
+      <div className="flex items-center justify-between gap-3 py-4">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">
             {formatMessage("apiKeys.title")}
+            <span className="ml-1 font-mono text-xs text-muted-foreground">{activeKeys.length}</span>
           </div>
-          <p className="text-sm text-muted-foreground">{formatMessage("apiKeys.description")}</p>
+          <p className="text-xs text-muted-foreground">{formatMessage("apiKeys.description")}</p>
         </div>
         <Dialog open={createOpen} onOpenChange={handleCreateOpenChange}>
           <DialogTrigger asChild>
-            <Button type="button" variant="outline" size="sm">
-              <PlusIcon className="size-4" />
+            <Button type="button" variant="outline" size="sm" className="h-8 shrink-0 text-xs text-muted-foreground">
+              <PlusIcon className="size-3.5" />
               {formatMessage("apiKeys.create")}
             </Button>
           </DialogTrigger>

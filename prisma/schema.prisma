@@ -59,6 +59,24 @@ model UserPreference {
   @@map("user_preference")
 }
 
+model AuditLog {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  actorId    String?
+  actorEmail String?
+  action     String
+  targetType String?
+  targetId   String?
+  ip         String?
+  userAgent  String?
+  metadata   Json?
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_log")
+}
+
 model ApiKey {
   id         String    @id @default(cuid())
   userId     String
@@ -196,14 +214,15 @@ model Verification {
 }
 
 model Project {
-  id        String    @id @default(cuid())
-  ownerId   String?
-  name      String
-  color     String?
-  snapshot  Json
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  claimedAt DateTime?
+  id              String    @id @default(cuid())
+  ownerId         String?
+  name            String
+  color           String?
+  snapshot        Json
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  claimedAt       DateTime?
+  overLimitSince  DateTime?
 
   owner        User?                @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   accessTokens ProjectAccessToken[]
@@ -212,6 +231,7 @@ model Project {
   shares       Share[]
 
   @@index([ownerId])
+  @@index([overLimitSince])
   @@map("project")
 }
 

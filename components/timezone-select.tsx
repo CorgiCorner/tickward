@@ -17,9 +17,16 @@ import { cn } from "@/lib/utils"
 import { formatTimeZoneLabel, getAllTimeZones, getPinnedTimeZones } from "@/lib/timezones"
 
 export function TimezoneSelect(
-  props: Readonly<{ disabled?: boolean; value: string; onChange: (value: string) => void; localTz: string }>,
+  props: Readonly<{
+    "aria-label"?: string
+    disabled?: boolean
+    triggerClassName?: string
+    value: string
+    onChange: (value: string) => void
+    localTz: string
+  }>,
 ) {
-  const { disabled = false, value, onChange, localTz } = props
+  const { disabled = false, triggerClassName, value, onChange, localTz } = props
   const [open, setOpen] = useState(false)
 
   const all = useMemo(() => getAllTimeZones(), [])
@@ -30,9 +37,10 @@ export function TimezoneSelect(
       <PopoverTrigger asChild>
         <Button
           variant="outline"
+          aria-label={props["aria-label"]}
           aria-expanded={open}
           aria-haspopup="listbox"
-          className="w-full justify-between"
+          className={cn("w-full justify-between", triggerClassName)}
           disabled={disabled}
         >
           <span className="truncate">{formatTimeZoneLabel(value)}</span>

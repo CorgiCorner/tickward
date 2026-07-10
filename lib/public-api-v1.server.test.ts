@@ -5,6 +5,7 @@ import { makeProjectSnapshot, makeSpace, makeTimer } from "@/test/factories"
 const mocks = vi.hoisted(() => ({
   authenticateApiKey: vi.fn(),
   checkRateLimit: vi.fn(),
+  recordAuditEvent: vi.fn(),
   requirePrismaClient: vi.fn(),
   sendTestWebhookForUser: vi.fn(),
 }))
@@ -20,6 +21,17 @@ vi.mock("@/lib/rate-limit.server", () => ({
 
 vi.mock("@/lib/db/prisma.server", () => ({
   requirePrismaClient: mocks.requirePrismaClient,
+}))
+
+vi.mock("@/lib/audit-log.server", () => ({
+  auditRequestContext: (input: Request | Headers) => {
+    const headers = input instanceof Request ? input.headers : input
+    return {
+      ip: headers.get("x-forwarded-for") ?? null,
+      userAgent: headers.get("user-agent"),
+    }
+  },
+  recordAuditEvent: mocks.recordAuditEvent,
 }))
 
 vi.mock("@/lib/webhooks.server", async (importOriginal) => ({
@@ -129,6 +141,13 @@ function projectRow(snapshot = makeProjectSnapshot(), overrides: Record<string, 
   }
 }
 
+function lockedProjectQuery(row = projectRow(), timerRows: Array<{ id: string }> = []) {
+  return vi.fn((strings: TemplateStringsArray) => {
+    const query = Array.from(strings).join("?")
+    return query.includes('FROM "timer"') ? timerRows : [row]
+  })
+}
+
 function publicApiRequest(method: string, path: string, body?: unknown) {
   return new Request(`https://tickward.test/api/v1${path}`, {
     method,
@@ -164,6 +183,7 @@ describe("public API v1", () => {
       headers: { "ratelimit-limit": "120", "ratelimit-remaining": "119", "ratelimit-reset": "60" },
     })
     mocks.requirePrismaClient.mockReset()
+    mocks.recordAuditEvent.mockReset()
     mocks.sendTestWebhookForUser.mockReset()
     mocks.sendTestWebhookForUser.mockResolvedValue(null)
     mocks.requirePrismaClient.mockReturnValue({
@@ -271,6 +291,411 @@ describe("public API v1", () => {
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ownerId: "user_123" }, take: 101 }))
   })
 
+  it("owner-scopes admin keys when listing projects", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const findMany = vi.fn().mockResolvedValue([])
+    mocks.authenticateApiKey.mockResolvedValueOnce({
+      ...readKey,
+      id: "key_admin_read",
+      rateLimitKey: "user:admin_123",
+      user: { id: "admin_123", email: "admin@example.com", role: "admin" as const },
+    })
+    mocks.requirePrismaClient.mockReturnValue({ project: { findMany } })
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/projects", { headers: { authorization: "Bearer tw_read" } }),
+      ["projects"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ object: "list", data: [] })
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ownerId: "admin_123" }, take: 101 }))
+  })
+
+  it("returns a full sync payload for every readable project", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-06-08T12:00:00.000Z"))
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const workSnapshot = makeProjectSnapshot({
+      color: "#111827",
+      name: "Work",
+      spaces: [makeSpace({ id: "space-work", name: "Work deadlines", color: "#2563eb" })],
+      timers: [
+        makeTimer({
+          id: "timer-launch",
+          label: "Launch",
+          spaceId: "space-work",
+          targetDate: "2026-06-20T12:00:00.000Z",
+        }),
+      ],
+      updatedAt: "2026-06-07T10:00:00.000Z",
+    })
+    const homeSnapshot = makeProjectSnapshot({
+      name: "Home",
+      spaces: [makeSpace({ id: "space-home", name: "Home" })],
+      timers: [makeTimer({ id: "timer-renewal", label: "Renewal", targetDate: "2026-07-01T00:00:00.000Z" })],
+      updatedAt: "2026-06-06T10:00:00.000Z",
+    })
+    const rows = [
+      projectRow(workSnapshot, { id: "project_work", createdAt: new Date("2026-06-07T00:00:00.000Z") }),
+      projectRow(homeSnapshot, { id: "project_home", createdAt: new Date("2026-06-06T00:00:00.000Z") }),
+    ]
+    const findMany = vi.fn().mockResolvedValue(rows)
+    mocks.requirePrismaClient.mockReturnValue({ project: { findMany } })
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/sync", { headers: { authorization: "Bearer tw_read" } }),
+      ["sync"],
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get("etag")).toEqual(expect.stringMatching(/^"sha256:[a-f0-9]{64}"$/))
+    expect(res.headers.get("ratelimit-limit")).toBe("120")
+    await expect(res.json()).resolves.toEqual({
+      object: "sync",
+      synced_at: "2026-06-08T12:00:00.000Z",
+      projects: [
+        {
+          object: "project",
+          id: "project_work",
+          name: "Work",
+          color: "#111827",
+          created_at: "2026-06-07T00:00:00.000Z",
+          updated_at: "2026-06-07T10:00:00.000Z",
+          claimed_at: null,
+          timer_count: 1,
+          space_count: 1,
+        },
+        {
+          object: "project",
+          id: "project_home",
+          name: "Home",
+          color: null,
+          created_at: "2026-06-06T00:00:00.000Z",
+          updated_at: "2026-06-06T10:00:00.000Z",
+          claimed_at: null,
+          timer_count: 1,
+          space_count: 1,
+        },
+      ],
+      spaces: [
+        {
+          object: "space",
+          id: "space-work",
+          project_id: "project_work",
+          project_name: "Work",
+          name: "Work deadlines",
+          color: "#2563eb",
+          created_at: "2026-05-20T00:00:00.000Z",
+        },
+        {
+          object: "space",
+          id: "space-home",
+          project_id: "project_home",
+          project_name: "Home",
+          name: "Home",
+          color: null,
+          created_at: "2026-05-20T00:00:00.000Z",
+        },
+      ],
+      timers: [
+        {
+          object: "timer",
+          id: "timer-launch",
+          project_id: "project_work",
+          project_name: "Work",
+          label: "Launch",
+          target_date: "2026-06-20T12:00:00.000Z",
+          effective_target_date: "2026-06-20T12:00:00.000Z",
+          timezone: "Europe/Warsaw",
+          created_at: "2026-05-20T00:00:00.000Z",
+          updated_at: "2026-05-20T00:00:00.000Z",
+          archived_at: null,
+          color: null,
+          description: null,
+          space_id: "space-work",
+          shared_at: null,
+          notify: true,
+          reminders: [],
+          recurrence: null,
+          pinned: false,
+          image: null,
+        },
+        {
+          object: "timer",
+          id: "timer-renewal",
+          project_id: "project_home",
+          project_name: "Home",
+          label: "Renewal",
+          target_date: "2026-07-01T00:00:00.000Z",
+          effective_target_date: "2026-07-01T00:00:00.000Z",
+          timezone: "Europe/Warsaw",
+          created_at: "2026-05-20T00:00:00.000Z",
+          updated_at: "2026-05-20T00:00:00.000Z",
+          archived_at: null,
+          color: null,
+          description: null,
+          space_id: null,
+          shared_at: null,
+          notify: true,
+          reminders: [],
+          recurrence: null,
+          pinned: false,
+          image: null,
+        },
+      ],
+    })
+    expect(findMany).toHaveBeenCalledWith({
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      where: { ownerId: "user_123" },
+    })
+  })
+
+  it("scopes admin sync responses to the API key user's own data", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-06-08T12:00:00.000Z"))
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const adminKey = {
+      ...readKey,
+      id: "key_admin",
+      rateLimitKey: "user:user_admin",
+      user: { id: "user_admin", email: "admin@example.com", role: "admin" as const },
+    }
+    const otherKey = {
+      ...readKey,
+      id: "key_other",
+      rateLimitKey: "user:user_other",
+      user: { id: "user_other", email: "other@example.com", role: "user" as const },
+    }
+    const adminSnapshot = makeProjectSnapshot({
+      name: "Admin private",
+      spaces: [makeSpace({ id: "space-admin", name: "Admin space" })],
+      timers: [makeTimer({ id: "timer-admin", label: "Admin timer", spaceId: "space-admin" })],
+      updatedAt: "2026-06-07T10:00:00.000Z",
+    })
+    const otherSnapshot = makeProjectSnapshot({
+      name: "Other private",
+      spaces: [makeSpace({ id: "space-other", name: "Other space" })],
+      timers: [makeTimer({ id: "timer-other", label: "Other timer", spaceId: "space-other" })],
+      updatedAt: "2026-06-06T10:00:00.000Z",
+    })
+    const rows = [
+      projectRow(adminSnapshot, {
+        id: "project_admin",
+        ownerId: "user_admin",
+        createdAt: new Date("2026-06-07T00:00:00.000Z"),
+      }),
+      projectRow(otherSnapshot, {
+        id: "project_other",
+        ownerId: "user_other",
+        createdAt: new Date("2026-06-06T00:00:00.000Z"),
+      }),
+    ]
+    const findMany = vi.fn((args: { where?: { ownerId?: string } }) =>
+      Promise.resolve(args.where?.ownerId ? rows.filter((row) => row.ownerId === args.where?.ownerId) : rows),
+    )
+    mocks.requirePrismaClient.mockReturnValue({ project: { findMany } })
+    mocks.authenticateApiKey.mockResolvedValueOnce(adminKey).mockResolvedValueOnce(otherKey)
+
+    const adminRes = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/sync", { headers: { authorization: "Bearer tw_admin" } }),
+      ["sync"],
+    )
+
+    expect(adminRes.status).toBe(200)
+    const adminEtag = adminRes.headers.get("etag")
+    expect(adminEtag).toEqual(expect.stringMatching(/^"sha256:[a-f0-9]{64}"$/))
+    const adminBody = await adminRes.json()
+    expect(adminBody.projects.map((project: { id: string }) => project.id)).toEqual(["project_admin"])
+    expect(adminBody.spaces.map((space: { id: string }) => space.id)).toEqual(["space-admin"])
+    expect(adminBody.timers.map((timer: { id: string }) => timer.id)).toEqual(["timer-admin"])
+    expect(findMany).toHaveBeenNthCalledWith(1, {
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      where: { ownerId: "user_admin" },
+    })
+
+    const otherRes = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/sync", { headers: { authorization: "Bearer tw_other" } }),
+      ["sync"],
+    )
+
+    expect(otherRes.status).toBe(200)
+    expect(otherRes.headers.get("etag")).not.toBe(adminEtag)
+    const otherBody = await otherRes.json()
+    expect(otherBody.projects.map((project: { id: string }) => project.id)).toEqual(["project_other"])
+    expect(otherBody.spaces.map((space: { id: string }) => space.id)).toEqual(["space-other"])
+    expect(otherBody.timers.map((timer: { id: string }) => timer.id)).toEqual(["timer-other"])
+    expect(findMany).toHaveBeenNthCalledWith(2, {
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      where: { ownerId: "user_other" },
+    })
+  })
+
+  it("keeps admin project lists owner-scoped unless scope=all is explicit", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const adminKey = {
+      ...readKey,
+      id: "key_admin",
+      rateLimitKey: "user:user_admin",
+      user: { id: "user_admin", email: "admin@example.com", role: "admin" as const },
+    }
+    const adminSnapshot = makeProjectSnapshot({ name: "Admin private" })
+    const otherSnapshot = makeProjectSnapshot({ name: "Other private" })
+    const rows = [
+      projectRow(adminSnapshot, {
+        id: "project_admin",
+        ownerId: "user_admin",
+        createdAt: new Date("2026-06-07T00:00:00.000Z"),
+      }),
+      projectRow(otherSnapshot, {
+        id: "project_other",
+        ownerId: "user_other",
+        createdAt: new Date("2026-06-06T00:00:00.000Z"),
+      }),
+    ]
+    const findMany = vi.fn((args: { where?: { ownerId?: string } } = {}) =>
+      Promise.resolve(args.where?.ownerId ? rows.filter((row) => row.ownerId === args.where?.ownerId) : rows),
+    )
+    mocks.requirePrismaClient.mockReturnValue({ project: { findMany } })
+    mocks.authenticateApiKey.mockResolvedValue(adminKey)
+
+    const scopedRes = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/projects", { headers: { authorization: "Bearer tw_admin" } }),
+      ["projects"],
+    )
+
+    expect(scopedRes.status).toBe(200)
+    const scopedBody = await scopedRes.json()
+    expect(scopedBody.data.map((project: { id: string }) => project.id)).toEqual(["project_admin"])
+    expect(findMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ take: 101, where: { ownerId: "user_admin" } }),
+    )
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled()
+
+    const globalRes = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/projects?scope=all", {
+        headers: { authorization: "Bearer tw_admin" },
+      }),
+      ["projects"],
+    )
+
+    expect(globalRes.status).toBe(200)
+    const globalBody = await globalRes.json()
+    expect(globalBody.data.map((project: { id: string }) => project.id)).toEqual(["project_admin", "project_other"])
+    expect(findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({ take: 101, where: {} }))
+    expect(mocks.recordAuditEvent).toHaveBeenCalledWith({
+      action: "public_api.scope_all",
+      actorEmail: "admin@example.com",
+      actorId: "user_admin",
+      ip: null,
+      metadata: {
+        api_key_id: "key_admin",
+        method: "GET",
+        operation: "GET /projects",
+        path: "/api/v1/projects",
+        scope: "all",
+      },
+      targetId: "GET /api/v1/projects",
+      targetType: "public_api_operation",
+      userAgent: null,
+    })
+  })
+
+  it("rejects scope=all for non-admin read requests", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/projects?scope=all", {
+        headers: { authorization: "Bearer tw_read" },
+      }),
+      ["projects"],
+    )
+
+    expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        message: "scope=all requires an admin API key.",
+        type: "insufficient_scope",
+      },
+    })
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it("rejects scope=all on write requests", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      new Request("https://tickward.test/api/v1/projects?scope=all", {
+        method: "POST",
+        headers: { authorization: "Bearer tw_full" },
+        body: JSON.stringify({ name: "Main" }),
+      }),
+      ["projects"],
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        message: "scope=all is only supported for read requests.",
+        type: "validation_error",
+      },
+    })
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it("returns 304 with the same ETag and rate limit headers when sync has not changed", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-06-08T12:00:00.000Z"))
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const snapshot = makeProjectSnapshot({ name: "Main" })
+    const findMany = vi.fn().mockResolvedValue([projectRow(snapshot)])
+    mocks.requirePrismaClient.mockReturnValue({ project: { findMany } })
+
+    const first = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/sync", { headers: { authorization: "Bearer tw_read" } }),
+      ["sync"],
+    )
+    const etag = first.headers.get("etag")
+    await expect(first.json()).resolves.toMatchObject({ synced_at: "2026-06-08T12:00:00.000Z" })
+
+    vi.setSystemTime(new Date("2026-06-08T12:05:00.000Z"))
+    const second = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/sync", {
+        headers: { authorization: "Bearer tw_read", "if-none-match": etag ?? "" },
+      }),
+      ["sync"],
+    )
+
+    expect(second.status).toBe(304)
+    expect(second.headers.get("etag")).toBe(etag)
+    expect(second.headers.get("ratelimit-limit")).toBe("120")
+    await expect(second.text()).resolves.toBe("")
+    expect(findMany).toHaveBeenCalledTimes(2)
+
+    const weak = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/sync", {
+        headers: { authorization: "Bearer tw_read", "if-none-match": `W/${etag}` },
+      }),
+      ["sync"],
+    )
+    expect(weak.status).toBe(304)
+  })
+
   it("includes the current effective date for recurring timers", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-06-08T12:00:00.000Z"))
@@ -366,6 +791,33 @@ describe("public API v1", () => {
     expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(1, "public-api-ip", "ip:unknown")
   })
 
+  it("prefers Cloudflare client IP when proxy headers are trusted", async () => {
+    process.env.TICKWARD_TRUST_PROXY_HEADERS = "true"
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const snapshot = makeProjectSnapshot({ name: "Main" })
+    mocks.requirePrismaClient.mockReturnValue({
+      project: {
+        findMany: vi.fn().mockResolvedValue([projectRow(snapshot)]),
+      },
+    })
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/projects", {
+        headers: {
+          authorization: "Bearer tw_read",
+          "cf-connecting-ip": "198.51.100.5",
+          "x-forwarded-for": "203.0.113.10",
+          "x-real-ip": "203.0.113.20",
+        },
+      }),
+      ["projects"],
+    )
+
+    expect(res.status).toBe(200)
+    expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(1, "public-api-ip", "ip:198.51.100.5")
+  })
+
   it("blocks read keys from writes", async () => {
     const { handlePublicApiV1Request } = await import("./public-api-v1.server")
 
@@ -439,6 +891,37 @@ describe("public API v1", () => {
         details: {
           granted_scopes: ["projects:write"],
           required_scope: "webhooks:write",
+        },
+        type: "insufficient_scope",
+      },
+    })
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  it("blocks MCP sync reads without all collection read scopes", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce({
+      ...fullKey,
+      kind: "mcp_connection",
+      scopes: ["projects:read"],
+    })
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/sync", {
+        headers: { authorization: "Bearer tw_mcp_read" },
+      }),
+      ["sync"],
+    )
+
+    expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        details: {
+          granted_scopes: ["projects:read"],
+          missing_scopes: ["spaces:read", "timers:read"],
+          required_scope: "spaces:read",
+          required_scopes: ["projects:read", "spaces:read", "timers:read"],
         },
         type: "insufficient_scope",
       },
@@ -1110,22 +1593,14 @@ describe("public API v1", () => {
         return row
       }),
     }
+    const row = projectRow(makeProjectSnapshot({ name: "Main", timers: [] }))
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(row),
       notificationDeliveryLog: { deleteMany: vi.fn() },
       notificationOutboxItem: { deleteMany: vi.fn() },
       project: {
         delete: vi.fn().mockResolvedValue({}),
-        findUnique: vi.fn().mockResolvedValue({
-          id: "project_123",
-          ownerId: "user_123",
-          name: "Main",
-          color: null,
-          snapshot: makeProjectSnapshot({ name: "Main", timers: [] }),
-          createdAt: new Date("2026-06-07T00:00:00.000Z"),
-          updatedAt: new Date("2026-06-07T00:00:00.000Z"),
-          claimedAt: null,
-        }),
+        findUnique: vi.fn().mockResolvedValue(row),
       },
       projectAccessToken: { deleteMany: vi.fn() },
       share: { deleteMany: vi.fn() },
@@ -1399,19 +1874,11 @@ describe("public API v1", () => {
     const { handlePublicApiV1Request } = await import("./public-api-v1.server")
     mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
     const snapshot = makeProjectSnapshot({ name: "Main", timers: [] })
+    const row = projectRow(snapshot)
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(row),
       project: {
-        findUnique: vi.fn().mockResolvedValue({
-          id: "project_123",
-          ownerId: "user_123",
-          name: "Main",
-          color: null,
-          snapshot,
-          createdAt: new Date("2026-06-07T00:00:00.000Z"),
-          updatedAt: new Date(snapshot.updatedAt),
-          claimedAt: null,
-        }),
+        findUnique: vi.fn().mockResolvedValue(row),
         update: vi.fn().mockResolvedValue({}),
       },
       notificationOutboxItem: {
@@ -1467,19 +1934,11 @@ describe("public API v1", () => {
     const { handlePublicApiV1Request } = await import("./public-api-v1.server")
     mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
     const snapshot = makeProjectSnapshot({ name: "Main", timers: [] })
+    const row = projectRow(snapshot)
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(row),
       project: {
-        findUnique: vi.fn().mockResolvedValue({
-          id: "project_123",
-          ownerId: "user_123",
-          name: "Main",
-          color: null,
-          snapshot,
-          createdAt: new Date("2026-06-07T00:00:00.000Z"),
-          updatedAt: new Date(snapshot.updatedAt),
-          claimedAt: null,
-        }),
+        findUnique: vi.fn().mockResolvedValue(row),
         update: vi.fn().mockResolvedValue({}),
       },
       timer: {
@@ -1599,7 +2058,7 @@ describe("public API v1", () => {
     })
     const row = projectRow(snapshot)
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(row),
       notificationOutboxItem: {
         createMany: vi.fn().mockResolvedValue({ count: 1 }),
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -1734,7 +2193,7 @@ describe("public API v1", () => {
     })
     const row = projectRow(snapshot)
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(row),
       notificationOutboxItem: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
@@ -1795,10 +2254,11 @@ describe("public API v1", () => {
     const { handlePublicApiV1Request } = await import("./public-api-v1.server")
     mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
     const snapshot = makeProjectSnapshot({ name: "Main", timers: [makeTimer({ id: "timer-a" })] })
+    const row = projectRow(snapshot)
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(row),
       project: {
-        findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
+        findUnique: vi.fn().mockResolvedValue(row),
         update: vi.fn(),
       },
       timer: {
@@ -1831,7 +2291,7 @@ describe("public API v1", () => {
     })
     const row = projectRow(snapshot)
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(row),
       notificationDeliveryLog: { deleteMany: vi.fn().mockResolvedValue({}) },
       notificationOutboxItem: {
         deleteMany: vi.fn().mockResolvedValue({}),
@@ -1920,7 +2380,7 @@ describe("public API v1", () => {
     mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
     const snapshot = makeProjectSnapshot({ name: "Main", timers: [makeTimer({ id: "timer-a" })] })
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(projectRow(snapshot)),
       notificationDeliveryLog: { deleteMany: vi.fn() },
       notificationOutboxItem: { deleteMany: vi.fn(), updateMany: vi.fn() },
       project: {
@@ -1952,7 +2412,7 @@ describe("public API v1", () => {
     mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
     const snapshot = makeProjectSnapshot({ name: "Main", spaces: [], timers: [] })
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(projectRow(snapshot)),
       project: {
         findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
         update: vi.fn().mockResolvedValue({}),
@@ -2002,7 +2462,7 @@ describe("public API v1", () => {
       timers: [],
     })
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(projectRow(snapshot)),
       project: {
         findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
         update: vi.fn(),
@@ -2032,7 +2492,7 @@ describe("public API v1", () => {
       timers: [],
     })
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(projectRow(snapshot)),
       project: {
         findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
         update: vi.fn().mockResolvedValue({}),
@@ -2074,7 +2534,7 @@ describe("public API v1", () => {
     mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
     const snapshot = makeProjectSnapshot({ spaces: [makeSpace({ id: "space-a" })], timers: [] })
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(projectRow(snapshot)),
       project: {
         findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
         update: vi.fn(),
@@ -2106,7 +2566,7 @@ describe("public API v1", () => {
       ],
     })
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(projectRow(snapshot)),
       project: {
         findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
         update: vi.fn().mockResolvedValue({}),
@@ -2152,7 +2612,7 @@ describe("public API v1", () => {
     mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
     const snapshot = makeProjectSnapshot({ spaces: [makeSpace({ id: "space-a" })], timers: [] })
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(projectRow(snapshot)),
       project: {
         findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
         update: vi.fn(),
@@ -2182,7 +2642,7 @@ describe("public API v1", () => {
       timers: [makeTimer({ id: "timer-a", spaceId: "space-a" })],
     })
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(projectRow(snapshot)),
       project: {
         findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
         update: vi.fn(),
@@ -2218,7 +2678,7 @@ describe("public API v1", () => {
       updatedAt: new Date(sharedAt),
     }
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(projectRow(snapshot)),
       project: {
         findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
         update: vi.fn().mockResolvedValue({}),
@@ -2285,7 +2745,7 @@ describe("public API v1", () => {
     const sharedAt = "2026-06-07T12:10:00.000Z"
     const snapshot = makeProjectSnapshot({ timers: [makeTimer({ id: "timer-a", sharedAt })] })
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(projectRow(snapshot)),
       project: {
         findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
         update: vi.fn(),
@@ -2323,7 +2783,7 @@ describe("public API v1", () => {
     const sharedAt = "2026-06-07T12:10:00.000Z"
     const snapshot = makeProjectSnapshot({ timers: [makeTimer({ id: "timer-a", sharedAt })] })
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "project_123" }]),
+      $queryRaw: lockedProjectQuery(projectRow(snapshot)),
       project: {
         findUnique: vi.fn().mockResolvedValue(projectRow(snapshot)),
         update: vi.fn(),
@@ -2631,5 +3091,261 @@ describe("public API v1", () => {
       },
     })
     expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  it("returns sync rate limit errors from the public API bucket before hitting storage", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.checkRateLimit
+      .mockResolvedValueOnce({ allowed: true, headers: { "ratelimit-limit": "300" } })
+      .mockResolvedValueOnce({ allowed: false, headers: { "retry-after": "30" } })
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/sync", { headers: { authorization: "Bearer tw_read" } }),
+      ["sync"],
+    )
+
+    expect(res.status).toBe(429)
+    expect(res.headers.get("retry-after")).toBe("30")
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        type: "rate_limited",
+      },
+    })
+    expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(1, "public-api-ip", "ip:unknown")
+    expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(2, "public-api", "user:user_123")
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  describe("over-limit read-only enforcement in public API", () => {
+    // Helper: builds a Prisma tx mock that returns owner memberships for the
+    // read-only predicate. We use claimedAt ordering so project_older is
+    // editable (within limit=1) and project_newer is over-limit (read-only).
+    function overLimitTx(projectId: string, snapshot = makeProjectSnapshot()) {
+      const olderRow = projectRow(makeProjectSnapshot({ name: "Older" }), {
+        id: "project_older",
+        ownerId: "user_123",
+        claimedAt: new Date("2026-01-01T00:00:00.000Z"),
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      })
+      const targetRow = projectRow(snapshot, {
+        id: projectId,
+        ownerId: "user_123",
+        claimedAt: new Date("2026-06-01T00:00:00.000Z"),
+        createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      })
+
+      return {
+        $queryRaw: vi.fn((strings: TemplateStringsArray) => {
+          const query = Array.from(strings).join("?")
+          // lockedProjectForUser uses $queryRaw for SELECT … FOR UPDATE
+          return query.includes("FOR UPDATE") ? [targetRow] : []
+        }),
+        project: {
+          findMany: vi.fn().mockResolvedValue([olderRow, targetRow]),
+          update: vi.fn().mockResolvedValue(targetRow),
+          delete: vi.fn().mockResolvedValue({}),
+        },
+        timer: {
+          create: vi.fn().mockResolvedValue({}),
+          update: vi.fn().mockResolvedValue({}),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+          delete: vi.fn().mockResolvedValue({}),
+          deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+        space: {
+          create: vi.fn().mockResolvedValue({}),
+          update: vi.fn().mockResolvedValue({}),
+          delete: vi.fn().mockResolvedValue({}),
+          deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+        share: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          upsert: vi.fn().mockResolvedValue({}),
+          findMany: vi.fn().mockResolvedValue([]),
+          deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+          count: vi.fn().mockResolvedValue(0),
+        },
+        projectAccessToken: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+        notificationOutboxItem: {
+          createMany: vi.fn().mockResolvedValue({ count: 0 }),
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+          deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+        notificationDeliveryLog: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+        webhookEvent: {
+          create: vi.fn().mockResolvedValue({}),
+          updateMany: vi.fn().mockResolvedValue({}),
+          upsert: vi.fn().mockResolvedValue({}),
+        },
+      }
+    }
+
+    it("POST /projects at limit returns 409 limit_exceeded", async () => {
+      // Stub env so the public-api module sees limit=1
+      vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_PROJECTS", "1")
+      const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+      mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+
+      // count returns 1 (already at limit)
+      const count = vi.fn().mockResolvedValue(1)
+      mocks.requirePrismaClient.mockReturnValue({ project: { count } })
+
+      const res = await handlePublicApiV1Request(
+        "POST",
+        new Request("https://tickward.test/api/v1/projects", {
+          method: "POST",
+          headers: { authorization: "Bearer tw_full" },
+          body: JSON.stringify({ name: "One too many" }),
+        }),
+        ["projects"],
+      )
+
+      expect(res.status).toBe(409)
+      await expect(res.json()).resolves.toMatchObject({ error: { type: "limit_exceeded" } })
+      vi.unstubAllEnvs()
+    })
+
+    it("mutations on the newest (over-limit) project return 409 limit_exceeded", async () => {
+      vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_PROJECTS", "1")
+      const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+
+      const snapshot = makeProjectSnapshot({ name: "Newer" })
+      const tx = overLimitTx("project_newer", snapshot)
+      mockTransaction(tx)
+
+      // PATCH project — should be blocked
+      mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+      const updateRes = await handlePublicApiV1Request(
+        "PATCH",
+        publicApiRequest("PATCH", "/projects/project_newer", { name: "Renamed" }),
+        ["projects", "project_newer"],
+      )
+
+      expect(updateRes.status).toBe(409)
+      await expect(updateRes.json()).resolves.toMatchObject({ error: { type: "limit_exceeded" } })
+      vi.unstubAllEnvs()
+    })
+
+    it("mutations on the oldest (editable) project return 200", async () => {
+      vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_PROJECTS", "1")
+      const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+
+      const snapshot = makeProjectSnapshot({ name: "Older" })
+      const olderRow = projectRow(snapshot, {
+        id: "project_older",
+        ownerId: "user_123",
+        claimedAt: new Date("2026-01-01T00:00:00.000Z"),
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      })
+      const newerRow = projectRow(makeProjectSnapshot({ name: "Newer" }), {
+        id: "project_newer",
+        ownerId: "user_123",
+        claimedAt: new Date("2026-06-01T00:00:00.000Z"),
+        createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      })
+      const updatedRow = { ...olderRow, name: "Renamed" }
+      const tx = {
+        $queryRaw: vi.fn((strings: TemplateStringsArray) => {
+          const query = Array.from(strings).join("?")
+          return query.includes("FOR UPDATE") ? [olderRow] : []
+        }),
+        project: {
+          findMany: vi.fn().mockResolvedValue([olderRow, newerRow]),
+          update: vi.fn().mockResolvedValue(updatedRow),
+        },
+        webhookEvent: {
+          create: vi.fn().mockResolvedValue({}),
+          updateMany: vi.fn().mockResolvedValue({}),
+        },
+      }
+      mockTransaction(tx)
+
+      mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+      const res = await handlePublicApiV1Request(
+        "PATCH",
+        publicApiRequest("PATCH", "/projects/project_older", { name: "Renamed" }),
+        ["projects", "project_older"],
+      )
+
+      expect(res.status).toBe(200)
+      vi.unstubAllEnvs()
+    })
+
+    it("DELETE on a read-only project returns 200 (delete always allowed)", async () => {
+      vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_PROJECTS", "1")
+      const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+      mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+
+      const snapshot = makeProjectSnapshot({ name: "Newer" })
+      const olderRow = projectRow(makeProjectSnapshot({ name: "Older" }), {
+        id: "project_older",
+        ownerId: "user_123",
+        claimedAt: new Date("2026-01-01T00:00:00.000Z"),
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      })
+      const newerRow = projectRow(snapshot, {
+        id: "project_newer",
+        ownerId: "user_123",
+        claimedAt: new Date("2026-06-01T00:00:00.000Z"),
+        createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      })
+      const tx = {
+        $queryRaw: vi.fn((strings: TemplateStringsArray) => {
+          const query = Array.from(strings).join("?")
+          return query.includes("FOR UPDATE") ? [newerRow] : []
+        }),
+        project: {
+          findMany: vi.fn().mockResolvedValue([olderRow, newerRow]),
+          delete: vi.fn().mockResolvedValue({}),
+        },
+        timer: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+        space: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+        share: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+        projectAccessToken: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+        notificationOutboxItem: {
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+          deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+        notificationDeliveryLog: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+        webhookEvent: {
+          create: vi.fn().mockResolvedValue({}),
+          updateMany: vi.fn().mockResolvedValue({}),
+        },
+      }
+      mockTransaction(tx)
+
+      const res = await handlePublicApiV1Request("DELETE", publicApiRequest("DELETE", "/projects/project_newer"), [
+        "projects",
+        "project_newer",
+      ])
+
+      // DELETE must always be allowed — it is the escape route
+      expect(res.status).toBe(200)
+      vi.unstubAllEnvs()
+    })
+
+    it("POST shares on a read-only project returns 409 limit_exceeded", async () => {
+      vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_PROJECTS", "1")
+      const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+      mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+
+      const snapshot = makeProjectSnapshot({
+        name: "Newer",
+        timers: [makeTimer({ id: "timer-a" })],
+      })
+      const tx = overLimitTx("project_newer", snapshot)
+      mockTransaction(tx)
+
+      const res = await handlePublicApiV1Request(
+        "POST",
+        publicApiRequest("POST", "/projects/project_newer/shares", { timer_id: "timer-a" }),
+        ["projects", "project_newer", "shares"],
+      )
+
+      expect(res.status).toBe(409)
+      await expect(res.json()).resolves.toMatchObject({ error: { type: "limit_exceeded" } })
+      vi.unstubAllEnvs()
+    })
   })
 })

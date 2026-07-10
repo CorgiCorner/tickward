@@ -394,4 +394,39 @@ describe("POST /api/projects/save", () => {
       ),
     ).rejects.toThrow("user write exploded")
   })
+
+  it("returns 403 project_read_only when saveUserProject reports read_only", async () => {
+    const { POST } = await import("./route")
+    const project = makeProjectSnapshot()
+    mocks.getCurrentActor.mockResolvedValue(userActor)
+    // Simulate the new read_only nested status from saveUserProject
+    mocks.saveUserProject.mockResolvedValue({ status: "ok", data: { status: "read_only" } })
+
+    const res = await POST(
+      jsonRequest("https://tickward.test/api/projects/save", {
+        projectId: "project_123",
+        project,
+      }),
+    )
+
+    expect(res.status).toBe(403)
+    await expectPublicError(res, PUBLIC_ERROR_CODES.projectReadOnly, "errors.projectReadOnly")
+  })
+
+  it("restore-key (anonymous) save path is untouched by read-only logic", async () => {
+    const { POST } = await import("./route")
+    const project = makeProjectSnapshot()
+    mocks.saveProject.mockResolvedValue({ status: "saved", project })
+
+    const res = await POST(
+      jsonRequest("https://tickward.test/api/projects/save", {
+        key: "restoreKey_123",
+        project,
+      }),
+    )
+
+    // Restore-key path must still return 200 OK (no read-only check)
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ ok: true, project })
+  })
 })

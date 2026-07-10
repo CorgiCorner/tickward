@@ -10,7 +10,6 @@ import {
   HistoryIcon,
   PencilIcon,
   PlusIcon,
-  RadioTowerIcon,
   SendIcon,
   ShieldCheckIcon,
   Trash2Icon,
@@ -380,7 +379,7 @@ function WebhookEndpointRow(
   }
 
   return (
-    <div className="grid gap-3 rounded-lg border p-3">
+    <div className="grid gap-3 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -565,6 +564,10 @@ export function WebhooksSettingsPanel(
     const inactive = webhooks.filter((record) => record.status === "disabled")
     return [...active, ...inactive]
   }, [webhooks])
+  const activeWebhooksCount = useMemo(
+    () => webhooks.filter((record) => record.status !== "disabled").length,
+    [webhooks],
+  )
 
   const form = useForm<WebhookFormValues>({
     resolver: zodResolver(webhookFormSchema),
@@ -721,13 +724,13 @@ export function WebhooksSettingsPanel(
     )
   } else if (visibleWebhooks.length === 0) {
     webhooksContent = (
-      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+      <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
         {formatMessage("webhooks.empty")}
       </div>
     )
   } else {
     webhooksContent = (
-      <div className="grid gap-3">
+      <div className="divide-y divide-border">
         {visibleWebhooks.map((endpoint) => (
           <WebhookEndpointRow
             key={endpoint.id}
@@ -749,28 +752,28 @@ export function WebhooksSettingsPanel(
   }
 
   return (
-    <section id="webhooks" className="grid scroll-mt-6 gap-4 rounded-lg border p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="grid gap-1">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <RadioTowerIcon className="size-4 text-muted-foreground" />
+    <section id="webhooks" className="grid scroll-mt-28 gap-0">
+      <div className="flex items-center justify-between gap-3 py-4">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">
             {formatMessage("webhooks.title")}
+            <span className="ml-1 font-mono text-xs text-muted-foreground">{activeWebhooksCount}</span>
           </div>
-          <p className="text-sm text-muted-foreground">{formatMessage("webhooks.description")}</p>
+          <p className="text-xs text-muted-foreground">{formatMessage("webhooks.description")}</p>
         </div>
-        <div data-slot="webhooks-actions" className="flex w-full flex-wrap justify-end gap-2 sm:w-auto sm:shrink-0">
+        <div data-slot="webhooks-actions" className="flex shrink-0 flex-wrap justify-end gap-1.5">
           {props.docsHref ? (
-            <Button variant="outline" size="sm" asChild className="w-fit">
+            <Button variant="ghost" size="sm" asChild className="h-8 w-fit text-xs text-muted-foreground">
               <a href={props.docsHref} target="_blank" rel="noreferrer">
-                <BookOpenIcon className="size-4" />
+                <BookOpenIcon className="size-3.5" />
                 {formatMessage("webhooks.docs")}
               </a>
             </Button>
           ) : null}
           <Dialog open={createOpen} onOpenChange={handleCreateOpenChange}>
             <DialogTrigger asChild>
-              <Button type="button" variant="outline" size="sm">
-                <PlusIcon className="size-4" />
+              <Button type="button" variant="outline" size="sm" className="h-8 text-xs text-muted-foreground">
+                <PlusIcon className="size-3.5" />
                 {formatMessage("webhooks.create")}
               </Button>
             </DialogTrigger>

@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react"
+import { act, render, screen, within } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -8,6 +8,7 @@ import type { TimerStore } from "@/lib/store"
 import { makeSpace, makeTimer } from "@/test/factories"
 
 let storeState: Partial<TimerStore>
+let sessionState: { data: { user: { id: string } } | null; isPending: boolean }
 
 vi.mock("@dnd-kit/core", () => ({
   DndContext: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -79,7 +80,7 @@ vi.mock("@/components/use-now", () => ({
 
 vi.mock("@/lib/auth/auth-client", () => ({
   authClient: {
-    useSession: () => ({ data: null, isPending: false }),
+    useSession: () => sessionState,
   },
 }))
 
@@ -101,7 +102,7 @@ vi.mock("@/lib/store", () => ({
 }))
 
 vi.mock("sonner", () => ({
-  toast: vi.fn(),
+  toast: Object.assign(vi.fn(), { success: vi.fn() }),
 }))
 
 function renderHomeClient() {
@@ -123,6 +124,7 @@ describe("HomeClient", () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     vi.setSystemTime(new Date("2026-05-24T00:00:00.000Z"))
 
+    sessionState = { data: null, isPending: false }
     storeState = {
       activeProjectId: null,
       activeSpaceId: null,
@@ -332,5 +334,50 @@ describe("HomeClient", () => {
     renderHomeClient()
 
     expect(screen.getByText("Keep timers across devices")).toBeVisible()
+  })
+
+  it("auto-claims the active project after refreshing account projects for a signed-in session", async () => {
+    sessionState = { data: { user: { id: "user_123" } }, isPending: false }
+    const maybeAutoClaimActiveProject = vi.fn().mockResolvedValue("claimed")
+    Object.assign(storeState, { maybeAutoClaimActiveProject })
+
+    renderHomeClient()
+    await act(async () => {})
+
+    expect(storeState.refreshAccountProjectsFromCloud).toHaveBeenCalledTimes(1)
+    expect(maybeAutoClaimActiveProject).toHaveBeenCalledTimes(1)
+    expect(storeState.removeAccountProjectsFromDevice).not.toHaveBeenCalled()
+  })
+
+  it("renders the read-only banner when the active project is over-limit", () => {
+    storeState.isActiveProjectReadOnly = true
+    storeState.timers = [makeTimer()]
+
+    renderHomeClient()
+
+    // This text comes from i18n key project.readOnly.banner.title
+    expect(screen.getByText("This project is read-only.")).toBeInTheDocument()
+  })
+
+  it("does not render the read-only banner when the project is within the limit", () => {
+    ;(storeState as Record<string, unknown>).isActiveProjectReadOnly = false
+    storeState.timers = [makeTimer()]
+
+    renderHomeClient()
+
+    expect(screen.queryByText("This project is read-only.")).not.toBeInTheDocument()
+  })
+
+  it("shows the claimed_read_only toast when maybeAutoClaimActiveProject resolves to claimed_read_only", async () => {
+    const { toast } = await import("sonner")
+    sessionState = { data: { user: { id: "user_123" } }, isPending: false }
+    const maybeAutoClaimActiveProject = vi.fn().mockResolvedValue("claimed_read_only")
+    Object.assign(storeState, { maybeAutoClaimActiveProject })
+
+    renderHomeClient()
+    await act(async () => {})
+
+    // The claimed_read_only status surfaces the auth.claim.claimedReadOnly message.
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(expect.stringContaining("read-only"))
   })
 })

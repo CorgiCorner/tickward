@@ -109,12 +109,15 @@ function isActiveAccessToken(token: { revokedAt: Date | null; expiresAt: Date | 
   return !token.revokedAt && (!token.expiresAt || token.expiresAt > now)
 }
 
+// The internal web-app routes are the signed-in user's own data plane, so
+// these filters are owner-scoped for every role. Cross-tenant admin reads
+// exist only in the public API behind an explicit scope=all.
 function ownedProjectWhere(projectId: string, user: UserRef) {
-  return user.role === "admin" ? { id: projectId } : { id: projectId, ownerId: user.id }
+  return { id: projectId, ownerId: user.id }
 }
 
 function ownedProjectsWhere(user: UserRef) {
-  return user.role === "admin" ? {} : { ownerId: user.id }
+  return { ownerId: user.id }
 }
 
 function timerEventPayload(project: { id: string; name: string }, timer: Timer) {
@@ -418,6 +421,12 @@ export const prismaProjectRepository: ProjectRepository = {
 
   async listUserProjects(args) {
     const prisma = requirePrismaClient()
+    const { optionalServerEnv } = await import("@/lib/env.server")
+
+    const retentionRaw = optionalServerEnv("TICKWARD_OVER_LIMIT_PROJECT_RETENTION_DAYS")
+    const retentionDays = retentionRaw && /^\d+$/.test(retentionRaw) ? Number.parseInt(retentionRaw, 10) : null
+    const validRetentionDays =
+      retentionDays !== null && Number.isSafeInteger(retentionDays) && retentionDays > 0 ? retentionDays : null
 
     const projects = await prisma.project.findMany({
       where: ownedProjectsWhere(args.user),
@@ -430,21 +439,32 @@ export const prismaProjectRepository: ProjectRepository = {
         claimedAt: true,
         createdAt: true,
         updatedAt: true,
+        overLimitSince: true,
         _count: { select: { timers: true, spaces: true } },
       },
     })
 
-    return projects.map((project) => ({
-      projectId: project.id,
-      name: project.name,
-      color: project.color ?? undefined,
-      ownerId: project.ownerId,
-      claimedAt: project.claimedAt?.toISOString(),
-      createdAt: project.createdAt.toISOString(),
-      updatedAt: project.updatedAt.toISOString(),
-      timerCount: project._count.timers,
-      spaceCount: project._count.spaces,
-    }))
+    return projects.map((project) => {
+      const overLimitSince = project.overLimitSince?.toISOString()
+      const overLimitPurgeAt =
+        overLimitSince && validRetentionDays
+          ? new Date(project.overLimitSince!.getTime() + validRetentionDays * 24 * 60 * 60_000).toISOString()
+          : undefined
+
+      return {
+        projectId: project.id,
+        name: project.name,
+        color: project.color ?? undefined,
+        ownerId: project.ownerId,
+        claimedAt: project.claimedAt?.toISOString(),
+        createdAt: project.createdAt.toISOString(),
+        updatedAt: project.updatedAt.toISOString(),
+        timerCount: project._count.timers,
+        spaceCount: project._count.spaces,
+        overLimitSince,
+        overLimitPurgeAt,
+      }
+    })
   },
 
   async loadUserProject(args) {
@@ -527,5 +547,20 @@ export const prismaProjectRepository: ProjectRepository = {
 
     await deleteProjectGraph(prisma, { projectId: project.id })
     return true
+  },
+
+  async listProjectMemberships(args) {
+    const prisma = requirePrismaClient()
+
+    const projects = await prisma.project.findMany({
+      where: { ownerId: args.ownerId },
+      select: { id: true, claimedAt: true, createdAt: true },
+    })
+
+    return projects.map((p) => ({
+      id: p.id,
+      claimedAt: p.claimedAt?.toISOString() ?? null,
+      createdAt: p.createdAt.toISOString(),
+    }))
   },
 }

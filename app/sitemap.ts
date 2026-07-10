@@ -19,6 +19,12 @@ const APP_SITEMAP_ENTRIES = [
     priority: 0.5,
     localized: true,
   },
+  {
+    path: "/download",
+    changeFrequency: "monthly",
+    priority: 0.7,
+    localized: true,
+  },
 ] as const
 
 type SitemapSource = Readonly<{

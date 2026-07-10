@@ -16,22 +16,22 @@ describe("formatDurationCompact", () => {
   it("formats whole days with the localized compact day label", () => {
     expect(
       formatDurationCompact({
-        durationDays: "07",
+        durationDays: "02",
         durationHours: "00",
         durationMinutes: "00",
         durationSeconds: "00",
       }),
-    ).toBe("7 d")
+    ).toBe("2 d")
 
     setActiveLocale("pl")
     expect(
       formatDurationCompact({
-        durationDays: "07",
+        durationDays: "02",
         durationHours: "00",
         durationMinutes: "00",
         durationSeconds: "00",
       }),
-    ).toBe("7 dni")
+    ).toBe("2 dni")
   })
 
   it("formats the Polish singular compact day label", () => {
@@ -72,8 +72,8 @@ describe("formatDurationCompact", () => {
 
 describe("valueFromTotalSeconds", () => {
   it("rolls full days into the day segment", () => {
-    expect(valueFromTotalSeconds(604800)).toEqual({
-      durationDays: "07",
+    expect(valueFromTotalSeconds(172800)).toEqual({
+      durationDays: "02",
       durationHours: "00",
       durationMinutes: "00",
       durationSeconds: "00",

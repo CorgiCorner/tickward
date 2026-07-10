@@ -7,6 +7,8 @@ import {
   restoreKeyForProjectAccess,
   userProjectAccess,
 } from "@/lib/project-access.server"
+import { getEntitlements } from "@/lib/entitlements"
+import { isProjectReadOnly } from "@/lib/project-lock"
 import type { ProjectRestoreResponse, ProjectSnapshotV2, UserProjectSummary } from "@/lib/project-model"
 import type { ClaimedProject } from "@/lib/repositories"
 import { getServerAdapters } from "@/lib/server-adapters.server"
@@ -22,6 +24,7 @@ export type SaveProjectResult =
   | { status: "saved"; project: ProjectSnapshotV2 }
   | { status: "conflict"; project: ProjectSnapshotV2; source: "project" | "legacy" }
   | { status: "not_found" }
+  | { status: "read_only" }
 
 export type ClaimProjectInput = {
   actor: Actor
@@ -30,7 +33,7 @@ export type ClaimProjectInput = {
 }
 
 export type ClaimProjectResult =
-  | { status: "claimed"; project: ClaimedProject }
+  | { status: "claimed"; project: ClaimedProject; overLimit?: boolean }
   | { status: "unauthenticated" }
   | { status: "unsupported" }
   | { status: "not_found" }
@@ -111,6 +114,16 @@ export async function saveUserProject(
   const current = await repository.loadUserProject({ projectId: access.projectId, user: access.user })
   if (!current) return { status: "not_found" }
 
+  // Read-only check: when the project has an owner and the repo supports membership
+  // listing, block writes if this project is over-limit. Fail-open when the method
+  // is absent (public mirror adapters may not implement it).
+  if (current.ownerId && repository.listProjectMemberships) {
+    const memberships = await repository.listProjectMemberships({ ownerId: current.ownerId })
+    if (isProjectReadOnly(memberships, access.projectId, getEntitlements().maxProjects)) {
+      return { status: "ok", data: { status: "read_only" } }
+    }
+  }
+
   if (
     !input.force &&
     current.project.updatedAt &&
@@ -161,5 +174,14 @@ export async function claimProject(input: ClaimProjectInput): Promise<ClaimProje
   })
 
   if (!project) return { status: "not_found" }
-  return { status: "claimed", project }
+
+  // Compute whether the newly claimed project is over the account limit.
+  // The claim always succeeds — this is purely informational for the client.
+  let overLimit = false
+  if (repository.listProjectMemberships) {
+    const memberships = await repository.listProjectMemberships({ ownerId: project.owner.id })
+    overLimit = isProjectReadOnly(memberships, project.projectId, getEntitlements().maxProjects)
+  }
+
+  return { status: "claimed", project, ...(overLimit ? { overLimit: true } : {}) }
 }

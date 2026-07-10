@@ -34,8 +34,6 @@ const DURATION_PRESETS: Array<{ seconds: number; labelKey: MessageKey }> = [
   { seconds: 1800, labelKey: "timer.form.duration.preset.thirtyMinutes" },
   { seconds: 2700, labelKey: "timer.form.duration.preset.fortyFiveMinutes" },
   { seconds: 3600, labelKey: "timer.form.duration.preset.oneHour" },
-  { seconds: 604800, labelKey: "timer.form.duration.preset.sevenDays" },
-  { seconds: 1209600, labelKey: "timer.form.duration.preset.fourteenDays" },
 ]
 
 const SCHEDULE_MODES: Array<{ value: ScheduleMode; labelKey: "timer.form.mode.at" | "timer.form.mode.in" }> = [

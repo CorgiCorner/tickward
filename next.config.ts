@@ -1,5 +1,6 @@
 import type { NextConfig } from "next"
 
+import { SHARED_SECURITY_HEADERS, contentSecurityPolicy } from "./lib/security-headers"
 import { getWwwToApexRedirect } from "./lib/site-config"
 
 const nextConfig: NextConfig = {
@@ -38,15 +39,16 @@ const nextConfig: NextConfig = {
     return wwwToApex ? [wwwToApex] : []
   },
   async headers() {
-    const sharedSecurityHeaders = [
-      { key: "X-Content-Type-Options", value: "nosniff" },
-      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-    ]
+    const sharedSecurityHeaders = SHARED_SECURITY_HEADERS.map(([key, value]) => ({ key, value }))
     return [
       {
-        // Everything except /embed/* stays unframeable.
-        source: "/((?!embed/).*)",
-        headers: [{ key: "X-Frame-Options", value: "DENY" }, ...sharedSecurityHeaders],
+        // Everything except /embed and /embed/* stays unframeable.
+        source: "/((?!embed(?:/|$)).*)",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Content-Security-Policy", value: contentSecurityPolicy() },
+          ...sharedSecurityHeaders,
+        ],
       },
       {
         // Embeds exist to be framed by third-party sites.

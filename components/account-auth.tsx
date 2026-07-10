@@ -1,13 +1,14 @@
 "use client"
 
-import { UserIcon } from "lucide-react"
+import { LogOutIcon, UserIcon } from "lucide-react"
 import Link from "next/link"
 import { lazy, Suspense, useEffect, useState } from "react"
 import { toast } from "sonner"
 
-import { AccountAvatar, cleanUserName, type AccountUser } from "@/components/account-button"
+import { AccountAvatar, cleanUserName, type AccountUser, useAccountSignOut } from "@/components/account-button"
 import { AccountPreferencesProvider, useAccountPreferences } from "@/components/account-preferences-provider"
 import type { ApiKeyRecord } from "@/components/api-keys-settings"
+import { DefaultTimezoneSettingsRow } from "@/components/timer-defaults-settings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -33,19 +34,13 @@ const profileInputProps = {
 
 function SettingsPanelLoading(props: Readonly<{ id: string }>) {
   return (
-    <section id={props.id} className="grid gap-4 rounded-lg border p-4" aria-busy="true">
-      <div className="grid gap-2">
-        <Skeleton className="h-5 w-32 rounded-md" />
-        <Skeleton className="h-4 w-72 max-w-full rounded-md" />
-      </div>
+    <div id={props.id} className="grid gap-3 py-4" aria-busy="true">
+      <Skeleton className="h-4 w-32 rounded-md" />
+      <Skeleton className="h-4 w-72 max-w-full rounded-md" />
       <Skeleton className="h-10 w-full rounded-md" />
-    </section>
+    </div>
   )
 }
-
-const TimerDefaultsSettingsPanel = lazy(() =>
-  import("@/components/timer-defaults-settings").then((mod) => ({ default: mod.TimerDefaultsSettingsPanel })),
-)
 
 const NotificationSettingsPanel = lazy(() =>
   import("@/components/notification-settings").then((mod) => ({ default: mod.NotificationSettingsPanel })),
@@ -64,14 +59,14 @@ const McpSettingsPanel = lazy(() =>
 )
 
 function AccountLoadingPanel() {
-  return <div className="rounded-lg border p-4 text-sm text-muted-foreground">{formatMessage("auth.loading")}</div>
+  return <div className="py-4 text-sm text-muted-foreground">{formatMessage("auth.loading")}</div>
 }
 
 function AccountSignInRequiredPanel() {
   const locale = useLocale()
 
   return (
-    <div className="grid gap-3 rounded-lg border p-4 text-sm">
+    <div className="grid gap-3 py-4 text-sm">
       <p className="text-muted-foreground">{formatMessage("auth.signInRequiredDescription")}</p>
       <Button asChild className="w-fit">
         <Link href={localeHref(locale, "/sign-in")}>
@@ -88,29 +83,49 @@ function SignedInAccountPanel(
     loading: boolean
     onNameChange: (value: string) => void
     onNameCommit: () => void
+    onSignOut: () => void
     profileName: string
+    signOutLoading: boolean
     user: AccountUser
   }>,
 ) {
   const displayName = cleanUserName(props.user.name)
 
   return (
-    <div className="grid gap-5">
-      <div className="flex items-center gap-3 rounded-lg border p-4">
-        <AccountAvatar user={props.user} />
-        <div className="min-w-0">
+    <div className="mt-2 divide-y divide-border">
+      <div id="profile" className="flex scroll-mt-28 items-center gap-3 py-4">
+        <AccountAvatar user={props.user} className="size-9 text-xs" />
+        <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{displayName ?? formatMessage("auth.account")}</div>
-          <div className="break-all text-sm text-muted-foreground">{props.user.email}</div>
+          {props.user.email ? <div className="break-all text-xs text-muted-foreground">{props.user.email}</div> : null}
+          <div className="text-xs text-muted-foreground">{formatMessage("settings.accountSignedInSynced")}</div>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0 text-xs text-muted-foreground"
+          loading={props.signOutLoading}
+          onClick={props.onSignOut}
+        >
+          {!props.signOutLoading ? <LogOutIcon className="size-3.5" /> : null}
+          {formatMessage("auth.signOut")}
+        </Button>
       </div>
 
-      <div className="grid gap-2">
-        <Label htmlFor="auth-name">{formatMessage("auth.name")}</Label>
+      <div className="flex items-center gap-3 py-4">
+        <div className="min-w-0 flex-1">
+          <Label htmlFor="auth-name" className="text-sm font-medium">
+            {formatMessage("auth.name")}
+          </Label>
+          <p className="text-xs text-muted-foreground">{formatMessage("settings.accountNameDescription")}</p>
+        </div>
         <Input
           id="auth-name"
           value={props.profileName}
           maxLength={80}
           disabled={props.loading}
+          className="h-8 w-44"
           {...profileInputProps}
           onBlur={props.onNameCommit}
           onChange={(event) => props.onNameChange(event.target.value)}
@@ -123,6 +138,7 @@ function SignedInAccountPanel(
           placeholder={formatMessage("auth.name.placeholder")}
         />
       </div>
+      <DefaultTimezoneSettingsRow />
     </div>
   )
 }
@@ -143,7 +159,7 @@ function AccountPreferencesSections(
   const { dismissError, error, loading, refreshPreferences } = useAccountPreferences()
 
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-10">
       {error ? (
         <div
           aria-live="polite"
@@ -166,35 +182,49 @@ function AccountPreferencesSections(
           </div>
         </div>
       ) : null}
-      <Suspense fallback={<SettingsPanelLoading id="defaults" />}>
-        <TimerDefaultsSettingsPanel />
-      </Suspense>
       <Suspense fallback={<SettingsPanelLoading id="alerts" />}>
         <NotificationSettingsPanel />
       </Suspense>
-      <Suspense fallback={<SettingsPanelLoading id="api-keys" />}>
-        <ApiKeysSettingsPanel initialApiKeys={props.apiKeys} initialLoadError={props.apiKeysError} />
-      </Suspense>
-      <Suspense fallback={<SettingsPanelLoading id="webhooks" />}>
-        <WebhooksSettingsPanel
-          docsHref={props.webhooksDocsHref}
-          initialWebhooks={props.webhooks}
-          initialLoadError={props.webhooksError}
-        />
-      </Suspense>
-      <Suspense fallback={<SettingsPanelLoading id="mcp" />}>
-        <McpSettingsPanel
-          initialConnections={props.mcpConnections}
-          initialLoadError={props.mcpConnectionsError}
-          docsHref={props.mcpDocsHref}
-          remoteUrl={props.mcpRemoteUrl}
-        />
-      </Suspense>
+      <section id="developer" className="scroll-mt-28 pt-0">
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+          {formatMessage("settings.developer")}
+        </h2>
+        <div className="mt-2 grid gap-6">
+          <Suspense fallback={<SettingsPanelLoading id="api-keys" />}>
+            <ApiKeysSettingsPanel initialApiKeys={props.apiKeys} initialLoadError={props.apiKeysError} />
+          </Suspense>
+          <Suspense fallback={<SettingsPanelLoading id="webhooks" />}>
+            <WebhooksSettingsPanel
+              docsHref={props.webhooksDocsHref}
+              initialWebhooks={props.webhooks}
+              initialLoadError={props.webhooksError}
+            />
+          </Suspense>
+          <Suspense fallback={<SettingsPanelLoading id="mcp" />}>
+            <McpSettingsPanel
+              initialConnections={props.mcpConnections}
+              initialLoadError={props.mcpConnectionsError}
+              docsHref={props.mcpDocsHref}
+              remoteUrl={props.mcpRemoteUrl}
+            />
+          </Suspense>
+        </div>
+      </section>
     </div>
   )
 }
 
-const SETTINGS_SECTION_IDS = new Set(["profile", "defaults", "alerts", "api-keys", "webhooks", "mcp"])
+const SETTINGS_SECTION_IDS = new Set([
+  "account",
+  "profile",
+  "defaults",
+  "notifications",
+  "alerts",
+  "developer",
+  "api-keys",
+  "webhooks",
+  "mcp",
+])
 
 function normalizedSettingsHashId() {
   const raw = globalThis.location.hash.slice(1)
@@ -208,7 +238,7 @@ function normalizedSettingsHashId() {
   }
 }
 
-function scrollToHashTarget() {
+function scrollToHashTarget(behavior: ScrollBehavior = "auto") {
   const id = normalizedSettingsHashId()
   if (!id) return
 
@@ -216,20 +246,20 @@ function scrollToHashTarget() {
   if (globalThis.location.hash !== hash) {
     globalThis.history.replaceState(null, "", `${globalThis.location.pathname}${globalThis.location.search}${hash}`)
   }
-  globalThis.document.getElementById(id)?.scrollIntoView({ block: "start" })
+  globalThis.document.getElementById(id)?.scrollIntoView({ block: "start", behavior })
 }
 
 function SettingsHashScroller() {
   useEffect(() => {
-    const scroll = () => {
-      const timeout = globalThis.setTimeout(scrollToHashTarget, 0)
+    const scroll = (behavior: ScrollBehavior) => {
+      const timeout = globalThis.setTimeout(() => scrollToHashTarget(behavior), 0)
       return () => globalThis.clearTimeout(timeout)
     }
 
-    let cancelScroll = scroll()
+    let cancelScroll = scroll("auto")
     const onHashChange = () => {
       cancelScroll()
-      cancelScroll = scroll()
+      cancelScroll = scroll("smooth")
     }
 
     globalThis.addEventListener("hashchange", onHashChange)
@@ -240,6 +270,60 @@ function SettingsHashScroller() {
   }, [])
 
   return null
+}
+
+const SETTINGS_NAV_ITEMS = [
+  { id: "account", labelKey: "auth.account" },
+  { id: "notifications", labelKey: "settings.notifications" },
+  { id: "developer", labelKey: "settings.developer" },
+] as const
+
+function parentSectionForHash(id: string | null) {
+  if (id === "alerts") return "notifications"
+  if (id === "api-keys" || id === "webhooks" || id === "mcp") return "developer"
+  if (id === "profile" || id === "defaults") return "account"
+  return id === "notifications" || id === "developer" ? id : "account"
+}
+
+function SettingsAnchorNav() {
+  const [activeId, setActiveId] = useState(() =>
+    typeof globalThis.location === "undefined" ? "account" : parentSectionForHash(normalizedSettingsHashId()),
+  )
+
+  useEffect(() => {
+    const onHashChange = () => setActiveId(parentSectionForHash(normalizedSettingsHashId()))
+    globalThis.addEventListener("hashchange", onHashChange)
+    return () => globalThis.removeEventListener("hashchange", onHashChange)
+  }, [])
+
+  return (
+    <nav className="sticky top-[57px] z-30 -mx-4 mt-4 border-b border-border bg-background px-4">
+      <div className="flex gap-5 text-sm">
+        {SETTINGS_NAV_ITEMS.map((item) => {
+          const active = activeId === item.id
+          return (
+            <a
+              key={item.id}
+              href={`#${item.id}`}
+              className={
+                active
+                  ? "border-b-2 border-foreground py-2.5 font-medium"
+                  : "border-b-2 border-transparent py-2.5 text-muted-foreground hover:text-foreground"
+              }
+              onClick={(event) => {
+                event.preventDefault()
+                setActiveId(item.id)
+                globalThis.history.pushState(null, "", `#${item.id}`)
+                globalThis.document.getElementById(item.id)?.scrollIntoView({ block: "start", behavior: "smooth" })
+              }}
+            >
+              {formatMessage(item.labelKey)}
+            </a>
+          )
+        })}
+      </div>
+    </nav>
+  )
 }
 
 export type AccountPageInitialData = {
@@ -259,6 +343,7 @@ export type AccountPageInitialData = {
 export function AccountPageClient(props: Readonly<AccountPageInitialData> = {}) {
   const session = authClient.useSession()
   const sessionPending = Boolean(session.isPending)
+  const signOutAction = useAccountSignOut(session)
 
   const [nameDraft, setNameDraft] = useState("")
   const [nameTouched, setNameTouched] = useState(false)
@@ -290,56 +375,64 @@ export function AccountPageClient(props: Readonly<AccountPageInitialData> = {}) 
 
   let content
   if (sessionPending) {
-    content = <AccountLoadingPanel />
-  } else if (session.data?.user) {
     content = (
-      <section id="profile" className="grid scroll-mt-6 gap-4 rounded-lg border p-4">
-        <div className="grid gap-1">
-          <h2 className="text-base font-semibold">{formatMessage("auth.profile")}</h2>
-          <p className="text-sm text-muted-foreground">{formatMessage("auth.profileDescription")}</p>
-        </div>
-        <SignedInAccountPanel
-          loading={loading}
-          profileName={profileName}
-          user={session.data.user}
-          onNameChange={(value) => {
-            setNameDraft(value)
-            setNameTouched(true)
-          }}
-          onNameCommit={() => void updateProfileName()}
-        />
+      <section id="account" className="scroll-mt-28 pt-8">
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+          {formatMessage("auth.account")}
+        </h2>
+        <AccountLoadingPanel />
       </section>
     )
+  } else if (session.data?.user) {
+    content = (
+      <AccountPreferencesProvider initialPreferences={props.preferences} initialError={props.preferencesError}>
+        <section id="account" className="scroll-mt-28 pt-8">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+            {formatMessage("auth.account")}
+          </h2>
+          <SignedInAccountPanel
+            loading={loading}
+            profileName={profileName}
+            signOutLoading={signOutAction.loading}
+            user={session.data.user}
+            onNameChange={(value) => {
+              setNameDraft(value)
+              setNameTouched(true)
+            }}
+            onNameCommit={() => void updateProfileName()}
+            onSignOut={() => void signOutAction.signOut()}
+          />
+        </section>
+        <AccountPreferencesSections
+          apiKeys={props.apiKeys}
+          apiKeysError={props.apiKeysError}
+          mcpConnections={props.mcpConnections}
+          mcpConnectionsError={props.mcpConnectionsError}
+          mcpDocsHref={props.mcpDocsHref}
+          mcpRemoteUrl={props.mcpRemoteUrl}
+          webhooksDocsHref={props.webhooksDocsHref}
+          webhooks={props.webhooks}
+          webhooksError={props.webhooksError}
+        />
+      </AccountPreferencesProvider>
+    )
   } else {
-    content = <AccountSignInRequiredPanel />
+    content = (
+      <section id="account" className="scroll-mt-28 pt-8">
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+          {formatMessage("auth.account")}
+        </h2>
+        <AccountSignInRequiredPanel />
+      </section>
+    )
   }
 
-  const descriptionKey = session.data?.user ? "auth.description.signedIn" : "auth.description.accountSignInRequired"
-
   return (
-    <main className="mx-auto grid w-full max-w-[640px] gap-8 px-4 py-8">
+    <main className="mx-auto w-full max-w-[640px] flex-1 px-4 pb-16 pt-8">
       <SettingsHashScroller />
-      <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold tracking-normal">{formatMessage("auth.accountSettings")}</h1>
-        <p className="text-sm text-muted-foreground">{formatMessage(descriptionKey)}</p>
-      </div>
-
-      {content}
-      {session.data?.user ? (
-        <AccountPreferencesProvider initialPreferences={props.preferences} initialError={props.preferencesError}>
-          <AccountPreferencesSections
-            apiKeys={props.apiKeys}
-            apiKeysError={props.apiKeysError}
-            mcpConnections={props.mcpConnections}
-            mcpConnectionsError={props.mcpConnectionsError}
-            mcpDocsHref={props.mcpDocsHref}
-            mcpRemoteUrl={props.mcpRemoteUrl}
-            webhooksDocsHref={props.webhooksDocsHref}
-            webhooks={props.webhooks}
-            webhooksError={props.webhooksError}
-          />
-        </AccountPreferencesProvider>
-      ) : null}
+      <h1 className="text-2xl font-semibold tracking-tight">{formatMessage("auth.accountSettings")}</h1>
+      <SettingsAnchorNav />
+      <div className="grid gap-10">{content}</div>
     </main>
   )
 }

@@ -1,5 +1,6 @@
 import { getActiveLocale } from "@/lib/i18n/active-locale"
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/config"
+import { deMessages } from "@/lib/i18n/locales/de"
 import { enMessages } from "@/lib/i18n/locales/en"
 import { itMessages } from "@/lib/i18n/locales/it"
 import { plMessages } from "@/lib/i18n/locales/pl"
@@ -12,6 +13,7 @@ export const MESSAGES: Record<Locale, Record<keyof typeof enMessages, string>> =
   en: enMessages,
   pl: plMessages,
   it: itMessages,
+  de: deMessages,
 }
 
 export type MessageKey = keyof typeof enMessages

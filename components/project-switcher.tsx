@@ -20,8 +20,10 @@ import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { SettingsSheet } from "@/components/settings-sheet"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
+import { getEntitlements } from "@/lib/entitlements"
 import { formatMessage } from "@/lib/i18n/messages"
 import { LIMITS } from "@/lib/limits"
+import { accountProjectMemberships, readOnlyProjectIds } from "@/lib/project-lock"
 import { useTimerStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
@@ -60,6 +62,8 @@ export function ProjectSwitcher() {
   const activeProject = projects.find((project) => project.id === activeProjectId)
   const activeProjectName = activeProject?.name ?? formatMessage("project.defaultName")
   const atProjectLimit = projects.length >= LIMITS.projects
+
+  const readOnlyIds = readOnlyProjectIds(accountProjectMemberships(projects), getEntitlements().maxProjects)
 
   if (hasHydrated && projects.length === 0) return null
 
@@ -108,7 +112,9 @@ export function ProjectSwitcher() {
           />
         </div>
 
-        <div className="grid max-h-56 gap-0.5 overflow-y-auto">
+        {/* Negative margin + matching padding keep the focus-visible ring of
+            the row buttons inside the horizontally clipped scrollport. */}
+        <div className="-mx-1.5 grid max-h-56 gap-0.5 overflow-y-auto overflow-x-hidden px-1.5">
           {projects.map((project) => {
             const selected = project.id === activeProjectId
             const timerCount = projectTimerCount({
@@ -128,7 +134,7 @@ export function ProjectSwitcher() {
               <div
                 key={project.id}
                 className={cn(
-                  "flex items-center rounded-md transition-colors",
+                  "flex min-w-0 items-center rounded-md transition-colors",
                   selected ? "bg-muted" : "hover:bg-muted",
                 )}
               >
@@ -152,6 +158,14 @@ export function ProjectSwitcher() {
                       {!project.cloudProjectId ? (
                         <span className="shrink-0 rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase leading-none text-muted-foreground">
                           {formatMessage("project.local")}
+                        </span>
+                      ) : null}
+                      {project.cloudProjectId && readOnlyIds.has(project.cloudProjectId) ? (
+                        <span
+                          className="min-w-0 max-w-24 truncate rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase leading-none text-muted-foreground"
+                          title={formatMessage("project.readOnly.badge")}
+                        >
+                          {formatMessage("project.readOnly.badge")}
                         </span>
                       ) : null}
                     </span>

@@ -1,17 +1,32 @@
 "use client"
 
-import { BookOpenIcon, BotIcon, CopyIcon, KeyRoundIcon, ServerIcon, Trash2Icon } from "lucide-react"
+import { BookOpenIcon, ChevronDownIcon, CopyIcon, EllipsisIcon, Trash2Icon } from "lucide-react"
 import type { ReactNode } from "react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
-import { ConfirmActionButton } from "@/components/confirm-action-button"
-import { SettingsDateMetadata } from "@/components/settings-metadata"
+import { formatSettingsDate } from "@/components/settings-metadata"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { apiUnavailableErrorMessage, readApiJson } from "@/lib/client-api"
 import { formatMessage } from "@/lib/i18n/messages"
 import { MCP_OAUTH_SCOPES, type McpConnectionPublicRecord, type McpOAuthScope } from "@/lib/mcp-oauth"
+
+type McpConnectionGroup =
+  | { type: "single"; connection: McpConnectionPublicRecord }
+  | { type: "group"; name: string; connections: McpConnectionPublicRecord[] }
 
 async function fetchMcpConnections() {
   const res = await fetch("/api/account/mcp-connections", { cache: "no-store" })
@@ -58,58 +73,214 @@ function formatScope(scope: McpOAuthScope) {
   return `${resource} ${action}`
 }
 
-function McpConnectionRow(
+function mcpConnectionKeyLabel(connection: McpConnectionPublicRecord) {
+  return `${connection.key_prefix}…${connection.key_last4}`
+}
+
+function lastUsedText(value: string | null) {
+  return value ? formatMessage("mcp.lastUsed", { date: formatSettingsDate(value) }) : formatMessage("mcp.neverUsed")
+}
+
+function groupMcpConnections(connections: McpConnectionPublicRecord[]): McpConnectionGroup[] {
+  const byName = new Map<string, McpConnectionPublicRecord[]>()
+  for (const connection of connections) {
+    const group = byName.get(connection.name) ?? []
+    group.push(connection)
+    byName.set(connection.name, group)
+  }
+
+  const groups: McpConnectionGroup[] = []
+  for (const [name, group] of byName.entries()) {
+    if (group.length > 1) {
+      groups.push({ type: "group", name, connections: group })
+    } else {
+      groups.push({ type: "single", connection: group[0]! })
+    }
+  }
+  return groups
+}
+
+function McpConnectionMenu(
   props: Readonly<{
     connection: McpConnectionPublicRecord
     onRevoke: (id: string) => void
     revokeLoading: string | null
   }>,
 ) {
+  const [revokeOpen, setRevokeOpen] = useState(false)
   const revoked = Boolean(props.connection.revoked_at)
+
   return (
-    <div className="grid gap-3 rounded-lg border bg-background p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <div className="truncate text-sm font-medium">{props.connection.client_name ?? props.connection.name}</div>
-            <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-              {mcpConnectionAccessLabel(props.connection.scopes)}
-            </span>
-            {revoked ? (
-              <span className="rounded-full border border-destructive/30 px-2 py-0.5 text-[11px] text-destructive">
-                {formatMessage("apiKeys.revoked")}
-              </span>
-            ) : null}
-          </div>
-          <div className="mt-1 font-mono text-xs text-muted-foreground">
-            {props.connection.key_prefix}...{props.connection.key_last4}
-          </div>
-        </div>
-        <div className="shrink-0">
-          <ConfirmActionButton
-            actionLabel={formatMessage("mcp.connectionRevokeAction")}
-            confirmAction={() => props.onRevoke(props.connection.id)}
-            description={formatMessage("mcp.connectionRevokeConfirmDescription")}
-            icon={<Trash2Icon className="size-4" />}
+    <AlertDialog open={revokeOpen} onOpenChange={setRevokeOpen}>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={formatMessage("mcp.connectionActions")}
+            className="size-7 text-muted-foreground/60 hover:text-foreground"
             loading={props.revokeLoading === props.connection.id}
             disabled={revoked}
-            title={formatMessage("mcp.connectionRevokeConfirmTitle")}
           >
+            <EllipsisIcon className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem variant="destructive" onSelect={() => setRevokeOpen(true)}>
+            <Trash2Icon className="mr-2 size-4" />
             {formatMessage("mcp.connectionRevokeConnection")}
-          </ConfirmActionButton>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{formatMessage("mcp.connectionRevokeConfirmTitle")}</AlertDialogTitle>
+          <AlertDialogDescription>{formatMessage("mcp.connectionRevokeConfirmDescription")}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{formatMessage("common.cancel")}</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={() => props.onRevoke(props.connection.id)}>
+            {formatMessage("mcp.connectionRevokeAction")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function McpSingleConnectionRow(
+  props: Readonly<{
+    connection: McpConnectionPublicRecord
+    onRevoke: (id: string) => void
+    open: boolean
+    revokeLoading: string | null
+    toggleOpen: () => void
+  }>,
+) {
+  return (
+    <div className="px-3 py-2.5">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="truncate text-sm font-medium">{props.connection.name}</span>
+            <span className="rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase text-muted-foreground">
+              {mcpConnectionAccessLabel(props.connection.scopes)}
+            </span>
+          </div>
+          <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+            {formatMessage("mcp.keyUsage", {
+              date: lastUsedText(props.connection.last_used_at),
+              key: mcpConnectionKeyLabel(props.connection),
+            })}
+          </div>
         </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={formatMessage("mcp.expandConnection")}
+          className="size-7 text-muted-foreground/60 hover:text-foreground"
+          onClick={props.toggleOpen}
+        >
+          <ChevronDownIcon
+            className={props.open ? "size-4 rotate-180 transition-transform" : "size-4 transition-transform"}
+          />
+        </Button>
+        <McpConnectionMenu
+          connection={props.connection}
+          revokeLoading={props.revokeLoading}
+          onRevoke={props.onRevoke}
+        />
       </div>
-      <div className="flex flex-wrap gap-1">
-        {props.connection.scopes.map((scope) => (
-          <span key={scope} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-            {formatScope(scope)}
-          </span>
-        ))}
+      {props.open ? (
+        <div className="pt-2.5">
+          <div className="flex flex-wrap gap-1">
+            {props.connection.scopes.map((scope) => (
+              <span key={scope} className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+                {formatScope(scope)}
+              </span>
+            ))}
+          </div>
+          <div className="mt-2 text-[11px] text-muted-foreground">
+            {props.connection.last_used_at
+              ? formatMessage("mcp.connectionDetailDates", {
+                  created: formatSettingsDate(props.connection.created_at),
+                  lastUsed: formatSettingsDate(props.connection.last_used_at),
+                })
+              : formatMessage("mcp.connectionDetailNeverUsed", {
+                  created: formatSettingsDate(props.connection.created_at),
+                })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function McpGroupedConnectionRow(
+  props: Readonly<{
+    connections: McpConnectionPublicRecord[]
+    name: string
+    onRevoke: (id: string) => void
+    open: boolean
+    revokeLoading: string | null
+    toggleOpen: () => void
+  }>,
+) {
+  const neverUsedCount = props.connections.filter((connection) => connection.last_used_at === null).length
+  const scopes = [...new Set(props.connections.flatMap((connection) => connection.scopes))]
+
+  return (
+    <div className="px-3 py-2.5">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="truncate text-sm font-medium">{props.name}</span>
+            <span className="rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase text-muted-foreground">
+              {mcpConnectionAccessLabel(scopes)}
+            </span>
+            <span className="rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
+              {formatMessage("mcp.groupBadge", { count: props.connections.length })}
+            </span>
+          </div>
+          <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+            {formatMessage("mcp.groupSummary", {
+              count: props.connections.length,
+              neverUsed: neverUsedCount,
+            })}
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={formatMessage("mcp.expandConnection")}
+          className="size-7 text-muted-foreground/60 hover:text-foreground"
+          onClick={props.toggleOpen}
+        >
+          <ChevronDownIcon
+            className={props.open ? "size-4 rotate-180 transition-transform" : "size-4 transition-transform"}
+          />
+        </Button>
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
-        <SettingsDateMetadata label={formatMessage("apiKeys.createdLabel")} value={props.connection.created_at} />
-        <SettingsDateMetadata label={formatMessage("apiKeys.lastUsedLabel")} value={props.connection.last_used_at} />
-      </div>
+      {props.open ? (
+        <div className="grid gap-1.5 pt-2.5 text-[11px] text-muted-foreground">
+          {props.connections.map((connection) => (
+            <div key={connection.id} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate font-mono">{mcpConnectionKeyLabel(connection)}</span>
+              <span className={connection.last_used_at ? "shrink-0" : "shrink-0 text-destructive"}>
+                {lastUsedText(connection.last_used_at)}
+              </span>
+              <McpConnectionMenu
+                connection={connection}
+                revokeLoading={props.revokeLoading}
+                onRevoke={props.onRevoke}
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -126,6 +297,14 @@ export function McpSettingsPanel(
   const [loadError, setLoadError] = useState<string | null>(() => props.initialLoadError ?? null)
   const [loading, setLoading] = useState(false)
   const [revokeLoading, setRevokeLoading] = useState<string | null>(null)
+  const [bulkRevokeLoading, setBulkRevokeLoading] = useState(false)
+  const [openConnections, setOpenConnections] = useState<Set<string>>(() => new Set())
+  const activeConnections = useMemo(() => connections.filter((connection) => !connection.revoked_at), [connections])
+  const unusedConnections = useMemo(
+    () => activeConnections.filter((connection) => connection.last_used_at === null),
+    [activeConnections],
+  )
+  const groupedConnections = useMemo(() => groupMcpConnections(activeConnections), [activeConnections])
 
   async function refreshConnections() {
     setLoading(true)
@@ -156,6 +335,39 @@ export function McpSettingsPanel(
     }
   }
 
+  async function revokeUnusedConnections() {
+    if (unusedConnections.length === 0) {
+      toast.success(formatMessage("mcp.revokeUnusedNone"))
+      return
+    }
+
+    setBulkRevokeLoading(true)
+    try {
+      const ids = unusedConnections.map((connection) => connection.id)
+      await Promise.all(ids.map((id) => revokeMcpConnection(id)))
+      const revokedAt = new Date().toISOString()
+      setConnections((current) =>
+        current.map((connection) =>
+          ids.includes(connection.id) ? { ...connection, revoked_at: revokedAt } : connection,
+        ),
+      )
+      toast.success(formatMessage("mcp.revokeUnusedToast"))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : formatMessage("mcp.connectionRevokeFailed"))
+    } finally {
+      setBulkRevokeLoading(false)
+    }
+  }
+
+  function toggleConnectionOpen(id: string) {
+    setOpenConnections((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   let connectionsContent: ReactNode
   if (loadError) {
     connectionsContent = (
@@ -166,101 +378,117 @@ export function McpSettingsPanel(
         </Button>
       </div>
     )
-  } else if (connections.length > 0) {
+  } else if (groupedConnections.length > 0) {
     connectionsContent = (
-      <div className="grid gap-2">
-        {connections.map((connection) => (
-          <McpConnectionRow
-            key={connection.id}
-            connection={connection}
-            revokeLoading={revokeLoading}
-            onRevoke={(id) => void revokeConnection(id)}
-          />
-        ))}
+      <div className="mt-2 divide-y divide-border rounded-lg border border-border">
+        {groupedConnections.map((item) =>
+          item.type === "single" ? (
+            <McpSingleConnectionRow
+              key={item.connection.id}
+              connection={item.connection}
+              open={openConnections.has(item.connection.id)}
+              revokeLoading={revokeLoading}
+              onRevoke={(id) => void revokeConnection(id)}
+              toggleOpen={() => toggleConnectionOpen(item.connection.id)}
+            />
+          ) : (
+            <McpGroupedConnectionRow
+              key={item.name}
+              name={item.name}
+              connections={item.connections}
+              open={openConnections.has(item.name)}
+              revokeLoading={revokeLoading}
+              onRevoke={(id) => void revokeConnection(id)}
+              toggleOpen={() => toggleConnectionOpen(item.name)}
+            />
+          ),
+        )}
       </div>
     )
   } else {
     connectionsContent = (
-      <div className="rounded-md border border-dashed bg-background p-3 text-xs text-muted-foreground">
+      <div className="mt-2 rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
         {formatMessage("mcp.connectionsEmpty")}
       </div>
     )
   }
 
   return (
-    <section id="mcp" className="grid scroll-mt-6 gap-4 rounded-lg border p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="grid gap-1">
-          <h2 className="text-base font-semibold">{formatMessage("mcp.title")}</h2>
-          <p className="text-sm text-muted-foreground">{formatMessage("mcp.description")}</p>
+    <section id="mcp" className="grid scroll-mt-28 gap-0">
+      <div className="flex items-center justify-between gap-3 py-4">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">{formatMessage("mcp.title")}</div>
+          <p className="text-xs text-muted-foreground">{formatMessage("mcp.description")}</p>
         </div>
         {props.docsHref ? (
-          <Button variant="outline" size="sm" asChild className="w-fit">
+          <Button variant="ghost" size="sm" asChild className="h-8 shrink-0 text-xs text-muted-foreground">
             <a href={props.docsHref} target="_blank" rel="noreferrer">
-              <BookOpenIcon className="size-4" />
+              <BookOpenIcon className="size-3.5" />
               {formatMessage("mcp.docs")}
             </a>
           </Button>
         ) : null}
       </div>
 
-      <div className="grid gap-3 rounded-lg bg-muted/30 p-3">
-        <div className="flex items-start gap-3">
-          <div className="grid size-9 shrink-0 place-items-center rounded-full border text-muted-foreground">
-            <ServerIcon className="size-4" />
-          </div>
-          <div className="grid min-w-0 flex-1 gap-2">
-            <div className="grid gap-1">
-              <div className="text-sm font-medium">{formatMessage("mcp.remoteTitle")}</div>
-              <p className="text-xs text-muted-foreground">{formatMessage("mcp.remoteDescription")}</p>
-            </div>
-            {props.remoteUrl ? (
-              <div className="flex gap-2">
-                <Input value={props.remoteUrl} readOnly className="min-w-0 font-mono text-xs" />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  aria-label={formatMessage("mcp.copyRemoteUrl")}
-                  onClick={() => void copyToClipboard(props.remoteUrl ?? "")}
-                >
-                  <CopyIcon className="size-4" />
-                </Button>
-              </div>
-            ) : (
-              <div className="rounded-md border border-dashed bg-background p-3 text-xs text-muted-foreground">
-                {formatMessage("mcp.remoteNotConfigured")}
-              </div>
-            )}
-          </div>
+      {props.remoteUrl ? (
+        <div className="flex items-center gap-2">
+          <Input
+            value={props.remoteUrl}
+            readOnly
+            className="h-8 min-w-0 flex-1 font-mono text-xs text-muted-foreground"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            aria-label={formatMessage("mcp.copyRemoteUrl")}
+            onClick={() => void copyToClipboard(props.remoteUrl ?? "")}
+          >
+            <CopyIcon className="size-3.5" />
+          </Button>
         </div>
-      </div>
+      ) : (
+        <div className="rounded-md border border-dashed bg-background p-3 text-xs text-muted-foreground">
+          {formatMessage("mcp.remoteNotConfigured")}
+        </div>
+      )}
 
-      <div className="grid gap-3 rounded-lg bg-muted/30 p-3">
-        <div className="grid gap-1">
-          <div className="text-sm font-medium">{formatMessage("mcp.connectionsTitle")}</div>
-          <p className="text-xs text-muted-foreground">{formatMessage("mcp.connectionsDescription")}</p>
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <div className="text-sm font-medium">
+          {formatMessage("mcp.connectionsTitle")}
+          <span className="ml-1 font-mono text-xs text-muted-foreground">{activeConnections.length}</span>
         </div>
-        {connectionsContent}
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="text-xs font-medium text-muted-foreground hover:text-foreground"
+              disabled={unusedConnections.length === 0 || bulkRevokeLoading}
+            >
+              {formatMessage("mcp.revokeUnused")}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{formatMessage("mcp.revokeUnusedConfirmTitle")}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {formatMessage("mcp.revokeUnusedConfirmDescription", { count: unusedConnections.length })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{formatMessage("common.cancel")}</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={() => void revokeUnusedConnections()}>
+                {formatMessage("mcp.revokeUnusedAction")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
+      {connectionsContent}
 
-      <div className="grid gap-3 rounded-lg bg-muted/30 p-3">
-        <div className="flex items-start gap-3">
-          <div className="grid size-9 shrink-0 place-items-center rounded-full border text-muted-foreground">
-            <BotIcon className="size-4" />
-          </div>
-          <div className="grid min-w-0 flex-1 gap-2">
-            <div className="grid gap-1">
-              <div className="text-sm font-medium">{formatMessage("mcp.localAgentsTitle")}</div>
-              <p className="text-xs text-muted-foreground">{formatMessage("mcp.localAgentsDescription")}</p>
-            </div>
-            <div className="flex items-start gap-2 rounded-md border bg-background p-3 text-xs text-muted-foreground">
-              <KeyRoundIcon className="mt-0.5 size-4 shrink-0" />
-              <p>{formatMessage("mcp.apiKeysHint")}</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <p className="mt-3 text-[11px] leading-5 text-muted-foreground">{formatMessage("mcp.localAgentsHelper")}</p>
     </section>
   )
 }

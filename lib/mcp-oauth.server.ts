@@ -2,6 +2,7 @@ import "server-only"
 
 import { createHash, randomBytes } from "node:crypto"
 
+import { recordAuditEvent } from "@/lib/audit-log.server"
 import type { UserRef } from "@/lib/contracts"
 import { hashApiKeyToken, MCP_CREDENTIAL_KIND, publicApiCredentialRecord } from "@/lib/api-keys.server"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
@@ -137,6 +138,21 @@ export async function revokeMcpConnectionForUser(args: {
     where: { id: args.id, kind: MCP_CREDENTIAL_KIND, revokedAt: null, userId: args.user.id },
     data: { revokedAt: new Date() },
   })
+
+  if (updated[0]) {
+    recordAuditEvent({
+      action: "mcp.connection.revoked",
+      actorEmail: args.user.email,
+      actorId: args.user.id,
+      metadata: {
+        client_name: updated[0].clientName,
+        key_prefix: updated[0].keyPrefix,
+        scopes: normalizeMcpOAuthScopes(updated[0].scopes),
+      },
+      targetId: updated[0].id,
+      targetType: "mcp_connection",
+    })
+  }
 
   return updated[0] ? mcpConnectionRecord(updated[0]) : null
 }

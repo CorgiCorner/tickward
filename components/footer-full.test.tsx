@@ -85,6 +85,8 @@ describe("FooterFull", () => {
     )
     expect(screen.getByRole("link", { name: "Press kit" })).toHaveAttribute("href", "/en/press")
     expect(screen.getByRole("link", { name: "Press kit" })).toHaveAttribute("data-next-link", "true")
+    expect(screen.getByRole("link", { name: "Contact" })).toHaveAttribute("href", "mailto:contact@tickward.com")
+    expect(screen.getByRole("link", { name: "Contact" })).not.toHaveAttribute("data-next-link")
     expect(screen.getByRole("link", { name: "Status" })).toHaveAttribute("href", "https://status.tickward.com")
     expect(screen.queryByRole("link", { name: "Sitemap" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Robots" })).not.toBeInTheDocument()

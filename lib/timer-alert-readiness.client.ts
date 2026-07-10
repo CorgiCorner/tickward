@@ -13,9 +13,6 @@ export function timerAlertReadiness(input: { signedIn: boolean }): TimerAlertRea
   if (!input.signedIn) return { ready: false, messageKey: "notifications.signInToConfigure" }
 
   const preferences = readLocalNotificationPreferences()
-  // The account-level master toggle suppresses every local alarm surface,
-  // including system notifications, so nothing is ready while it is off.
-  if (!preferences.inAppNotifications) return { ready: false, messageKey: "notifications.configureInSettings" }
   if (preferences.localAlarmEnabled) return { ready: true, mode: "local" }
   if (preferences.browserNotificationsEnabled && browserAlertsReady()) return { ready: true, mode: "system" }
 

@@ -286,7 +286,7 @@ describe("claimProject", () => {
 
     const result = await claimProject("restoreKey_123")
 
-    expect(result).toEqual({ status: "claimed", project })
+    expect(result).toEqual({ status: "claimed", project, overLimit: false })
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe("/api/projects/claim")
     expect(init?.method).toBe("POST")

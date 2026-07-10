@@ -1,5 +1,7 @@
 import type { ReactNode } from "react"
 
+import type { UserRole } from "@/lib/auth/permissions"
+
 export type MarketingSitemapEntry = {
   path: string
   changeFrequency: "daily" | "weekly" | "monthly" | "yearly"
@@ -25,8 +27,20 @@ export type MarketingCountryCalendarGroup = {
   links: MarketingFooterLink[]
 }
 
+export type AccountMenuLinkIcon = "shield"
+
+export type AccountMenuLink = {
+  href: string
+  label: string
+  /** Optional icon from the built-in account menu icon set. */
+  icon?: AccountMenuLinkIcon
+  /** Render only when the signed-in user has this role. */
+  requiredRole?: UserRole
+}
+
 export type AppExtensions = {
   renderHead?: () => ReactNode
+  accountMenuLinks?: (locale: string) => AccountMenuLink[]
   marketingFooterLinks?: () => MarketingFooterLink[]
   marketingFooterSections?: (locale: string) => MarketingFooterSection[]
   marketingCountryCalendars?: (locale: string) => MarketingCountryCalendarGroup[]

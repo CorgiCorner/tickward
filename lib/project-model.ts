@@ -25,6 +25,13 @@ export type ProjectMeta = {
   hasUnsyncedChanges?: boolean
   timerCount?: number
   spaceCount?: number
+  /** ISO timestamp set by the GC sweep when the project first became read-only over-limit. */
+  overLimitSince?: string
+  /**
+   * ISO timestamp indicating when the project will be purged.
+   * Present only when overLimitSince is set and retention is configured server-side.
+   */
+  overLimitPurgeAt?: string
 }
 
 export type ProjectSnapshotV2 = {
@@ -62,6 +69,13 @@ export type UserProjectSummary = {
   updatedAt: string
   timerCount: number
   spaceCount: number
+  /** ISO timestamp set by the GC sweep when the project first became read-only over-limit. */
+  overLimitSince?: string
+  /**
+   * ISO timestamp indicating when the project will be purged.
+   * Present only when overLimitSince is set and retention is configured server-side.
+   */
+  overLimitPurgeAt?: string
 }
 
 export { isValidRestoreKey } from "@/lib/identifiers"

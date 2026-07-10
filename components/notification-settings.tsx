@@ -1,6 +1,6 @@
 "use client"
 
-import { BellIcon, BellOffIcon, MailIcon, Volume2Icon } from "lucide-react"
+import { BellIcon, BellOffIcon, Volume2Icon } from "lucide-react"
 import { toast } from "sonner"
 
 import { useAccountPreferences } from "@/components/account-preferences-provider"
@@ -75,15 +75,15 @@ function DeviceNotificationsSection(
   }>,
 ) {
   return (
-    <section className="grid gap-3 rounded-lg bg-muted/30 p-3">
-      <div className="grid gap-1">
-        <h2 className="text-sm font-medium">{formatMessage("settings.systemAlerts")}</h2>
+    <div className="flex items-center gap-3 py-4">
+      <div className="min-w-0 flex-1">
+        <h3 className="text-sm font-medium">{formatMessage("settings.systemAlerts")}</h3>
         <p className="text-xs text-muted-foreground">{formatMessage("notifications.browser.description")}</p>
       </div>
       <Button
         variant="outline"
         size="sm"
-        className="w-full sm:w-[190px]"
+        className="h-8 shrink-0 text-xs text-muted-foreground"
         disabled={props.disabled}
         onClick={props.onToggleNotifications}
       >
@@ -99,82 +99,84 @@ function DeviceNotificationsSection(
           </>
         )}
       </Button>
-    </section>
+    </div>
   )
 }
 
-function LocalAlarmsSection(
+function FullPageAlarmRow(
   props: Readonly<{
     disabled: boolean
     fullPageAlarm: boolean
     onFullPageAlarmChange: (enabled: boolean) => void
+  }>,
+) {
+  return (
+    <div className="flex items-center gap-3 py-4">
+      <div className="min-w-0 flex-1">
+        <Label htmlFor="fullPageAlarm" className="text-sm font-medium">
+          {formatMessage("notifications.local.fullPageAlarm")}
+        </Label>
+        <div className="text-xs text-muted-foreground">
+          {formatMessage("notifications.local.fullPageAlarmDescription")}
+        </div>
+      </div>
+      <Switch
+        id="fullPageAlarm"
+        aria-label={formatMessage("notifications.local.fullPageAlarm")}
+        checked={props.fullPageAlarm}
+        disabled={props.disabled}
+        onCheckedChange={props.onFullPageAlarmChange}
+      />
+    </div>
+  )
+}
+
+function SoundRow(
+  props: Readonly<{
+    disabled: boolean
     onPreviewSound: (sound: NotificationSound) => void
     onSoundChange: (sound: NotificationSound) => void
     sound: NotificationSound
   }>,
 ) {
   return (
-    <section className="grid gap-3 rounded-lg bg-muted/30 p-3">
-      <div className="grid gap-1">
-        <h2 className="text-sm font-medium">{formatMessage("notifications.local.title")}</h2>
-        <p className="text-xs text-muted-foreground">{formatMessage("notifications.local.description")}</p>
-      </div>
-      <div className="text-xs text-muted-foreground">{formatMessage("notifications.local.privacyNote")}</div>
-
-      <div className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm">
-        <div className="grid gap-1">
-          <Label htmlFor="fullPageAlarm">{formatMessage("notifications.local.fullPageAlarm")}</Label>
-          <div className="text-xs text-muted-foreground">
-            {formatMessage("notifications.local.fullPageAlarmDescription")}
-          </div>
+    <div className="py-4">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">{formatMessage("notifications.sound")}</div>
+          <div className="text-xs text-muted-foreground">{formatMessage("notifications.sound.description")}</div>
         </div>
-        <Switch
-          id="fullPageAlarm"
-          aria-label={formatMessage("notifications.local.fullPageAlarm")}
-          checked={props.fullPageAlarm}
-          disabled={props.disabled}
-          onCheckedChange={props.onFullPageAlarmChange}
-        />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          aria-label={formatMessage("notifications.sound.preview")}
+          disabled={props.disabled || props.sound === "none"}
+          onClick={() => props.onPreviewSound(props.sound)}
+        >
+          <Volume2Icon className="size-4" />
+        </Button>
       </div>
-
-      <div className="rounded-lg border p-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="grid gap-1">
-            <div className="text-sm font-medium">{formatMessage("notifications.sound")}</div>
-            <div className="text-xs text-muted-foreground">{formatMessage("notifications.sound.description")}</div>
-          </div>
-          <Button
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {NOTIFICATION_SOUND_OPTIONS.map((option) => (
+          <button
+            key={option.value}
             type="button"
-            variant="outline"
-            size="icon-sm"
-            aria-label={formatMessage("notifications.sound.preview")}
-            disabled={props.disabled || props.sound === "none"}
-            onClick={() => props.onPreviewSound(props.sound)}
+            aria-pressed={props.sound === option.value}
+            disabled={props.disabled}
+            className={[
+              "rounded-full border px-3 py-1 text-xs transition-colors",
+              props.sound === option.value
+                ? "border-foreground bg-foreground font-medium text-background"
+                : "border-border text-muted-foreground hover:text-foreground",
+            ].join(" ")}
+            onClick={() => props.onSoundChange(option.value)}
           >
-            <Volume2Icon className="size-4" />
-          </Button>
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {NOTIFICATION_SOUND_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              aria-pressed={props.sound === option.value}
-              disabled={props.disabled}
-              className={[
-                "rounded-md border px-3 py-2 text-left text-xs font-medium transition-colors",
-                props.sound === option.value
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border text-muted-foreground hover:text-foreground",
-              ].join(" ")}
-              onClick={() => props.onSoundChange(option.value)}
-            >
-              {formatMessage(option.labelKey)}
-            </button>
-          ))}
-        </div>
+            {formatMessage(option.labelKey)}
+          </button>
+        ))}
       </div>
-    </section>
+    </div>
   )
 }
 
@@ -186,26 +188,23 @@ function InAppNotificationsSection(
   }>,
 ) {
   return (
-    <section className="grid gap-3 rounded-lg bg-muted/30 p-3">
-      <div className="flex items-start justify-between gap-3 rounded-lg border p-3 text-sm">
-        <div className="flex min-w-0 gap-3">
-          <BellIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-          <div className="grid gap-1">
-            <Label htmlFor="inAppNotifications">{formatMessage("settings.alerts.inAppNotifications.title")}</Label>
-            <div className="text-xs text-muted-foreground">
-              {formatMessage("settings.alerts.inAppNotifications.description")}
-            </div>
-          </div>
+    <div className="flex items-center gap-3 py-4">
+      <div className="min-w-0 flex-1">
+        <Label htmlFor="inAppNotifications" className="text-sm font-medium">
+          {formatMessage("settings.alerts.inAppNotifications.title")}
+        </Label>
+        <div className="text-xs text-muted-foreground">
+          {formatMessage("settings.alerts.inAppNotifications.description")}
         </div>
-        <Switch
-          id="inAppNotifications"
-          aria-label={formatMessage("settings.alerts.inAppNotifications.title")}
-          checked={props.inAppNotifications}
-          disabled={props.disabled}
-          onCheckedChange={props.onInAppNotificationsChange}
-        />
       </div>
-    </section>
+      <Switch
+        id="inAppNotifications"
+        aria-label={formatMessage("settings.alerts.inAppNotifications.title")}
+        checked={props.inAppNotifications}
+        disabled={props.disabled}
+        onCheckedChange={props.onInAppNotificationsChange}
+      />
+    </div>
   )
 }
 
@@ -217,26 +216,23 @@ function EmailRemindersSection(
   }>,
 ) {
   return (
-    <section className="grid gap-3 rounded-lg bg-muted/30 p-3">
-      <div className="flex items-start justify-between gap-3 rounded-lg border p-3 text-sm">
-        <div className="flex min-w-0 gap-3">
-          <MailIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-          <div className="grid gap-1">
-            <Label htmlFor="emailReminders">{formatMessage("settings.alerts.emailReminders.title")}</Label>
-            <div className="text-xs text-muted-foreground">
-              {formatMessage("settings.alerts.emailReminders.description")}
-            </div>
-          </div>
+    <div className="flex items-center gap-3 py-4">
+      <div className="min-w-0 flex-1">
+        <Label htmlFor="emailReminders" className="text-sm font-medium">
+          {formatMessage("settings.alerts.emailReminders.title")}
+        </Label>
+        <div className="text-xs text-muted-foreground">
+          {formatMessage("settings.alerts.emailReminders.description")}
         </div>
-        <Switch
-          id="emailReminders"
-          aria-label={formatMessage("settings.alerts.emailReminders.title")}
-          checked={props.emailReminders}
-          disabled={props.disabled}
-          onCheckedChange={props.onEmailRemindersChange}
-        />
       </div>
-    </section>
+      <Switch
+        id="emailReminders"
+        aria-label={formatMessage("settings.alerts.emailReminders.title")}
+        checked={props.emailReminders}
+        disabled={props.disabled}
+        onCheckedChange={props.onEmailRemindersChange}
+      />
+    </div>
   )
 }
 
@@ -248,40 +244,44 @@ export function NotificationSettingsPanel() {
   const systemAlertsEnabled = systemAlertsAllowed(localPreferences.browserNotificationsEnabled)
 
   return (
-    <section id="alerts" className="grid scroll-mt-6 gap-4 rounded-lg border p-4">
-      <div className="grid gap-1">
-        <h2 className="text-base font-semibold">{formatMessage("settings.alerts")}</h2>
-        <p className="text-sm text-muted-foreground">{formatMessage("settings.alertsDescription")}</p>
+    <section id="notifications" className="scroll-mt-28 pt-0">
+      <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+        {formatMessage("settings.notifications")}
+      </h2>
+      <div id="alerts" className="mt-2 divide-y divide-border scroll-mt-28">
+        <InAppNotificationsSection
+          disabled={accountControlsDisabled}
+          inAppNotifications={preferences.in_app_notifications}
+          onInAppNotificationsChange={(enabled) =>
+            void saveAccountAlertPreferences({ in_app_notifications: enabled }, updatePreferences)
+          }
+        />
+        <FullPageAlarmRow
+          disabled={accountControlsDisabled}
+          fullPageAlarm={preferences.full_page_alarm}
+          onFullPageAlarmChange={(enabled) =>
+            void saveAccountAlertPreferences({ full_page_alarm: enabled }, updatePreferences)
+          }
+        />
+        <SoundRow
+          disabled={accountControlsDisabled}
+          sound={preferences.notification_sound}
+          onPreviewSound={(sound) => void previewNotificationSound(sound)}
+          onSoundChange={(sound) => void saveAccountAlertPreferences({ notification_sound: sound }, updatePreferences)}
+        />
+        <DeviceNotificationsSection
+          disabled={deviceControlsDisabled}
+          systemAlertsEnabled={systemAlertsEnabled}
+          onToggleNotifications={() => void toggleSystemAlerts(systemAlertsEnabled)}
+        />
+        <EmailRemindersSection
+          disabled={accountControlsDisabled}
+          emailReminders={preferences.email_reminders}
+          onEmailRemindersChange={(enabled) =>
+            void saveAccountAlertPreferences({ email_reminders: enabled }, updatePreferences)
+          }
+        />
       </div>
-      <InAppNotificationsSection
-        disabled={accountControlsDisabled}
-        inAppNotifications={preferences.in_app_notifications}
-        onInAppNotificationsChange={(enabled) =>
-          void saveAccountAlertPreferences({ in_app_notifications: enabled }, updatePreferences)
-        }
-      />
-      <DeviceNotificationsSection
-        disabled={deviceControlsDisabled}
-        systemAlertsEnabled={systemAlertsEnabled}
-        onToggleNotifications={() => void toggleSystemAlerts(systemAlertsEnabled)}
-      />
-      <LocalAlarmsSection
-        disabled={accountControlsDisabled}
-        fullPageAlarm={preferences.full_page_alarm}
-        sound={preferences.notification_sound}
-        onFullPageAlarmChange={(enabled) =>
-          void saveAccountAlertPreferences({ full_page_alarm: enabled }, updatePreferences)
-        }
-        onPreviewSound={(sound) => void previewNotificationSound(sound)}
-        onSoundChange={(sound) => void saveAccountAlertPreferences({ notification_sound: sound }, updatePreferences)}
-      />
-      <EmailRemindersSection
-        disabled={accountControlsDisabled}
-        emailReminders={preferences.email_reminders}
-        onEmailRemindersChange={(enabled) =>
-          void saveAccountAlertPreferences({ email_reminders: enabled }, updatePreferences)
-        }
-      />
     </section>
   )
 }

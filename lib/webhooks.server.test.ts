@@ -20,8 +20,16 @@ const prismaMocks = vi.hoisted(() => ({
   requirePrismaClient: vi.fn(),
 }))
 
+const auditMocks = vi.hoisted(() => ({
+  recordAuditEvent: vi.fn(),
+}))
+
 const mailMocks = vi.hoisted(() => ({
   sendWebhookEndpointDisabledEmail: vi.fn(),
+}))
+
+vi.mock("@/lib/audit-log.server", () => ({
+  recordAuditEvent: auditMocks.recordAuditEvent,
 }))
 
 vi.mock("@/lib/db/prisma.server", () => ({
@@ -110,6 +118,7 @@ describe("webhook signing", () => {
 
 describe("webhook abuse protections", () => {
   afterEach(() => {
+    auditMocks.recordAuditEvent.mockReset()
     prismaMocks.requirePrismaClient.mockReset()
     mailMocks.sendWebhookEndpointDisabledEmail.mockReset()
     vi.unstubAllEnvs()
@@ -148,6 +157,54 @@ describe("webhook abuse protections", () => {
       }),
     ).rejects.toBeInstanceOf(WebhookEndpointLimitError)
     expect(create).not.toHaveBeenCalled()
+  })
+
+  it("emits an audit event when an endpoint is created", async () => {
+    const createdAt = new Date("2026-06-10T09:00:00.000Z")
+    prismaMocks.requirePrismaClient.mockReturnValue({
+      webhookEndpoint: {
+        count: vi.fn().mockResolvedValue(0),
+        create: vi.fn().mockResolvedValue({
+          createdAt,
+          disabledAt: null,
+          eventTypes: ["timer.ended"],
+          failureCount: 0,
+          id: "wh_123",
+          lastDeliveredAt: null,
+          lastFailedAt: null,
+          name: "Production",
+          secret: "whsec_secret",
+          status: "active",
+          updatedAt: createdAt,
+          url: "https://8.8.8.8/tickward",
+        }),
+      },
+    })
+
+    const result = await createWebhookEndpointForUser({
+      eventTypes: ["timer.ended"],
+      name: "Production",
+      url: "https://8.8.8.8/tickward",
+      user: { email: "ada@example.com", id: "user_123" },
+    })
+
+    expect(result).toMatchObject({ id: "wh_123" })
+    expect(result.signing_secret).toMatch(/^whsec_/)
+
+    expect(auditMocks.recordAuditEvent).toHaveBeenCalledWith({
+      action: "webhook.created",
+      actorEmail: "ada@example.com",
+      actorId: "user_123",
+      metadata: {
+        event_types: ["timer.ended"],
+        name: "Production",
+        status: "active",
+        url: "https://8.8.8.8/tickward",
+      },
+      targetId: "wh_123",
+      targetType: "webhook_endpoint",
+    })
+    expect(JSON.stringify(auditMocks.recordAuditEvent.mock.calls[0]?.[0])).not.toContain(result.signing_secret)
   })
 
   it("resets the failure streak when an endpoint is re-activated", async () => {
@@ -200,6 +257,19 @@ describe("webhook abuse protections", () => {
       where: { id: "wh_123", userId: "user_123" },
       data: { eventTypes: ["timer.created", "timer.ended"] },
     })
+    expect(auditMocks.recordAuditEvent).toHaveBeenCalledWith({
+      action: "webhook.updated",
+      actorEmail: undefined,
+      actorId: "user_123",
+      metadata: {
+        event_types: ["timer.created", "timer.ended"],
+        name: "Production",
+        status: "active",
+        url: "https://example.com/tickward",
+      },
+      targetId: "wh_123",
+      targetType: "webhook_endpoint",
+    })
   })
 
   it("removes endpoints by owner", async () => {
@@ -212,6 +282,13 @@ describe("webhook abuse protections", () => {
 
     expect(deleteMany).toHaveBeenCalledWith({
       where: { id: "wh_123", userId: "user_123" },
+    })
+    expect(auditMocks.recordAuditEvent).toHaveBeenCalledWith({
+      action: "webhook.deleted",
+      actorEmail: undefined,
+      actorId: "user_123",
+      targetId: "wh_123",
+      targetType: "webhook_endpoint",
     })
   })
 
@@ -292,5 +369,71 @@ describe("webhook abuse protections", () => {
       endpointUrl: "https://8.8.8.8/tickward",
       failureCount: webhookAutoDisableFailureThreshold() + 1,
     })
+  })
+
+  it("upgrades plaintext endpoint secrets after signing with a configured key", async () => {
+    vi.stubEnv("TICKWARD_ENCRYPTION_KEY", Buffer.alloc(32, 8).toString("base64"))
+    const delivery = {
+      id: "wd_123",
+      attemptCount: 0,
+      endpointId: "wh_123",
+      endpoint: {
+        id: "wh_123",
+        secret: "whsec_plain_secret",
+        url: "https://8.8.8.8/tickward",
+      },
+      event: {
+        aggregateId: "timer_123",
+        aggregateType: "timer",
+        id: "evt_123",
+        occurredAt: new Date("2026-06-09T09:00:00.000Z"),
+        payload: {},
+        projectId: "project_123",
+        shareId: null,
+        timerId: "timer_123",
+        type: "timer.ended",
+      },
+    }
+    const endpointUpdate = vi.fn().mockResolvedValue({})
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: delivery.id }]),
+      webhookDelivery: {
+        findMany: vi.fn().mockResolvedValue([delivery]),
+        update: vi.fn().mockResolvedValue({}),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      webhookEndpoint: {
+        findUnique: vi.fn(),
+        update: endpointUpdate,
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+    }
+    prismaMocks.requirePrismaClient.mockReturnValue({
+      ...tx,
+      $transaction: vi.fn(async (arg: unknown) =>
+        typeof arg === "function"
+          ? (arg as (client: typeof tx) => unknown)(tx)
+          : Promise.all(arg as Promise<unknown>[]),
+      ),
+    })
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok", { status: 200 }))
+
+    await deliverDueWebhooks(1)
+
+    const secretUpgrade = endpointUpdate.mock.calls
+      .map(([args]) => args)
+      .find((args) => typeof args.data.secret === "string")
+    expect(secretUpgrade).toEqual({
+      where: { id: "wh_123" },
+      data: { secret: expect.stringMatching(/^enc1:/) },
+    })
+
+    const fetchInit = fetchMock.mock.calls[0]?.[1] as RequestInit
+    const signature = (fetchInit.headers as Record<string, string>)["tickward-signature"]
+    const body = fetchInit.body as string
+    const timestamp = Number.parseInt(signature.match(/^t=(\d+),v1=/)?.[1] ?? "", 10)
+    const expected = createHmac("sha256", "whsec_plain_secret").update(`${timestamp}.${body}`, "utf8").digest("hex")
+
+    expect(signature).toBe(`t=${timestamp},v1=${expected}`)
   })
 })

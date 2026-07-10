@@ -294,11 +294,11 @@ export function TimerFocusMode(
           <FocusCountdownDisplay
             targetDateIsoUtc={targetDateIsoUtc}
             nowMs={nowMs}
-            className="mx-auto w-full max-w-4xl gap-3 sm:gap-8"
+            className="mx-auto w-full max-w-4xl gap-3 font-mono tabular-nums sm:gap-8"
             unitClassName="min-w-0 gap-3"
             unitValueClassName="text-5xl tracking-normal sm:text-7xl md:text-8xl"
             unitLabelClassName={cn("text-xs tracking-normal sm:text-sm", theme.detailClassName)}
-            sinceClassName={cn("mb-4 text-xs tracking-normal sm:text-sm", theme.detailClassName)}
+            sinceClassName={cn("mb-4 font-mono text-xs tracking-normal sm:text-sm", theme.detailClassName)}
           />
         </div>
       </main>

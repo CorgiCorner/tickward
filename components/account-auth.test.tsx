@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { AccountMenuLinksProvider } from "@/components/account-button"
 import { AccountButton, AccountPageClient } from "@/components/account-auth"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { LOCAL_NOTIFICATION_STORAGE_KEYS } from "@/lib/notification-preferences"
@@ -30,7 +31,12 @@ vi.mock("@/components/account-preferences-provider", () => ({
   useAccountPreferences: () => ({
     error: null,
     loading: false,
+    preferences: {
+      default_timezone: "UTC",
+    },
     refreshPreferences: vi.fn(),
+    saving: false,
+    updatePreferences: vi.fn(),
   }),
 }))
 
@@ -49,11 +55,15 @@ vi.mock("@/components/webhooks-settings", () => ({
 }))
 
 vi.mock("@/components/notification-settings", () => ({
-  NotificationSettingsPanel: () => <section id="alerts">Alert settings</section>,
+  NotificationSettingsPanel: () => (
+    <section id="notifications">
+      <div id="alerts">Alert settings</div>
+    </section>
+  ),
 }))
 
 vi.mock("@/components/timer-defaults-settings", () => ({
-  TimerDefaultsSettingsPanel: () => <section id="defaults">Timer defaults</section>,
+  DefaultTimezoneSettingsRow: () => <div id="defaults">Default timezone</div>,
 }))
 
 vi.mock("sonner", () => ({
@@ -116,6 +126,60 @@ describe("AccountButton", () => {
     expect(screen.getByRole("button", { name: "Sign out" })).toBeVisible()
   })
 
+  it("shows provided account menu links when the user role matches", async () => {
+    const user = userEvent.setup()
+    mocks.useSession.mockReturnValue({
+      data: { user: { name: "Ada Lovelace", email: "ada@example.com", role: "admin" } },
+      refetch: mocks.refetch,
+    })
+
+    renderWithTooltips(
+      <AccountMenuLinksProvider value={[{ href: "/en/admin", label: "Admin", requiredRole: "admin" }]}>
+        <AccountButton />
+      </AccountMenuLinksProvider>,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Open account menu" }))
+
+    expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/en/admin")
+  })
+
+  it("hides provided account menu links when the user role does not match", async () => {
+    const user = userEvent.setup()
+    mocks.useSession.mockReturnValue({
+      data: { user: { name: "Ada Lovelace", email: "ada@example.com", role: "user" } },
+      refetch: mocks.refetch,
+    })
+
+    renderWithTooltips(
+      <AccountMenuLinksProvider value={[{ href: "/en/admin", label: "Admin", requiredRole: "admin" }]}>
+        <AccountButton />
+      </AccountMenuLinksProvider>,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Open account menu" }))
+
+    expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument()
+  })
+
+  it("renders no extra account menu links when the provider is empty", async () => {
+    const user = userEvent.setup()
+    mocks.useSession.mockReturnValue({
+      data: { user: { name: "Ada Lovelace", email: "ada@example.com", role: "admin" } },
+      refetch: mocks.refetch,
+    })
+
+    renderWithTooltips(
+      <AccountMenuLinksProvider value={[]}>
+        <AccountButton />
+      </AccountMenuLinksProvider>,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Open account menu" }))
+
+    expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument()
+  })
+
   it("signs out from the account popover", async () => {
     const user = userEvent.setup()
     localStorage.setItem(LOCAL_NOTIFICATION_STORAGE_KEYS.inAppNotifications, "0")
@@ -149,6 +213,7 @@ describe("AccountPageClient", () => {
     mocks.refetch.mockReset()
     mocks.toastSuccess.mockReset()
     mocks.toastError.mockReset()
+    localStorage.clear()
     window.history.replaceState(null, "", "/")
   })
 
@@ -198,7 +263,9 @@ describe("AccountPageClient", () => {
     expect(screen.getByText("ada@example.com")).toBeVisible()
   })
 
-  it("keeps sign out out of account settings", () => {
+  it("signs out from account settings", async () => {
+    const user = userEvent.setup()
+    localStorage.setItem(LOCAL_NOTIFICATION_STORAGE_KEYS.inAppNotifications, "0")
     mocks.useSession.mockReturnValue({
       data: { user: { email: "ada@example.com" } },
       refetch: mocks.refetch,
@@ -206,32 +273,43 @@ describe("AccountPageClient", () => {
     render(<AccountPageClient />)
 
     expect(screen.getByText("ada@example.com")).toBeVisible()
-    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Sign out" }))
+
+    await waitFor(() => expect(mocks.signOut).toHaveBeenCalled())
+    expect(mocks.removeAccountProjectsFromDevice).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem(LOCAL_NOTIFICATION_STORAGE_KEYS.inAppNotifications)).toBe("1")
+    expect(mocks.refetch).toHaveBeenCalled()
   })
 
-  it("orders account sections from profile to MCP", async () => {
+  it("orders settings sections from account to developer", async () => {
     mocks.useSession.mockReturnValue({
       data: { user: { email: "ada@example.com" } },
       refetch: mocks.refetch,
     })
     render(<AccountPageClient mcpRemoteUrl="https://mcp.example.com/mcp" />)
 
+    const account = document.getElementById("account")
     const profile = document.getElementById("profile")
     const defaults = document.getElementById("defaults")
+    const notifications = document.getElementById("notifications")
     const alerts = document.getElementById("alerts")
+    const developer = document.getElementById("developer")
     const apiKeys = document.getElementById("api-keys")
     const webhooks = document.getElementById("webhooks")
     const mcp = document.getElementById("mcp")
 
+    expect(account).not.toBeNull()
     expect(profile).not.toBeNull()
     expect(defaults).not.toBeNull()
+    expect(notifications).not.toBeNull()
     expect(alerts).not.toBeNull()
+    expect(developer).not.toBeNull()
     expect(apiKeys).not.toBeNull()
     expect(webhooks).not.toBeNull()
     expect(mcp).not.toBeNull()
     expect(profile!.compareDocumentPosition(defaults!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(defaults!.compareDocumentPosition(alerts!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(alerts!.compareDocumentPosition(apiKeys!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(defaults!.compareDocumentPosition(notifications!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(alerts!.compareDocumentPosition(developer!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(apiKeys!.compareDocumentPosition(webhooks!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(webhooks!.compareDocumentPosition(mcp!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(await screen.findByText("MCP configured")).toBeVisible()
@@ -248,7 +326,45 @@ describe("AccountPageClient", () => {
 
     render(<AccountPageClient />)
 
-    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" }))
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "auto" }))
     expect(window.location.hash).toBe("#alerts")
+  })
+
+  it("smooth-scrolls and syncs the active nav tab when the hash changes", async () => {
+    const scrollIntoView = vi.fn()
+    mocks.useSession.mockReturnValue({
+      data: { user: { email: "ada@example.com" } },
+      refetch: mocks.refetch,
+    })
+    window.history.replaceState(null, "", "/settings")
+    Element.prototype.scrollIntoView = scrollIntoView
+
+    render(<AccountPageClient />)
+
+    window.location.hash = "#alerts"
+    window.dispatchEvent(new HashChangeEvent("hashchange"))
+
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "smooth" }))
+    const notificationsTab = screen.getByRole("link", { name: "Notifications" })
+    await waitFor(() => expect(notificationsTab.className).toContain("border-foreground"))
+  })
+
+  it("smooth-scrolls to the section when a nav tab is clicked", async () => {
+    const scrollIntoView = vi.fn()
+    mocks.useSession.mockReturnValue({
+      data: { user: { email: "ada@example.com" } },
+      refetch: mocks.refetch,
+    })
+    window.history.replaceState(null, "", "/settings")
+    Element.prototype.scrollIntoView = scrollIntoView
+
+    render(<AccountPageClient />)
+
+    await userEvent.click(screen.getByRole("link", { name: "Developer" }))
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "smooth" })
+    expect(window.location.hash).toBe("#developer")
+    const developerTab = screen.getByRole("link", { name: "Developer" })
+    expect(developerTab.className).toContain("border-foreground")
   })
 })

@@ -6,10 +6,13 @@ import { isIP } from "node:net"
 
 import { z } from "zod"
 
+import { recordAuditEvent } from "@/lib/audit-log.server"
 import type { UserRef } from "@/lib/contracts"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { optionalServerEnv, type ServerEnvVar } from "@/lib/env.server"
+import { formatMessage } from "@/lib/i18n/messages"
+import { decryptSecret, encryptSecret, isEncryptedSecret } from "@/lib/secret-encryption.server"
 import { getServerAdapters } from "@/lib/server-adapters.server"
 import { timerSchema } from "@/lib/schemas/timer"
 import type { Timer } from "@/lib/types"
@@ -100,6 +103,11 @@ type WebhookEndpointRow = {
   disabledAt: Date | null
   lastDeliveredAt: Date | null
   lastFailedAt: Date | null
+}
+
+type WebhookEndpointSecretRow = {
+  id: string
+  secret?: string | null
 }
 
 type WebhookDeliveryRow = {
@@ -282,6 +290,27 @@ function createWebhookSecret() {
   return `${WEBHOOK_SECRET_PREFIX}${randomBytes(32).toString("base64url")}`
 }
 
+async function resolveWebhookEndpointSecret(row: WebhookEndpointSecretRow) {
+  if (!row.secret) throw new Error(formatMessage("errors.webhookSecretMissing"))
+
+  const secret = decryptSecret(row.secret)
+  if (isEncryptedSecret(row.secret)) return secret
+
+  try {
+    const encrypted = encryptSecret(row.secret)
+    if (encrypted !== row.secret) {
+      await requirePrismaClient().webhookEndpoint.update({
+        where: { id: row.id },
+        data: { secret: encrypted },
+      })
+    }
+  } catch (error) {
+    console.error("[tickward] webhooks.secretUpgrade", error)
+  }
+
+  return secret
+}
+
 function dateString(value: Date | null | undefined) {
   return value?.toISOString() ?? null
 }
@@ -364,10 +393,19 @@ export async function createWebhookEndpointForUser(args: {
     data: {
       eventTypes: eventTypes as Prisma.InputJsonValue,
       name: args.name,
-      secret,
+      secret: encryptSecret(secret),
       url: args.url,
       userId: args.user.id,
     },
+  })
+
+  recordAuditEvent({
+    action: "webhook.created",
+    actorEmail: args.user.email,
+    actorId: args.user.id,
+    metadata: { event_types: eventTypes, name: row.name, status: row.status, url: row.url },
+    targetId: row.id,
+    targetType: "webhook_endpoint",
   })
 
   return { ...webhookEndpointRecord(row), signing_secret: secret }
@@ -401,6 +439,22 @@ export async function updateWebhookEndpointForUser(args: {
     data,
   })
 
+  if (rows[0]) {
+    recordAuditEvent({
+      action: "webhook.updated",
+      actorEmail: args.user.email,
+      actorId: args.user.id,
+      metadata: {
+        event_types: normalizeWebhookEventTypes(rows[0].eventTypes),
+        name: rows[0].name,
+        status: rows[0].status,
+        url: rows[0].url,
+      },
+      targetId: rows[0].id,
+      targetType: "webhook_endpoint",
+    })
+  }
+
   return rows[0] ? webhookEndpointRecord(rows[0]) : null
 }
 
@@ -415,6 +469,15 @@ export async function removeWebhookEndpointForUser(args: { id: string; user: Use
   const result = await requirePrismaClient().webhookEndpoint.deleteMany({
     where: { id: args.id, userId: args.user.id },
   })
+  if (result.count > 0) {
+    recordAuditEvent({
+      action: "webhook.deleted",
+      actorEmail: args.user.email,
+      actorId: args.user.id,
+      targetId: args.id,
+      targetType: "webhook_endpoint",
+    })
+  }
   return result.count > 0
 }
 
@@ -716,6 +779,7 @@ async function deliverWebhook(
 
   try {
     await assertWebhookUrlIsDeliverable(delivery.endpoint.url)
+    const secret = await resolveWebhookEndpointSecret(delivery.endpoint)
     const res = await fetch(delivery.endpoint.url, {
       body: payload,
       headers: {
@@ -723,7 +787,7 @@ async function deliverWebhook(
         "tickward-delivery-id": delivery.id,
         "tickward-event-id": delivery.event.id,
         "tickward-event-type": delivery.event.type,
-        "tickward-signature": signWebhookPayload(delivery.endpoint.secret, payload, timestamp),
+        "tickward-signature": signWebhookPayload(secret, payload, timestamp),
         "user-agent": "tickward-webhooks/1.0",
       },
       method: "POST",

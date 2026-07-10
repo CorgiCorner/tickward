@@ -20,6 +20,8 @@ export type TimerState = {
   hasHydrated: boolean
   isCheckingCloud: boolean
   projectConflict: ProjectConflict | null
+  /** True when the active project is over the account project limit and therefore read-only. */
+  isActiveProjectReadOnly: boolean
 }
 
 export type TimerActions = {
@@ -63,7 +65,19 @@ export type TimerActions = {
   useCloudProjectVersion: () => void
   overwriteCloudProjectVersion: () => Promise<void>
   deleteActiveProjectFromCloud: () => Promise<void>
-  claimActiveProject: () => Promise<"claimed" | "not_found" | "sync_failed" | "unauthenticated" | "unsupported">
+  claimActiveProject: () => Promise<
+    "claimed" | "claimed_read_only" | "cancelled" | "not_found" | "sync_failed" | "unauthenticated" | "unsupported"
+  >
+  maybeAutoClaimActiveProject: () => Promise<
+    | "claimed"
+    | "claimed_read_only"
+    | "skipped"
+    | "cancelled"
+    | "not_found"
+    | "sync_failed"
+    | "unauthenticated"
+    | "unsupported"
+  >
 
   setRestoreKey: (key: string | null) => void
   regenerateRestoreKey: () => void

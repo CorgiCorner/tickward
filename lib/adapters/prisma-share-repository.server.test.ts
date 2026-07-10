@@ -25,6 +25,10 @@ function prismaMock() {
       findFirst: vi.fn(),
       findMany: vi.fn(),
     },
+    space: {
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
+    },
   }
 }
 
@@ -36,6 +40,14 @@ const timerData = {
   color: "#aabbcc",
   createdAt: "2026-05-20T00:00:00.000Z",
   updatedAt: "2026-05-24T00:00:00.000Z",
+  spaceId: "space_123",
+}
+
+const spaceData = {
+  id: "space_123",
+  name: "Work",
+  color: "#2563eb",
+  createdAt: "2026-05-19T00:00:00.000Z",
 }
 
 const shareRecord = {
@@ -137,6 +149,26 @@ describe("prisma share repositories", () => {
     })
   })
 
+  it("scopes user-project share access to the admin's own projects", async () => {
+    const { prismaShareRepository } = await import("./prisma-share-repository.server")
+    const prisma = prismaMock()
+    prisma.project.findFirst.mockResolvedValue(null)
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+
+    await expect(
+      prismaShareRepository.publishTimer({
+        access: { kind: "user-project", projectId: "project_foreign", user: { id: "user_admin", role: "admin" } },
+        shareId: "shareId_12345",
+        timerId: "timer-a",
+        sharedAt: "2026-05-24T00:00:00.000Z",
+      }),
+    ).resolves.toBe(false)
+
+    expect(prisma.project.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "project_foreign", ownerId: "user_admin" } }),
+    )
+  })
+
   it("checks whether a live timer share reference already exists", async () => {
     const { prismaShareRepository } = await import("./prisma-share-repository.server")
     const prisma = prismaMock()
@@ -213,6 +245,7 @@ describe("prisma share repositories", () => {
     const prisma = prismaMock()
     prisma.share.findMany.mockResolvedValue([{ id: "shareId_12345", projectId: "project_123", data: shareRecord }])
     prisma.timer.findMany.mockResolvedValue([{ id: "timer-a", projectId: "project_123", data: timerData }])
+    prisma.space.findMany.mockResolvedValue([{ id: "space_123", projectId: "project_123", data: spaceData }])
     mocks.requirePrismaClient.mockReturnValue(prisma)
 
     const results = await prismaShareRepository.resolveBatch(["shareId_12345", "shareId_67890", "bad"])
@@ -225,13 +258,21 @@ describe("prisma share repositories", () => {
       where: { OR: [{ id: "timer-a", projectId: "project_123" }] },
       select: { id: true, projectId: true, data: true },
     })
+    expect(prisma.space.findMany).toHaveBeenCalledTimes(1)
+    expect(prisma.space.findMany).toHaveBeenCalledWith({
+      where: { OR: [{ id: "space_123", projectId: "project_123" }] },
+      select: { id: true, projectId: true, data: true },
+    })
     expect(results.get("shareId_12345")).toEqual({
       resolvedFrom: "live",
       timer: {
         label: "Launch",
         targetDate: "2026-05-25T12:00:00.000Z",
         timezone: "Europe/Warsaw",
+        createdAt: "2026-05-20T00:00:00.000Z",
         color: "#aabbcc",
+        spaceName: "Work",
+        spaceColor: "#2563eb",
         sharedAt: "2026-05-24T00:00:00.000Z",
       },
     })

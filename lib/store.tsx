@@ -6,8 +6,10 @@ import { immer } from "zustand/middleware/immer"
 import { type StoreApi, createStore } from "zustand/vanilla"
 
 import { canCreateTimerInSpace, getEntitlements } from "./entitlements"
+import { accountProjectMemberships, isProjectReadOnly } from "./project-lock"
 import { logClientError, safeClientErrorMessage } from "./client-errors"
 import { formatMessage } from "./i18n/messages"
+import { isProjectClaimDismissed } from "./project-claim-dismissal.client"
 import { projectCloudClient, type RestoreProjectResult } from "./project-client"
 import {
   MAX_PROJECTS,
@@ -40,6 +42,7 @@ import {
   safeTimersForSpaces,
   spacesWithoutId,
   syncActiveMetaCounts,
+  syncReadOnlyState,
   timersWithoutId,
   upsertProject,
 } from "./stores/timer-store-domain"
@@ -103,17 +106,18 @@ function restoreStatusErrorMessage(status: Exclude<RestoreProjectResult["status"
   return null
 }
 
-function shouldRecoverMissingProject(result: RestoreProjectResult, state: TimerStore) {
+function shouldRecoverMissingProject(result: RestoreProjectResult, state: TimerStore, access: ProjectCloudAccess) {
+  // Only anonymous (restore-key) projects re-upload to recover a server-side
+  // loss. An account project that 404s must never be re-uploaded: doing so
+  // creates a brand-new server project (a duplicate/mint) instead of recovering
+  // the original. Its account identity is kept and a transient 404 self-heals.
   const project = activeProject(state)
   return (
+    access.kind === "restore-key" &&
     result.status === "not_found" &&
     Boolean(project?.hasUnsyncedChanges) &&
     (state.timers.length > 0 || state.spaces.length > 0)
   )
-}
-
-function shouldFallbackToRestoreKeyAccess(result: RestoreProjectResult, state: TimerStore, access: ProjectCloudAccess) {
-  return result.status === "not_found" && access.kind === "user-project" && Boolean(activeProject(state)?.restoreKey)
 }
 
 function projectMetaFromAccountSummary(summary: UserProjectSummary, existing: ProjectMeta | undefined): ProjectMeta {
@@ -134,6 +138,8 @@ function projectMetaFromAccountSummary(summary: UserProjectSummary, existing: Pr
     hasUnsyncedChanges: existing?.hasUnsyncedChanges,
     timerCount: hasLocalChanges ? existing.timerCount : summary.timerCount,
     spaceCount: hasLocalChanges ? existing.spaceCount : summary.spaceCount,
+    overLimitSince: summary.overLimitSince,
+    overLimitPurgeAt: summary.overLimitPurgeAt,
   }
 }
 
@@ -150,7 +156,7 @@ function syncedAccountProjectMetas(summaries: UserProjectSummary[], projects: Pr
     projectMetaFromAccountSummary(project, existingByCloudId.get(project.projectId)),
   )
   const localProjects = projects.filter((project) => !project.cloudProjectId)
-  return [...accountProjects, ...localProjects].slice(0, MAX_PROJECTS)
+  return [...accountProjects, ...localProjects]
 }
 
 function applyProjectPayloadToState(state: TimerStore, project: ProjectMeta | null) {
@@ -179,6 +185,24 @@ export function createTimerStore(init?: TimerStoreInit) {
   let cloudCheckInFlight: Promise<void> | null = null
   let cloudCheckProjectId: string | null = null
   let accountProjectsInFlight: Promise<void> | null = null
+  // Generation counter for account-scoped requests. Sign-out bumps it so any
+  // response started under the previous session is discarded before it can
+  // write account data back into the store or browser storage. Restore-key and
+  // followed-timer paths stay unguarded on purpose: anonymous mounts also call
+  // removeAccountProjectsFromDevice and must keep applying their refreshes.
+  let accountEpoch = 0
+  let autoClaimInFlight: ReturnType<TimerStore["maybeAutoClaimActiveProject"]> | null = null
+  // Restore keys the server answered not_found for in this page session.
+  // Focus- and interval-driven refreshes skip them until a successful save
+  // revives the key: re-checking a dead key cannot succeed and spams the API.
+  const deadRestoreKeys = new Set<string>()
+  // Id of the project hydration resurrected purely from the restore-key
+  // cookie (empty registry, no legacy payload). If its first cloud check
+  // returns not_found the key is dead and the empty ghost is removed.
+  let cookieGhostProjectId: string | null = null
+  // One auto-claim attempt per project per page session; on failure the manual
+  // claim toast remains as the fallback.
+  const autoClaimAttemptedProjectIds = new Set<string>()
 
   const initialSpaces = safeSpaces(init?.spaces)
   const initialTimers = safeTimersForSpaces(init?.timers, initialSpaces)
@@ -189,6 +213,17 @@ export function createTimerStore(init?: TimerStoreInit) {
 
   const store = createStore<TimerStore>()(
     immer((set, get) => {
+      function canEditActiveProject(): boolean {
+        const state = get()
+        const activeId = state.activeProjectId
+        if (!activeId) return true
+        const active = state.projects.find((p) => p.id === activeId)
+        if (!active?.cloudProjectId) return true
+        const memberships = accountProjectMemberships(state.projects)
+        const max = getEntitlements().maxProjects
+        return !isProjectReadOnly(memberships, active.cloudProjectId, max)
+      }
+
       async function refreshFollowedTimersOnce() {
         const shareIds = followedShareIds(get().timers)
         if (shareIds.length === 0) return
@@ -205,34 +240,60 @@ export function createTimerStore(init?: TimerStoreInit) {
       }
 
       async function refreshActiveProjectFromCloudOnce(startedProjectId: string, access: ProjectCloudAccess) {
+        const startedEpoch = accountEpoch
         cloudCheckProjectId = startedProjectId
 
         set((s) => {
           s.isCheckingCloud = true
         })
 
+        // A stale response can resolve while a newer check for another project
+        // is already in flight; only the request still owning the cloud-check
+        // slot may clear the shared loading flag.
+        const clearCheckingIfCurrent = () => {
+          if (cloudCheckProjectId !== startedProjectId) return
+          set((s) => {
+            s.isCheckingCloud = false
+          })
+        }
+
         try {
           const result = await restoreProjectByAccess(access)
 
-          if (get().activeProjectId !== startedProjectId) return
+          if (access.kind === "user-project" && startedEpoch !== accountEpoch) {
+            clearCheckingIfCurrent()
+            return
+          }
+
+          if (get().activeProjectId !== startedProjectId) {
+            clearCheckingIfCurrent()
+            return
+          }
+
+          const wasCookieGhost = cookieGhostProjectId === startedProjectId
+          if (wasCookieGhost) cookieGhostProjectId = null
 
           if (result.status === "not_found" || result.status === "unauthenticated" || result.status === "unsupported") {
             const syncError = restoreStatusErrorMessage(result.status)
-            set((s) => {
-              if (shouldFallbackToRestoreKeyAccess(result, s, access)) {
-                const project = activeProject(s)
-                if (project) {
-                  project.cloudProjectId = undefined
-                  project.ownerId = undefined
-                  project.claimedAt = undefined
-                  project.lastRemoteUpdatedAt = undefined
-                }
+            if (access.kind === "restore-key" && result.status === "not_found") {
+              deadRestoreKeys.add(access.restoreKey)
+              if (wasCookieGhost && get().timers.length === 0 && get().spaces.length === 0) {
+                // The cookie pointed at a consumed key and the resurrected
+                // project never had content: drop the empty ghost instead of
+                // keeping a local project that can only ever 404.
+                set((s) => {
+                  s.isCheckingCloud = false
+                })
+                get().removeActiveProjectFromDevice()
+                return
               }
+            }
+            set((s) => {
               s.isCheckingCloud = false
               s.lastSyncError = syncError
             })
             writeBrowserState(get())
-            if (shouldRecoverMissingProject(result, get())) {
+            if (shouldRecoverMissingProject(result, get(), access)) {
               void get().syncToCloud({ force: true })
             }
             return
@@ -280,9 +341,16 @@ export function createTimerStore(init?: TimerStoreInit) {
           })
           writeBrowserState(get())
         } catch (err) {
+          if (access.kind === "user-project" && startedEpoch !== accountEpoch) {
+            clearCheckingIfCurrent()
+            return
+          }
           // A stale refresh must stay silent: if the active project changed
           // while the request was in flight, the error belongs to the old one.
-          if (get().activeProjectId !== startedProjectId) return
+          if (get().activeProjectId !== startedProjectId) {
+            clearCheckingIfCurrent()
+            return
+          }
           logClientError("store.refreshActiveProjectFromCloud", err)
           set((s) => {
             s.lastSyncError = safeClientErrorMessage(err, "errors.restoreFailed")
@@ -292,7 +360,11 @@ export function createTimerStore(init?: TimerStoreInit) {
       }
 
       async function refreshAccountProjectsFromCloudOnce() {
+        const startedEpoch = accountEpoch
         const result = await projectCloudClient.listUserProjects()
+        // A sign-out while the list was in flight already wiped account data
+        // from the device; applying the response would bring it back.
+        if (startedEpoch !== accountEpoch) return
         if (result.status !== "ok") return
 
         const summaryIds = new Set(result.projects.map((project) => project.projectId))
@@ -320,6 +392,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             s.lastSyncError = null
             s.projectConflict = null
           }
+          syncReadOnlyState(s)
         })
         writeBrowserState(get())
         if (shouldRefreshActiveProject) await get().refreshActiveProjectFromCloud()
@@ -338,6 +411,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         hasHydrated: false,
         isCheckingCloud: false,
         projectConflict: null,
+        isActiveProjectReadOnly: false,
 
         lastSyncError: null,
         lastSyncAt: null,
@@ -361,6 +435,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             })
             projects = [project]
             activeProjectId = project.id
+            if (!legacyHasPayload) cookieGhostProjectId = project.id
             writeProjectPayload(project.id, {
               timers: initialTimers,
               spaces: initialSpaces,
@@ -415,6 +490,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             state.lastSyncAt = selectedProject?.lastSyncedAt ?? null
             state.lastSyncError = null
             syncActiveMetaCounts(state)
+            syncReadOnlyState(state)
           })
 
           writeBrowserState(get())
@@ -441,8 +517,10 @@ export function createTimerStore(init?: TimerStoreInit) {
               s.lastSyncAt = null
               s.lastSyncError = null
               s.projectConflict = null
+              syncReadOnlyState(s)
             })
           }
+          if (!canEditActiveProject()) return false
           const initialSpaceId = safeTimerSpaceId(get().spaces, timer.spaceId)
           if (!canAddTimerToSpace(get().timers, initialSpaceId, { archived: Boolean(timer.archivedAt) })) return false
           let added = false
@@ -482,6 +560,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         updateTimer: (id, updates) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             const t = findTimerById(s.timers, id)
             if (!t) return
@@ -500,6 +579,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         archiveTimer: (id) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             const index = findTimerIndexById(s.timers, id)
             const t = s.timers[index]
@@ -516,6 +596,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         unarchiveTimer: (id) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             const t = findTimerById(s.timers, id)
             if (!t) return
@@ -529,6 +610,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         duplicateTimer: (id) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             const idx = findTimerIndexById(s.timers, id)
             if (idx === -1) return
@@ -556,6 +638,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         setPinnedTimer: (id) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             const now = new Date().toISOString()
             let changed = false
@@ -586,6 +669,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         reorderTimers: (fromIndex, toIndex) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             if (fromIndex === toIndex) return
             const next = [...s.timers]
@@ -600,6 +684,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         reorderVisibleTimers: (orderedIds) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             const next = reorderVisibleTimerList(s.timers, s.sortMode, orderedIds)
             if (!next) return
@@ -611,6 +696,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         clearAllTimers: () => {
+          if (!canEditActiveProject()) return
           set((s) => {
             s.timers = []
             markActiveProjectChanged(s)
@@ -624,6 +710,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         unfollowTimer: (id) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             const t = findTimerById(s.timers, id)
             if (!t) return
@@ -635,6 +722,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         createSpace: (name, color) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             if (s.spaces.length >= getEntitlements().maxSpaces) return
             const trimmed = name.trim().slice(0, 30)
@@ -651,6 +739,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         updateSpace: (id, updates) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             const space = findSpaceById(s.spaces, id)
             if (!space) return
@@ -662,6 +751,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         deleteSpace: (id) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             s.spaces = spacesWithoutId(s.spaces, id)
             for (const t of s.timers) {
@@ -674,6 +764,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         reorderSpaces: (fromIndex, toIndex) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             if (fromIndex === toIndex) return
             const next = [...s.spaces]
@@ -687,6 +778,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         moveTimerToSpace: (timerId, spaceId) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             const t = findTimerById(s.timers, timerId)
             if (!t) return
@@ -699,10 +791,20 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         moveTimerToProject: (timerId, targetProjectId) => {
+          // Guard: source (active project) must be editable
+          if (!canEditActiveProject()) return false
+
           const state = get()
           const timer = findTimerById(state.timers, timerId)
           const target = state.projects.find((project) => project.id === targetProjectId)
           if (!timer || !target || target.id === state.activeProjectId) return false
+
+          // Guard: target project must also be editable if it is an account project
+          if (target.cloudProjectId) {
+            const memberships = accountProjectMemberships(state.projects)
+            const max = getEntitlements().maxProjects
+            if (isProjectReadOnly(memberships, target.cloudProjectId, max)) return false
+          }
 
           // The target project's payload lives in browser storage; load it, append
           // the timer there, and write it back so the move survives without making
@@ -783,13 +885,16 @@ export function createTimerStore(init?: TimerStoreInit) {
           if (!get().hasHydrated) return
           if (accountProjectsInFlight) return accountProjectsInFlight
 
-          accountProjectsInFlight = refreshAccountProjectsFromCloudOnce()
+          const inFlight = refreshAccountProjectsFromCloudOnce()
             .catch((err) => {
               logClientError("store.refreshAccountProjectsFromCloud", err)
             })
             .finally(() => {
-              accountProjectsInFlight = null
+              // Sign-out replaces the slot with null so a fresh sign-in can
+              // start over; only clear it when it still holds this promise.
+              if (accountProjectsInFlight === inFlight) accountProjectsInFlight = null
             })
+          accountProjectsInFlight = inFlight
 
           return accountProjectsInFlight
         },
@@ -822,6 +927,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             s.lastSyncAt = null
             s.lastSyncError = null
             s.projectConflict = null
+            syncReadOnlyState(s)
           })
           persistAndSchedule(true)
         },
@@ -842,12 +948,14 @@ export function createTimerStore(init?: TimerStoreInit) {
             s.lastSyncError = null
             s.projectConflict = null
             syncActiveMetaCounts(s)
+            syncReadOnlyState(s)
           })
           writeBrowserState(get())
           void get().refreshActiveProjectFromCloud()
         },
 
         renameActiveProject: (name) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             const project = activeProject(s)
             if (!project) return
@@ -877,17 +985,24 @@ export function createTimerStore(init?: TimerStoreInit) {
             s.lastSyncAt = nextProject?.lastSyncedAt ?? null
             s.lastSyncError = null
             s.projectConflict = null
+            syncReadOnlyState(s)
           })
           writeBrowserState(get())
           if (nextProject?.cloudProjectId) void get().refreshActiveProjectFromCloud()
         },
 
         removeAccountProjectsFromDevice: () => {
+          // Invalidate account-scoped requests even when nothing is stored
+          // locally: a refresh started before sign-out may still be in flight.
+          accountEpoch += 1
+          accountProjectsInFlight = null
+
           const accountProjectIds = get()
             .projects.filter((project) => project.cloudProjectId)
             .map((project) => project.id)
           if (accountProjectIds.length === 0) return
 
+          syncScheduler.cancel()
           const accountProjectIdSet = new Set(accountProjectIds)
           for (const projectId of accountProjectIds) removeProjectPayload(projectId)
 
@@ -908,6 +1023,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             s.lastSyncAt = nextProject?.lastSyncedAt ?? null
             s.lastSyncError = null
             s.projectConflict = null
+            syncReadOnlyState(s)
           })
           writeBrowserState(get())
         },
@@ -992,6 +1108,7 @@ export function createTimerStore(init?: TimerStoreInit) {
           const startedProjectId = get().activeProjectId
           const access = projectCloudAccess(activeProject(get()), get().restoreKey)
           if (!startedProjectId || !access) return
+          if (access.kind === "restore-key" && deadRestoreKeys.has(access.restoreKey)) return
           if (cloudCheckInFlight && cloudCheckProjectId === startedProjectId) return cloudCheckInFlight
 
           cloudCheckInFlight = refreshActiveProjectFromCloudOnce(startedProjectId, access).finally(() => {
@@ -1034,6 +1151,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         overwriteCloudProjectVersion: async () => {
+          if (!canEditActiveProject()) return
           const saved = await get().syncToCloud({ force: true })
           if (!saved) return
           set((s) => {
@@ -1050,15 +1168,20 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         claimActiveProject: async () => {
+          const startedEpoch = accountEpoch
           const current = activeProject(get())
           const restoreKey = get().restoreKey
           if (!current || current.cloudProjectId) return "claimed"
           if (!restoreKey || !isValidRestoreKey(restoreKey)) return "not_found"
 
           const synced = await get().syncToCloud({ force: true })
+          // Sign-out while the claim was running: stop before any state or
+          // browser-storage write reintroduces account data.
+          if (startedEpoch !== accountEpoch) return "cancelled"
           if (!synced) return "sync_failed"
 
           const result = await projectCloudClient.claimProject(restoreKey)
+          if (startedEpoch !== accountEpoch) return "cancelled"
           if (result.status !== "claimed") return result.status
 
           const claimed = result.project
@@ -1098,10 +1221,38 @@ export function createTimerStore(init?: TimerStoreInit) {
             s.projectConflict = null
           })
           writeBrowserState(get())
-          return "claimed"
+          // When the claim lands the account over-limit, refresh the project list
+          // so the read-only selector sees the full membership immediately.
+          // Existing epoch guards inside refreshAccountProjectsFromCloud prevent
+          // writes after sign-out.
+          const claimStatus = result.overLimit ? "claimed_read_only" : "claimed"
+          if (result.overLimit) void get().refreshAccountProjectsFromCloud()
+          return claimStatus
+        },
+
+        maybeAutoClaimActiveProject: async () => {
+          if (autoClaimInFlight) return autoClaimInFlight
+
+          const state = get()
+          const current = activeProject(state)
+          if (!state.hasHydrated || !current || current.cloudProjectId) return "skipped"
+          if (!state.restoreKey || !isValidRestoreKey(state.restoreKey)) return "skipped"
+          if (state.timers.length === 0) return "skipped"
+          // Respect the per-tab opt-out from the manual claim toast.
+          if (isProjectClaimDismissed(current.id)) return "skipped"
+          if (autoClaimAttemptedProjectIds.has(current.id)) return "skipped"
+
+          autoClaimAttemptedProjectIds.add(current.id)
+          autoClaimInFlight = get()
+            .claimActiveProject()
+            .finally(() => {
+              autoClaimInFlight = null
+            })
+          return autoClaimInFlight
         },
 
         setRestoreKey: (key) => {
+          if (!canEditActiveProject()) return
           set((s) => {
             const project = activeProject(s)
             if (!project) return
@@ -1118,9 +1269,14 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         syncToCloud: async (opts) => {
+          const startedEpoch = accountEpoch
           const current = activeProject(get())
           const access = projectCloudAccess(current, get().restoreKey)
           if (!get().hasHydrated || !current || !access) return false
+          // Early-return for read-only account projects (over-limit): do not sync.
+          // The restore-key path is untouched so pre-claim force-sync in
+          // claimActiveProject still works (the project has no cloudProjectId yet).
+          if (access.kind === "user-project" && !canEditActiveProject()) return false
 
           const snapshot = projectSnapshotFromState(get(), current)
 
@@ -1138,6 +1294,15 @@ export function createTimerStore(init?: TimerStoreInit) {
               baseUpdatedAt: force ? baseUpdatedAtForForcedSave() : baseUpdatedAtForRegularSave(current),
               force,
             })
+
+            // A save for an account project that finished after sign-out must
+            // not stamp meta on whatever project survived the removal.
+            if (access.kind === "user-project" && startedEpoch !== accountEpoch) {
+              set((s) => {
+                s.isSyncing = false
+              })
+              return false
+            }
 
             if (result.status === "not_found") {
               set((s) => {
@@ -1165,6 +1330,9 @@ export function createTimerStore(init?: TimerStoreInit) {
             }
 
             const now = new Date().toISOString()
+            // A successful save (re)creates the server-side token, so the key
+            // is live again and refreshes may check it.
+            if (access.kind === "restore-key") deadRestoreKeys.delete(access.restoreKey)
             set((s) => {
               const project = activeProject(s)
               if (!project) return

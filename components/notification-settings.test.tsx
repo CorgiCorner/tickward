@@ -81,7 +81,8 @@ describe("NotificationSettingsPanel", () => {
     render(<NotificationSettingsPanel />)
 
     expect(screen.getByRole("heading", { name: "Device notifications" })).toBeVisible()
-    expect(screen.getByRole("heading", { name: "Alarm defaults" })).toBeVisible()
+    expect(screen.getByLabelText("Full-page alarm")).toBeVisible()
+    expect(screen.getByText("Played when a timer finishes on this device.")).toBeVisible()
     expect(screen.getByLabelText("In-app notifications")).toBeChecked()
     expect(screen.getByLabelText("Email reminders")).toBeVisible()
 

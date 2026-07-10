@@ -22,7 +22,7 @@ export type RestoreProjectResult =
   | { status: "not_found" }
 
 export type ClaimProjectResult =
-  | { status: "claimed"; project: ClaimedProject }
+  | { status: "claimed"; project: ClaimedProject; overLimit?: boolean }
   | { status: "unauthenticated" }
   | { status: "unsupported" }
   | { status: "not_found" }
@@ -148,8 +148,8 @@ export async function claimProject(key: string): Promise<ClaimProjectResult> {
   if (res.status === 404) return { status: "not_found" }
   if (!res.ok) throw await publicClientErrorFromResponse(res, "errors.claimFailed")
 
-  const data = (await res.json()) as { project: ClaimedProject }
-  return { status: "claimed", project: data.project }
+  const data = (await res.json()) as { project: ClaimedProject & { overLimit?: boolean } }
+  return { status: "claimed", project: data.project, overLimit: data.project.overLimit === true }
 }
 
 export type ProjectCloudClient = {

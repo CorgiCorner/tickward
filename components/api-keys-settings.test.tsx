@@ -48,7 +48,7 @@ describe("ApiKeysSettingsPanel", () => {
     render(<ApiKeysSettingsPanel />)
 
     expect(await screen.findByText("Production")).toBeVisible()
-    expect(screen.getByText("tw_abcd...wxyz")).toBeVisible()
+    expect(screen.getByText("tw_abcd…wxyz · last used Never")).toBeVisible()
     expect(screen.getByText("Read")).toBeVisible()
   })
 
@@ -56,7 +56,7 @@ describe("ApiKeysSettingsPanel", () => {
     render(<ApiKeysSettingsPanel initialApiKeys={[apiKey({ name: "Server key" })]} initialLoadError={null} />)
 
     expect(screen.getByText("Server key")).toBeVisible()
-    expect(screen.getByText("tw_abcd...wxyz")).toBeVisible()
+    expect(screen.getByText("tw_abcd…wxyz · last used Never")).toBeVisible()
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -128,7 +128,8 @@ describe("ApiKeysSettingsPanel", () => {
     expect(await screen.findByDisplayValue("tw_first_secret")).toBeVisible()
 
     await user.click(screen.getByRole("button", { name: "Done" }))
-    await user.click(screen.getByRole("button", { name: "Revoke" }))
+    await user.click(screen.getByRole("button", { name: "API key actions" }))
+    await user.click(screen.getByRole("menuitem", { name: "Revoke" }))
     expect(screen.getByRole("alertdialog")).toHaveTextContent("Revoke this API key?")
     await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Revoke" }))
     await waitFor(() => expect(screen.getByText("No active API keys yet.")).toBeVisible())
@@ -147,7 +148,8 @@ describe("ApiKeysSettingsPanel", () => {
     render(<ApiKeysSettingsPanel />)
 
     await screen.findByText("Production")
-    await user.click(screen.getByRole("button", { name: "Revoke" }))
+    await user.click(screen.getByRole("button", { name: "API key actions" }))
+    await user.click(screen.getByRole("menuitem", { name: "Revoke" }))
     expect(screen.getByRole("alertdialog")).toHaveTextContent("This key will stop working")
     await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Revoke" }))
 

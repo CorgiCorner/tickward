@@ -84,6 +84,12 @@ After a claim the restore key stops working. The client switches to addressing
 the project by `projectId` with the session: saves go through the
 project-id path, and `listUserProjects` enumerates the account's projects.
 
+Claiming always succeeds even if the account is already at its project limit.
+Projects beyond the limit become read-only — visible and deletable, but not
+editable — until the count drops back within the limit. See
+[Plans and Limits](/concepts/plans-and-limits#projects-over-the-limit) for how
+the retention window and self-hosting options interact with this behaviour.
+
 Dismissing the claim prompt changes nothing in storage.
 `lib/project-claim-dismissal.client.ts` writes `"1"` to `sessionStorage` under
 `tickward:project-claim-dismissed:<projectId>` and dispatches an event so other

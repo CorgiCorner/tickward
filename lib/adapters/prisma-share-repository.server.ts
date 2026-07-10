@@ -4,10 +4,9 @@ import { hashRestoreKeyToken, type RestoreKeyTokenHash } from "@/lib/auth/restor
 import { requirePrismaClient } from "@/lib/db/prisma.server"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ShareRepository, TimerShareAccess } from "@/lib/repositories"
-import { timerSchema } from "@/lib/schemas/timer"
+import { spaceSchema, timerSchema } from "@/lib/schemas/timer"
 import type { ResolvedShare, ShareRecord } from "@/lib/share-model"
 import { isValidShareId, sharedTimerFromTimer } from "@/lib/share-model"
-import { isTimerArray } from "@/lib/validate"
 import { emitWebhookEvent } from "@/lib/webhooks.server"
 
 const SHARE_KIND_TIMER = "timer"
@@ -28,12 +27,14 @@ function isShareRecord(value: unknown): value is ShareRecord {
   return isRecord(value) && isString(value.timerId) && isString(value.sharedAt)
 }
 
-function sharedTimerFromData(data: unknown, sharedAt: string): ResolvedShare | null {
-  const timers = [data]
-  if (!isTimerArray(timers)) return null
-  const timer = timers[0]
-  if (!timer) return null
-  return { resolvedFrom: "live", timer: sharedTimerFromTimer(timer, sharedAt) }
+function timerFromData(data: unknown) {
+  const parsed = timerSchema.safeParse(data)
+  return parsed.success ? parsed.data : null
+}
+
+function spaceFromData(data: unknown) {
+  const parsed = spaceSchema.safeParse(data)
+  return parsed.success ? parsed.data : null
 }
 
 function activeAccessTokenWhere(tokenHash: RestoreKeyTokenHash, now = new Date()) {
@@ -44,8 +45,10 @@ function activeAccessTokenWhere(tokenHash: RestoreKeyTokenHash, now = new Date()
   }
 }
 
+// Owner-scoped for every role: internal share routes act on the signed-in
+// user's own projects only (no implicit admin cross-tenant access).
 function ownedProjectWhere(projectId: string, access: Extract<TimerShareAccess, { kind: "user-project" }>) {
-  return access.user.role === "admin" ? { id: projectId } : { id: projectId, ownerId: access.user.id }
+  return { id: projectId, ownerId: access.user.id }
 }
 
 async function projectForShareAccess(
@@ -240,7 +243,21 @@ export const prismaShareRepository: ShareRepository = {
       where: { id: share.data.timerId, projectId: share.projectId },
       select: { data: true },
     })
-    return sharedTimerFromData(timer?.data, share.data.sharedAt)
+    const parsedTimer = timerFromData(timer?.data)
+    if (!parsedTimer) return null
+
+    const space = parsedTimer.spaceId
+      ? await prisma.space.findFirst({
+          where: { id: parsedTimer.spaceId, projectId: share.projectId },
+          select: { data: true },
+        })
+      : null
+    const parsedSpace = spaceFromData(space?.data)
+
+    return {
+      resolvedFrom: "live",
+      timer: sharedTimerFromTimer(parsedTimer, share.data.sharedAt, Date.now(), parsedSpace),
+    }
   },
 
   async resolveBatch(shareIds) {
@@ -270,7 +287,31 @@ export const prismaShareRepository: ShareRepository = {
             select: { id: true, projectId: true, data: true },
           })
         : []
-    const timersByProjectAndId = new Map(timerRows.map((timer) => [`${timer.projectId}:${timer.id}`, timer.data]))
+    const timersByProjectAndId = new Map(
+      timerRows.map((timer) => [`${timer.projectId}:${timer.id}`, timerFromData(timer.data)]),
+    )
+    const spaceWhereByKey = new Map<string, { id: string; projectId: string }>()
+    for (const timer of timerRows) {
+      const parsedTimer = timersByProjectAndId.get(`${timer.projectId}:${timer.id}`)
+      if (parsedTimer?.spaceId) {
+        spaceWhereByKey.set(`${timer.projectId}:${parsedTimer.spaceId}`, {
+          id: parsedTimer.spaceId,
+          projectId: timer.projectId,
+        })
+      }
+    }
+    const spaceWhere = Array.from(spaceWhereByKey.values())
+    const spaceRows =
+      spaceWhere.length > 0
+        ? await prisma.space.findMany({
+            where: { OR: spaceWhere },
+            select: { id: true, projectId: true, data: true },
+          })
+        : []
+    const spacesByProjectAndId = new Map(
+      spaceRows.map((space) => [`${space.projectId}:${space.id}`, spaceFromData(space.data)]),
+    )
+    const nowMs = Date.now()
 
     for (const id of validIds) {
       const record = byId.get(id)
@@ -279,8 +320,17 @@ export const prismaShareRepository: ShareRepository = {
         continue
       }
 
-      const timerData = timersByProjectAndId.get(`${record.projectId}:${record.data.timerId}`)
-      results.set(id, sharedTimerFromData(timerData, record.data.sharedAt))
+      const timer = timersByProjectAndId.get(`${record.projectId}:${record.data.timerId}`)
+      if (!timer) {
+        results.set(id, null)
+        continue
+      }
+
+      const space = timer.spaceId ? spacesByProjectAndId.get(`${record.projectId}:${timer.spaceId}`) : null
+      results.set(id, {
+        resolvedFrom: "live",
+        timer: sharedTimerFromTimer(timer, record.data.sharedAt, nowMs, space),
+      })
     }
 
     return results

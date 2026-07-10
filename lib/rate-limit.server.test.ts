@@ -137,4 +137,24 @@ describe("rate limit enforcement", () => {
       }),
     )
   })
+
+  it("configures a two-per-minute account export bucket", async () => {
+    mocks.limit.mockResolvedValue({
+      success: true,
+      limit: 2,
+      remaining: 1,
+      reset: Date.now() + 60_000,
+      pending: Promise.resolve(),
+    })
+
+    const { enforceRateLimit } = await import("./rate-limit.server")
+
+    await expect(enforceRateLimit("account-export", "user:user_123")).resolves.toBeNull()
+    expect(mocks.slidingWindow).toHaveBeenCalledWith(2, "60 s")
+    expect(mocks.constructor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prefix: "tickward:ratelimit:account-export",
+      }),
+    )
+  })
 })

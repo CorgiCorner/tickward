@@ -8,6 +8,7 @@
 import type { ProjectRestoreResponse, ProjectSnapshotV2, UserProjectSummary } from "@/lib/project-model"
 import type { ResolvedShare, ShareRecord } from "@/lib/share-model"
 import type { UserRef } from "@/lib/contracts"
+import type { ProjectMembership } from "@/lib/project-lock"
 
 export type ClaimedProject = {
   projectId: string
@@ -25,6 +26,9 @@ export interface ProjectRepository {
   loadUserProject?(args: { projectId: string; user: UserRef }): Promise<ProjectRestoreResponse | null>
   saveUserProject?(args: { projectId: string; user: UserRef; project: ProjectSnapshotV2 }): Promise<boolean>
   clearUserProject?(args: { projectId: string; user: UserRef }): Promise<boolean>
+  // Returns all project memberships for an owner (used to compute the read-only set).
+  // Optional so public mirror overrides that don't implement it fail-open.
+  listProjectMemberships?(args: { ownerId: string }): Promise<ProjectMembership[]>
 }
 
 export interface ShareRepository {
@@ -57,6 +61,7 @@ export type RateLimitBucket =
   | "public-api"
   | "public-api-ip"
   | "inbox"
+  | "account-export"
   | "api-key-management"
   | "webhook-management"
   | "webhook-test"

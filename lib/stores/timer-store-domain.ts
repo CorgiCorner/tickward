@@ -6,6 +6,7 @@ import {
   isValidRestoreKey,
   normalizeProjectName,
 } from "@/lib/project-model"
+import { accountProjectMemberships, isProjectReadOnly } from "@/lib/project-lock"
 import { newPublicId } from "@/lib/public-ids"
 import type { TimerState, TimerStore } from "@/lib/stores/timer-store-types"
 import type { Space, Timer, TimerFilterType, TimerFilters, TimerSortMode } from "@/lib/types"
@@ -245,4 +246,25 @@ export function syncActiveMetaCounts(state: TimerStore) {
   if (!project) return
   project.timerCount = state.timers.length
   project.spaceCount = state.spaces.length
+}
+
+/**
+ * Recomputes the `isActiveProjectReadOnly` flag from current state and writes
+ * it back. Call this inside any `set()` block that changes `projects` or
+ * `activeProjectId`.
+ */
+export function syncReadOnlyState(state: TimerStore) {
+  const activeId = state.activeProjectId
+  if (!activeId) {
+    state.isActiveProjectReadOnly = false
+    return
+  }
+  const active = state.projects.find((p) => p.id === activeId)
+  if (!active?.cloudProjectId) {
+    state.isActiveProjectReadOnly = false
+    return
+  }
+  const memberships = accountProjectMemberships(state.projects)
+  const max = getEntitlements().maxProjects
+  state.isActiveProjectReadOnly = isProjectReadOnly(memberships, active.cloudProjectId, max)
 }

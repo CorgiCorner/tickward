@@ -6,12 +6,45 @@ import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { formatMessage } from "@/lib/i18n/messages"
+import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
 import { cn } from "@/lib/utils"
 
 interface DatePickerProps {
   value: string
   onChange: (value: string) => void
+}
+
+const DATE_PRESETS: Array<{ days: number; labelKey: MessageKey }> = [
+  { days: 1, labelKey: "timer.form.date.preset.tomorrow" },
+  { days: 7, labelKey: "timer.form.date.preset.inSevenDays" },
+  { days: 14, labelKey: "timer.form.date.preset.inFourteenDays" },
+]
+
+function datePresetValue(daysFromToday: number) {
+  const day = new Date()
+  day.setHours(12, 0, 0, 0)
+  day.setDate(day.getDate() + daysFromToday)
+  const year = day.getFullYear()
+  const month = String(day.getMonth() + 1).padStart(2, "0")
+  const date = String(day.getDate()).padStart(2, "0")
+  return `${year}-${month}-${date}`
+}
+
+function DatePresetChips(props: Readonly<{ onChange: (value: string) => void; className?: string }>) {
+  return (
+    <div className={cn("flex flex-wrap gap-2", props.className)}>
+      {DATE_PRESETS.map((preset) => (
+        <button
+          key={preset.days}
+          type="button"
+          className="min-h-10 rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none md:min-h-8"
+          onClick={() => props.onChange(datePresetValue(preset.days))}
+        >
+          {formatMessage(preset.labelKey)}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 function DatePicker({ value, onChange }: Readonly<DatePickerProps>) {
@@ -63,4 +96,4 @@ function DatePicker({ value, onChange }: Readonly<DatePickerProps>) {
   )
 }
 
-export { DatePicker }
+export { DatePicker, DatePresetChips }
