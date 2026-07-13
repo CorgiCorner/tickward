@@ -26,7 +26,8 @@ async function enforceExchangeRateLimit(key: string) {
 
 export async function POST(req: Request) {
   const body = await readJson(req)
-  const grant = body && typeof body === "object" ? String((body as { grant?: unknown }).grant ?? "").trim() : ""
+  const rawGrant = body && typeof body === "object" ? (body as { grant?: unknown }).grant : undefined
+  const grant = typeof rawGrant === "string" ? rawGrant.trim() : ""
   if (!grant) return apiError("validation_error", "grant is required.", { status: 400 })
 
   const grantHash = createHash("sha256").update(`tickward:mcp-oauth-exchange:${grant}`, "utf8").digest("hex")

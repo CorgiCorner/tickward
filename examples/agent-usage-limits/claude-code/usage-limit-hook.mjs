@@ -231,7 +231,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+try {
+  await main()
+} catch (error) {
   // Statusline commands must never crash; log and exit 0.
   process.stderr.write(`[tickward] ${error?.message ?? error}\n`)
-})
+}

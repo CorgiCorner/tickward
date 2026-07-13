@@ -33,7 +33,7 @@ export async function getServiceStatusLevel(): Promise<ServiceStatusLevel> {
       .filter((status): status is number => typeof status === "number")
 
     if (latest.length === 0) return "unknown"
-    if (latest.some((status) => status === 0)) return "down"
+    if (latest.includes(0)) return "down"
     if (latest.some((status) => status === 2 || status === 3)) return "degraded"
     if (latest.every((status) => status === 1)) return "operational"
     return "unknown"

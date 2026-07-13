@@ -47,7 +47,7 @@ async function waitForHttp(url, timeout) {
 
 function existingDevServerUrl(output, attemptedBaseUrl) {
   const matches = [...output.matchAll(/\bLocal:\s+(https?:\/\/[^\s]+)/g)].map((match) => match[1])
-  return matches.reverse().find((url) => url !== attemptedBaseUrl) ?? null
+  return matches.toReversed().find((url) => url !== attemptedBaseUrl) ?? null
 }
 
 async function startDevServer() {
@@ -116,7 +116,8 @@ async function expectVisible(locator, label) {
 
 async function assertNoBrowserErrors(errors) {
   if (errors.length === 0) return
-  fail(`Browser errors:\n${errors.map((error) => `- ${error}`).join("\n")}`)
+  const details = errors.map((error) => `- ${error}`).join("\n")
+  fail(`Browser errors:\n${details}`)
 }
 
 function isIgnorableRequestFailure(request) {

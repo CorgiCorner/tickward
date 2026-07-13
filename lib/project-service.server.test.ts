@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
     // New optional method for read-only rule
     listProjectMemberships: vi.fn(),
   },
-  getEntitlements: vi.fn(),
+  getEntitlementsForActor: vi.fn(),
 }))
 
 vi.mock("@/lib/server-adapters.server", () => ({
@@ -27,12 +27,8 @@ vi.mock("@/lib/server-adapters.server", () => ({
   }),
 }))
 
-vi.mock("@/lib/entitlements", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/entitlements")>()
-  return {
-    ...actual,
-    getEntitlements: mocks.getEntitlements,
-  }
+vi.mock("@/lib/entitlements.server", () => {
+  return { getEntitlementsForActor: mocks.getEntitlementsForActor }
 })
 
 describe("project service", () => {
@@ -49,7 +45,8 @@ describe("project service", () => {
     // Re-initialize after tests that remove the optional method
     mocks.projectRepository.listProjectMemberships = vi.fn().mockResolvedValue([])
     // Default entitlements: maxProjects = 2
-    mocks.getEntitlements.mockReturnValue({
+    mocks.getEntitlementsForActor.mockResolvedValue({
+      plan: "free",
       maxProjects: 2,
       maxSnapshotTimers: 50,
       maxSpaces: 2,
@@ -295,9 +292,10 @@ describe("project service", () => {
         projectId: "project_newer",
         ownerId: "user_123",
       })
-      // Simulate owner having 2 projects: older is editable, newer is over-limit (limit=1)
-      mocks.getEntitlements.mockReturnValue({
-        maxProjects: 1,
+      // Simulate the free tier at 2 projects: the third membership is read-only.
+      mocks.getEntitlementsForActor.mockResolvedValue({
+        plan: "free",
+        maxProjects: 2,
         maxSnapshotTimers: 50,
         maxSpaces: 2,
         maxTimers: 20,
@@ -305,6 +303,7 @@ describe("project service", () => {
       })
       mocks.projectRepository.listProjectMemberships.mockResolvedValue([
         { id: "project_older", claimedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "project_middle", claimedAt: "2026-03-01T00:00:00.000Z", createdAt: "2026-03-01T00:00:00.000Z" },
         { id: "project_newer", claimedAt: "2026-06-01T00:00:00.000Z", createdAt: "2026-06-01T00:00:00.000Z" },
       ])
 
@@ -328,8 +327,9 @@ describe("project service", () => {
         projectId: "project_older",
         ownerId: "user_123",
       })
-      mocks.getEntitlements.mockReturnValue({
-        maxProjects: 1,
+      mocks.getEntitlementsForActor.mockResolvedValue({
+        plan: "free",
+        maxProjects: 2,
         maxSnapshotTimers: 50,
         maxSpaces: 2,
         maxTimers: 20,
@@ -337,6 +337,7 @@ describe("project service", () => {
       })
       mocks.projectRepository.listProjectMemberships.mockResolvedValue([
         { id: "project_older", claimedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "project_middle", claimedAt: "2026-03-01T00:00:00.000Z", createdAt: "2026-03-01T00:00:00.000Z" },
         { id: "project_newer", claimedAt: "2026-06-01T00:00:00.000Z", createdAt: "2026-06-01T00:00:00.000Z" },
       ])
       mocks.projectRepository.saveUserProject.mockResolvedValue(true)
@@ -386,16 +387,18 @@ describe("project service", () => {
         claimedAt: "2026-06-05T08:00:00.000Z",
       }
       mocks.projectRepository.claimAnonymousProject = vi.fn().mockResolvedValue(claimedProject)
-      mocks.getEntitlements.mockReturnValue({
-        maxProjects: 1,
+      mocks.getEntitlementsForActor.mockResolvedValue({
+        plan: "free",
+        maxProjects: 2,
         maxSnapshotTimers: 50,
         maxSpaces: 2,
         maxTimers: 20,
         maxTimersPerSpace: 5,
       })
-      // After claim, owner has 2 memberships but limit is 1 → new one is read-only
+      // After claim, owner has 3 memberships but the free limit is 2.
       mocks.projectRepository.listProjectMemberships.mockResolvedValue([
         { id: "project_existing", claimedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "project_middle", claimedAt: "2026-03-01T00:00:00.000Z", createdAt: "2026-03-01T00:00:00.000Z" },
         { id: "project_new", claimedAt: "2026-06-05T08:00:00.000Z", createdAt: "2026-06-05T08:00:00.000Z" },
       ])
 
@@ -416,8 +419,9 @@ describe("project service", () => {
         claimedAt: "2026-06-05T08:00:00.000Z",
       }
       mocks.projectRepository.claimAnonymousProject = vi.fn().mockResolvedValue(claimedProject)
-      mocks.getEntitlements.mockReturnValue({
-        maxProjects: 1,
+      mocks.getEntitlementsForActor.mockResolvedValue({
+        plan: "free",
+        maxProjects: 2,
         maxSnapshotTimers: 50,
         maxSpaces: 2,
         maxTimers: 20,
@@ -425,6 +429,7 @@ describe("project service", () => {
       })
       mocks.projectRepository.listProjectMemberships.mockResolvedValue([
         { id: "project_existing", claimedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "project_middle", claimedAt: "2026-03-01T00:00:00.000Z", createdAt: "2026-03-01T00:00:00.000Z" },
         { id: "project_new", claimedAt: "2026-06-05T08:00:00.000Z", createdAt: "2026-06-05T08:00:00.000Z" },
       ])
 

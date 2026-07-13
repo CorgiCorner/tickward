@@ -30,6 +30,7 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { runInBackground } from "@/lib/background-task"
 import { apiUnavailableErrorMessage, readApiJson } from "@/lib/client-api"
 import { formatMessage } from "@/lib/i18n/messages"
 
@@ -230,19 +231,22 @@ export function ApiKeysSettingsPanel(
   const loadApiKeys = useCallback((isCancelled: () => boolean = () => false) => {
     setLoadError(null)
     setLoading(true)
-    void fetchApiKeys()
-      .then((records) => {
-        if (isCancelled()) return
-        setApiKeys(records)
-      })
-      .catch((error: unknown) => {
-        if (isCancelled()) return
-        setApiKeys([])
-        setLoadError(apiKeysLoadErrorMessage(error))
-      })
-      .finally(() => {
-        if (!isCancelled()) setLoading(false)
-      })
+    runInBackground(
+      "apiKeys.load",
+      fetchApiKeys()
+        .then((records) => {
+          if (isCancelled()) return
+          setApiKeys(records)
+        })
+        .catch((error: unknown) => {
+          if (isCancelled()) return
+          setApiKeys([])
+          setLoadError(apiKeysLoadErrorMessage(error))
+        })
+        .finally(() => {
+          if (!isCancelled()) setLoading(false)
+        }),
+    )
   }, [])
 
   function resetCreateDialog() {

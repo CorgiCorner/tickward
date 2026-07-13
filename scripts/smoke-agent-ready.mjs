@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { chromium } from "playwright"
+import { pathToFileURL } from "node:url"
 
 const agentReadyUrl = process.env.AGENT_READY_URL ?? "https://isitagentready.com/tickward.com?profile=apiApp"
 const expectedSiteUrl = process.env.AGENT_READY_SITE_URL ?? "https://tickward.com"
@@ -14,40 +14,64 @@ function fail(message) {
   throw new Error(message)
 }
 
-function parseScore(text) {
-  const escapedSite = expectedSiteUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const resultPattern = new RegExp(`RESULTS FOR\\s+${escapedSite}\\s+(\\d+)\\s+LEVEL`, "i")
-  const resultMatch = text.match(resultPattern)
-  if (resultMatch) return Number(resultMatch[1])
-
-  const fallbackMatch = text.match(/\b(\d{1,3})\s+LEVEL\s+\d+\b/i)
-  return fallbackMatch ? Number(fallbackMatch[1]) : null
+function normalizeHttpUrl(value) {
+  const url = new URL(value)
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    fail(`Expected an HTTP(S) site URL, received ${url.protocol}`)
+  }
+  url.hash = ""
+  return url.href
 }
 
-const browser = await chromium.launch({ headless: true })
-const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
-page.setDefaultTimeout(timeoutMs)
+export function parseAgentReadyScore(text, siteUrl) {
+  const expectedUrl = normalizeHttpUrl(siteUrl)
+  const tokens = text.trim().split(/\s+/)
 
-try {
-  log(`opening ${agentReadyUrl}`)
-  await page.goto(agentReadyUrl, { waitUntil: "networkidle", timeout: timeoutMs })
-  await page.getByText("RESULTS FOR").waitFor({ timeout: timeoutMs })
-  const bodyText = await page.locator("body").innerText({ timeout: timeoutMs })
+  for (let index = 0; index <= tokens.length - 5; index += 1) {
+    if (tokens[index]?.toUpperCase() !== "RESULTS" || tokens[index + 1]?.toUpperCase() !== "FOR") continue
 
-  if (!bodyText.includes(expectedSiteUrl)) {
-    fail(`Expected scanner result for ${expectedSiteUrl}`)
+    let resultUrl
+    try {
+      resultUrl = normalizeHttpUrl(tokens[index + 2])
+    } catch {
+      continue
+    }
+    if (resultUrl !== expectedUrl || tokens[index + 4]?.toUpperCase() !== "LEVEL") continue
+
+    const score = Number(tokens[index + 3])
+    return Number.isInteger(score) && score >= 0 ? score : null
   }
 
-  const score = parseScore(bodyText)
-  if (score === null || Number.isNaN(score)) {
-    fail("Could not read the Agent Ready score")
-  }
+  return null
+}
 
-  if (score < minScore) {
-    fail(`Agent Ready score is ${score}; expected at least ${minScore}`)
-  }
+async function main() {
+  const { chromium } = await import("playwright")
+  const browser = await chromium.launch({ headless: true })
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
+  page.setDefaultTimeout(timeoutMs)
 
-  log(`score ${score}/${minScore}`)
-} finally {
-  await browser.close()
+  try {
+    log(`opening ${agentReadyUrl}`)
+    await page.goto(agentReadyUrl, { waitUntil: "networkidle", timeout: timeoutMs })
+    await page.getByText("RESULTS FOR").waitFor({ timeout: timeoutMs })
+    const bodyText = await page.locator("body").innerText({ timeout: timeoutMs })
+
+    const score = parseAgentReadyScore(bodyText, expectedSiteUrl)
+    if (score === null) {
+      fail(`Could not read the Agent Ready score for ${normalizeHttpUrl(expectedSiteUrl)}`)
+    }
+
+    if (score < minScore) {
+      fail(`Agent Ready score is ${score}; expected at least ${minScore}`)
+    }
+
+    log(`score ${score}/${minScore}`)
+  } finally {
+    await browser.close()
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main()
 }

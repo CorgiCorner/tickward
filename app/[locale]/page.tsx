@@ -16,6 +16,8 @@ import { getCurrentActor } from "@/lib/actor.server"
 import { DEFAULT_ACCOUNT_PREFERENCES, type AccountPreferencesRecord } from "@/lib/account-preferences"
 import { getAccountPreferencesForUser } from "@/lib/account-preferences.server"
 import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/cookies.server"
+import { planForUser, type PlanId } from "@/lib/entitlements"
+import { getEntitlementsTable } from "@/lib/entitlements.server"
 import { getHomeFaqs } from "@/lib/home-faqs"
 import { setActiveLocale } from "@/lib/i18n/active-locale"
 import { formatMessage, isSupportedLocale, localeHref, SUPPORTED_LOCALES, type Locale } from "@/lib/i18n/messages"
@@ -49,7 +51,12 @@ export async function generateMetadata(props: Readonly<{ params: HomeRouteParams
   }
 }
 
-async function readHomeAccountPreferences(): Promise<AccountPreferencesRecord | null> {
+type HomeAccountData = {
+  activePlan: PlanId
+  accountPreferences: AccountPreferencesRecord | null
+}
+
+async function readHomeAccountData(): Promise<HomeAccountData> {
   const incomingHeaders = await headers()
   const requestHeaders = new Headers(incomingHeaders)
   const protocol = incomingHeaders.get("x-forwarded-proto") ?? "https"
@@ -59,16 +66,19 @@ async function readHomeAccountPreferences(): Promise<AccountPreferencesRecord | 
     const actor = await getCurrentActor({
       request: new Request(`${protocol}://${host}/`, { headers: requestHeaders }),
     })
-    if (actor.kind !== "user") return null
+    if (actor.kind !== "user") return { activePlan: "anonymous", accountPreferences: null }
 
     try {
-      return await getAccountPreferencesForUser(actor.user)
+      return {
+        activePlan: planForUser(actor.user),
+        accountPreferences: await getAccountPreferencesForUser(actor.user),
+      }
     } catch (error) {
       console.error("[tickward] home.accountPreferences", error)
-      return DEFAULT_ACCOUNT_PREFERENCES
+      return { activePlan: planForUser(actor.user), accountPreferences: DEFAULT_ACCOUNT_PREFERENCES }
     }
   } catch {
-    return null
+    return { activePlan: "anonymous", accountPreferences: null }
   }
 }
 
@@ -81,11 +91,12 @@ async function PersonalizedHome() {
   const rawSpaces = await readSpacesCookie<unknown>()
   const spaces: Space[] = isSpaceArray(rawSpaces) ? rawSpaces : []
   const restoreKey = await readRestoreKeyCookie()
-  const accountPreferences = await readHomeAccountPreferences()
+  const entitlementsTable = await getEntitlementsTable()
+  const { accountPreferences, activePlan } = await readHomeAccountData()
   const home = <HomeClient />
 
   return (
-    <TimerStoreProvider initialState={{ timers, spaces, restoreKey }}>
+    <TimerStoreProvider initialState={{ timers, spaces, restoreKey, entitlementsTable, activePlan }}>
       <WebMcpTools />
       {accountPreferences ? (
         <AccountPreferencesProvider initialPreferences={accountPreferences} initialError={null}>

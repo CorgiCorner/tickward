@@ -33,6 +33,7 @@ describe("docs config", () => {
     expect(getDocsSitemapPaths()).toEqual([
       "/docs",
       "/docs/guides/self-hosting",
+      "/docs/guides/account-migration",
       "/docs/guides/api-quickstart",
       "/docs/guides/embedding-timers",
       "/docs/guides/webhooks",

@@ -150,7 +150,7 @@ export function TimerFocusMode(
   const [visible, setVisible] = useState(false)
   const [themeId, setThemeId] = useState<FocusThemeId>(() => (open ? readStoredThemeId() : "default"))
   const closeButtonRef = useRef<HTMLButtonElement>(null)
-  const dialogRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useRef<HTMLDialogElement>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
 
   const theme = useMemo(
@@ -230,7 +230,7 @@ export function TimerFocusMode(
 
       const focusableElements = focusableElementsIn(dialog)
       const firstFocusable = focusableElements[0] ?? dialog
-      const lastFocusable = focusableElements[focusableElements.length - 1] ?? dialog
+      const lastFocusable = focusableElements.at(-1) ?? dialog
       const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
       const focusIsInsideDialog = activeElement ? dialog.contains(activeElement) : false
 
@@ -259,15 +259,19 @@ export function TimerFocusMode(
   if (!mounted) return null
 
   return (
-    <div
+    // Native dialog shown via the `open` attribute (not showModal) so the
+    // existing mount/unmount transition, manual focus trap, and Escape
+    // handling keep working unchanged. w-full overrides the user-agent
+    // fit-content sizing so the dialog stays full-bleed like the old div.
+    <dialog
       ref={dialogRef}
-      role="dialog"
+      open
       aria-modal="true"
       aria-labelledby="timer-focus-mode-title"
       tabIndex={-1}
       data-testid="timer-focus-mode"
       className={cn(
-        "fixed inset-0 z-[100] isolate flex min-h-dvh flex-col overflow-hidden transition-opacity duration-200 motion-reduce:transition-none",
+        "fixed inset-0 z-[100] isolate flex min-h-dvh w-full flex-col overflow-hidden transition-opacity duration-200 motion-reduce:transition-none",
         visible ? "opacity-100" : "opacity-0",
         theme.backgroundClassName,
         theme.textClassName,
@@ -303,9 +307,8 @@ export function TimerFocusMode(
         </div>
       </main>
 
-      <div
+      <fieldset
         className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-background/25 px-3 py-2 opacity-100 backdrop-blur-md transition-opacity hover:opacity-100 focus-within:opacity-100 pointer-fine:opacity-55 pointer-fine:hover:opacity-100 pointer-fine:focus-within:opacity-100 motion-reduce:transition-none"
-        role="group"
         aria-label={formatMessage("timer.focus.themePicker")}
       >
         {TIMER_FOCUS_THEMES.map((candidate) => {
@@ -329,8 +332,8 @@ export function TimerFocusMode(
             />
           )
         })}
-      </div>
-    </div>
+      </fieldset>
+    </dialog>
   )
 }
 

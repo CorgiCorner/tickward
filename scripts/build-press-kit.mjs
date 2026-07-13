@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process"
 import { existsSync, rmSync, statSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { resolveTrustedExecutable } from "./trusted-executable.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(__dirname, "..")
@@ -32,7 +33,10 @@ for (const asset of assets) {
 
 rmSync(zipPath, { force: true })
 // -X drops platform extra fields, -j flattens paths inside the archive.
-execFileSync("zip", ["-X", "-j", zipPath, ...assets.map((asset) => path.join(pressDir, asset))], {
+const zipExecutable = resolveTrustedExecutable("zip", {
+  candidates: ["/usr/bin/zip", "/bin/zip", "/usr/local/bin/zip", "/opt/homebrew/bin/zip"],
+})
+execFileSync(zipExecutable, ["-X", "-j", zipPath, ...assets.map((asset) => path.join(pressDir, asset))], {
   stdio: "inherit",
 })
 

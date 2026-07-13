@@ -67,6 +67,18 @@ describe("/api/mcp/oauth/grants", () => {
     })
   })
 
+  it("treats a non-string mcp_origin form value as absent instead of stringifying it", async () => {
+    const { POST } = await import("./route")
+    const body = new FormData()
+    body.set("handoff", "handoff_1234567890")
+    body.set("mcp_origin", new Blob(["https://mcp.tickward.test"]))
+
+    const res = await POST(new Request("https://tickward.test/api/mcp/oauth/grants", { body, method: "POST" }))
+
+    expect(res.status).toBe(303)
+    expect(mocks.readMcpAuthorizationHandoff).toHaveBeenCalledWith({ handoff: "handoff_1234567890", mcpOrigin: "" })
+  })
+
   it("requires a signed-in user", async () => {
     mocks.getCurrentActor.mockResolvedValueOnce({ kind: "anonymous" })
     const { POST } = await import("./route")

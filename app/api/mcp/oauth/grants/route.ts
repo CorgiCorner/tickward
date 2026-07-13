@@ -16,7 +16,8 @@ export async function POST(req: Request) {
 
   const form = await req.formData().catch(() => null)
   const handoff = normalizeMcpHandoffId(form?.get("handoff"))
-  const mcpOrigin = String(form?.get("mcp_origin") ?? "")
+  const rawMcpOrigin = form?.get("mcp_origin")
+  const mcpOrigin = typeof rawMcpOrigin === "string" ? rawMcpOrigin : ""
   if (!handoff) return apiError("validation_error", "MCP authorization handoff is invalid.", { status: 400 })
 
   const authorization = await readMcpAuthorizationHandoff({ handoff, mcpOrigin }).catch(() => null)

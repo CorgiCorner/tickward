@@ -156,13 +156,29 @@ export async function grantRuntimeDatabasePrivileges({
   }
 }
 
+/**
+ * Keep privileged connection details, role names, schemas, and SQL out of CLI
+ * output. Callers that need diagnostics can handle the thrown error in a
+ * protected logging system instead of printing it to a shared build log.
+ *
+ * @param {{ grant?: () => Promise<unknown>, log?: (message: string) => void, logError?: (message: string) => void }} [options]
+ */
+export async function runRuntimeGrantCli({
+  grant = grantRuntimeDatabasePrivileges,
+  log = console.log,
+  logError = console.error,
+} = {}) {
+  try {
+    await grant()
+    log("Runtime database privileges granted.")
+    return true
+  } catch {
+    logError("Runtime database privilege grant failed.")
+    return false
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  grantRuntimeDatabasePrivileges()
-    .then(({ runtimeRole, schema }) => {
-      console.log(`Granted runtime database privileges to ${runtimeRole} on schema ${schema}.`)
-    })
-    .catch((error) => {
-      console.error(error instanceof Error ? error.message : String(error))
-      process.exit(1)
-    })
+  const succeeded = await runRuntimeGrantCli()
+  if (!succeeded) process.exit(1)
 }

@@ -25,8 +25,8 @@ function readSkillMeta(): SkillMeta {
     const contents = readFileSync(join(process.cwd(), "skill.md"))
     digest = `sha256:${createHash("sha256").update(contents).digest("hex")}`
     const text = contents.toString("utf8")
-    const nameMatch = text.match(/^name:\s*(.+)$/m)
-    const descriptionMatch = text.match(/^description:\s*(.+)$/m)
+    const nameMatch = /^name:\s*(.+)$/m.exec(text)
+    const descriptionMatch = /^description:\s*(.+)$/m.exec(text)
     if (nameMatch?.[1]) name = nameMatch[1].trim()
     if (descriptionMatch?.[1]) description = descriptionMatch[1].trim()
   } catch {

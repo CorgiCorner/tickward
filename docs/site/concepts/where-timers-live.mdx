@@ -85,8 +85,8 @@ the project by `projectId` with the session: saves go through the
 project-id path, and `listUserProjects` enumerates the account's projects.
 
 Claiming always succeeds even if the account is already at its project limit.
-Projects beyond the limit become read-only — visible and deletable, but not
-editable — until the count drops back within the limit. See
+Projects beyond the limit become read-only (visible and deletable, but not
+editable) until the count drops back within the limit. See
 [Plans and Limits](/concepts/plans-and-limits#projects-over-the-limit) for how
 the retention window and self-hosting options interact with this behaviour.
 
@@ -112,20 +112,28 @@ compare-and-set as anonymous saves.
 
 ## Limits
 
-One plan exists today (`anonymous` in `lib/entitlements.ts`); every actor gets
-the same entitlements, signed in or not.
+Two plan ids exist in `lib/entitlements.ts`: `anonymous` for signed-out use and
+`free` for signed-in accounts.
 
-| limit | default | env override |
-|-|-|-|
-| `maxTimers` | 20 | `NEXT_PUBLIC_TICKWARD_MAX_TIMERS` |
-| `maxTimersPerSpace` | 20 | `NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE` |
-| `maxSpaces` | 2 | `NEXT_PUBLIC_TICKWARD_MAX_SPACES` |
-| `maxProjects` | 10 | `NEXT_PUBLIC_TICKWARD_MAX_PROJECTS` |
-| `maxSnapshotTimers` | 50 | none |
+| limit | anonymous default | free default | runtime override |
+|-|-|-|-|
+| `maxTimers` | 20 | 40 | `/admin` plan limits editor |
+| `maxTimersPerSpace` | 20 | 40 | `/admin` plan limits editor |
+| `maxSpaces` | 2 | 4 | `/admin` plan limits editor |
+| `maxProjects` | 10 | 20 | `/admin` plan limits editor |
+| `maxSnapshotTimers` | 50 | 50 | `/admin` plan limits editor |
 
-Overrides are validated as integers from 1 to 1000; invalid values fall back to
-the defaults (see [Self-Hosting](/guides/self-hosting) for deployment
-configuration). Enforcement happens in three places:
+At build time, the four `NEXT_PUBLIC_TICKWARD_MAX_*` variables set the anonymous
+defaults for timers, timers per space, spaces, and projects. Invalid values fall
+back to 20, 20, 2, and 10 respectively. Free account defaults double those
+values, capped at 1000. The snapshot default is 50 for both plans and has no
+environment variable.
+
+Administrators can override every value for each plan at runtime. Values are
+kept between 1 and 1000, the snapshot timer limit must be at least the total
+timer limit, and the per-space timer limit cannot exceed the total timer limit.
+Changes apply immediately. See [Self-Hosting](/guides/self-hosting) for
+deployment configuration. Enforcement happens in three places:
 
 - **At creation, in the client.** `canCreateTimerInSpace` in
   `lib/entitlements.ts` checks the project total and the per-space count. The
@@ -139,7 +147,8 @@ configuration). Enforcement happens in three places:
   spaces to `maxSpaces`, and `readProjectRegistry` caps the registry at
   `maxProjects`, so hand-edited `localStorage` cannot bypass the limits.
 
-`maxSnapshotTimers` (50) is looser than `maxTimers` (20) on purpose: a
-snapshot holding more timers than the creation cap - for example one written
-through the public API, which allows up to `maxSnapshotTimers` - still saves
-and restores; the lower cap only blocks creating new timers in the client.
+The default `maxSnapshotTimers` (50) is looser than both default `maxTimers`
+values on purpose: a snapshot holding more timers than the creation cap, for
+example one written through the public API, still saves and restores. The admin
+editor requires `maxSnapshotTimers` to remain at least as high as `maxTimers`;
+the lower creation cap only blocks creating new timers in the client.

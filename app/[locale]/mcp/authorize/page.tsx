@@ -9,6 +9,8 @@ import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/
 import type { UserActor } from "@/lib/contracts"
 import { getCurrentActor } from "@/lib/actor.server"
 import { getDocsHref } from "@/lib/docs-config"
+import { planForUser } from "@/lib/entitlements"
+import { getEntitlementsTable } from "@/lib/entitlements.server"
 import { formatMessage, localeHref, type Locale } from "@/lib/i18n/messages"
 import { normalizeMcpHandoffId, readMcpAuthorizationHandoff } from "@/lib/mcp-authorization-handoff.server"
 import { getPublicReleaseTag } from "@/lib/release.server"
@@ -77,9 +79,12 @@ export default async function McpAuthorizePage(
   const rawSpaces = await readSpacesCookie<unknown>()
   const spaces: Space[] = isSpaceArray(rawSpaces) ? rawSpaces : []
   const restoreKey = await readRestoreKeyCookie()
+  const entitlementsTable = await getEntitlementsTable()
 
   return (
-    <TimerStoreProvider initialState={{ timers, spaces, restoreKey }}>
+    <TimerStoreProvider
+      initialState={{ timers, spaces, restoreKey, entitlementsTable, activePlan: planForUser(actor.user) }}
+    >
       <div className="flex min-h-dvh flex-col bg-background text-foreground">
         <Header />
         <main className="mx-auto grid w-full max-w-[560px] gap-6 px-4 py-8 sm:py-10">

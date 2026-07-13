@@ -7,7 +7,9 @@ const scanRoots = ["app", "components", "lib"].map((root) => path.join(process.c
 const skippedDirs = [".next", "components/storybook", "lib/generated", "lib/i18n", "node_modules", "storybook-static"]
 
 const skippedFilePatterns = [/\.stories\.[cm]?[tj]sx?$/, /\.test\.[cm]?[tj]sx?$/, /\.d\.ts$/]
-const contentDirs = ["lib/marketing-content", "lib/use-cases/content"]
+// app/[locale]/legal: legal documents are intentionally English-only (single
+// canonical version); the pages carry a localized "provided in English" notice.
+const contentDirs = ["app/[locale]/legal", "lib/marketing-content", "lib/use-cases/content"]
 
 const checkedExtensions = new Set([".ts", ".tsx"])
 

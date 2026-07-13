@@ -46,7 +46,7 @@ function padDurationPart(value: number) {
 }
 
 function clampDurationPart(rawValue: string, max: number) {
-  const digits = rawValue.replace(/\D/g, "").slice(-2)
+  const digits = rawValue.replaceAll(/\D/g, "").slice(-2)
   const parsed = digits === "" ? 0 : Number(digits)
   return padDurationPart(Math.min(max, parsed))
 }
@@ -109,11 +109,12 @@ export function ScheduleModeToggle(
   }>,
 ) {
   return (
-    <div
-      role="group"
+    // min-w-0 overrides the fieldset default min-inline-size so the toggle can
+    // shrink inside narrow form columns exactly like the previous div did.
+    <fieldset
       aria-label={formatMessage("timer.form.schedule")}
       className={cn(
-        "grid grid-cols-2 rounded-full border border-border bg-muted/30 p-1",
+        "grid min-w-0 grid-cols-2 rounded-full border border-border bg-muted/30 p-1",
         props.compact ? "text-xs" : "text-sm",
       )}
     >
@@ -135,7 +136,7 @@ export function ScheduleModeToggle(
           </button>
         )
       })}
-    </div>
+    </fieldset>
   )
 }
 

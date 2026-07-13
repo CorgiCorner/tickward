@@ -27,8 +27,8 @@ describe("SiteFooter", () => {
     expect(screen.getByRole("link", { name: "Press kit" })).toHaveAttribute("href", "/en/press")
     expect(screen.queryByRole("link", { name: "Sitemap" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Robots" })).not.toBeInTheDocument()
-    expect(screen.getByText("Cloud data stays until you delete it.")).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Cloud data stays until you delete it." })).not.toBeInTheDocument()
+    expect(screen.getByText("Projects on your account stay until you delete them.")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Data retention details" })).not.toBeInTheDocument()
     expect(screen.getByText(/^v\d+\.\d+\.\d+/)).toBeInTheDocument()
   })
 

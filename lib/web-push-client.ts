@@ -3,12 +3,14 @@ import { formatMessage } from "@/lib/i18n/messages"
 
 export function vapidPublicKeyToApplicationServerKey(publicKey: string) {
   const padding = "=".repeat((4 - (publicKey.length % 4)) % 4)
-  const base64 = (publicKey + padding).replace(/-/g, "+").replace(/_/g, "/")
+  const base64 = (publicKey + padding).replaceAll("-", "+").replaceAll("_", "/")
   const raw = globalThis.atob(base64)
   const output = new Uint8Array(raw.length)
 
   for (let i = 0; i < raw.length; i += 1) {
-    output[i] = raw.charCodeAt(i)
+    // atob output is latin1, so every position holds a single code unit and
+    // codePointAt(i) is always defined and equal to charCodeAt(i).
+    output[i] = raw.codePointAt(i) ?? 0
   }
 
   return output

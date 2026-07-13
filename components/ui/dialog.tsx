@@ -77,12 +77,21 @@ function splitDialogChildren(children: React.ReactNode) {
   return { body, footer, header }
 }
 
+// Toasts (sonner) portal to the document body, outside the dialog. Without
+// this guard, clicking a toast — e.g. its close button, or the "code sent"
+// toast over the OTP modal — registers as a pointer-down outside the dialog
+// and dismisses it. Treat interactions inside a toast as inside the dialog.
+function isEventInsideToast(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest("[data-sonner-toast],[data-sonner-toaster]") !== null
+}
+
 function DialogContent({
   className,
   children,
   showCloseButton = true,
   sheetOnMobile = false,
   style,
+  onInteractOutside,
   ...props
 }: Readonly<
   React.ComponentProps<typeof DialogPrimitive.Content> & {
@@ -105,7 +114,7 @@ function DialogContent({
   function handleTouchMove(event: React.TouchEvent) {
     if (startYRef.current === null) return
     const delta = (event.touches[0]?.clientY ?? startYRef.current) - startYRef.current
-    setDragY(delta > 0 ? delta : 0)
+    setDragY(Math.max(delta, 0))
   }
   function handleTouchEnd() {
     setDragging(false)
@@ -127,6 +136,16 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(sheetOnMobile ? dialogSheetClassName : dialogCardClassName, className)}
         style={sheetStyle}
+        onInteractOutside={(event) => {
+          // Radix dispatches this on the layer node, so read the wrapped DOM
+          // event's target to learn what was actually clicked. Cancel dismissal
+          // for toast interactions, then still run the caller's handler (it may
+          // drive analytics/state) — it can no longer un-prevent the close.
+          if (isEventInsideToast(event.detail.originalEvent.target)) {
+            event.preventDefault()
+          }
+          onInteractOutside?.(event)
+        }}
         {...props}
       >
         {/* Drag handle for the mobile sheet — swipe it down to dismiss. The
@@ -255,4 +274,5 @@ export {
   DialogPortal,
   DialogTitle,
   DialogTrigger,
+  isEventInsideToast,
 }

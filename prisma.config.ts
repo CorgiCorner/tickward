@@ -2,8 +2,10 @@ import "dotenv/config"
 
 import { defineConfig } from "prisma/config"
 
-const datasourceUrl =
-  process.env.DIRECT_URL || process.env.DATABASE_URL || "postgresql://tickward:tickward@localhost:5432/tickward"
+// Prisma loads this config for commands such as `generate` that do not connect
+// to the database. Keep that path usable without committing development
+// credentials; commands that connect still receive their URL from the env.
+const datasourceUrl = process.env.DIRECT_URL || process.env.DATABASE_URL || "postgresql://localhost/tickward"
 
 export default defineConfig({
   schema: "prisma/schema.prisma",

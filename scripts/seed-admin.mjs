@@ -9,12 +9,26 @@ import pg from "pg"
 
 const { Client } = pg
 
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+function isValidEmail(email) {
+  let atIndex = -1
+
+  for (let index = 0; index < email.length; index += 1) {
+    const character = email[index]
+    if (character.trim() === "") return false
+    if (character !== "@") continue
+    if (atIndex !== -1) return false
+    atIndex = index
+  }
+
+  if (atIndex <= 0 || atIndex >= email.length - 1) return false
+  const dotIndex = email.indexOf(".", atIndex + 1)
+  return dotIndex > atIndex + 1 && dotIndex < email.length - 1
+}
 
 export function normalizeAdminSeedEnv(env = process.env) {
   const email = env.SEED_ADMIN_EMAIL?.trim().toLowerCase()
   if (!email) throw new Error("Missing required environment variable: SEED_ADMIN_EMAIL")
-  if (!emailPattern.test(email)) throw new Error("SEED_ADMIN_EMAIL must be a valid email address")
+  if (!isValidEmail(email)) throw new Error("SEED_ADMIN_EMAIL must be a valid email address")
 
   return {
     email,
@@ -57,8 +71,10 @@ async function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
+  try {
+    await main()
+  } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))
     process.exit(1)
-  })
+  }
 }

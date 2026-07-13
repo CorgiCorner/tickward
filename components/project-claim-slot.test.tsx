@@ -192,14 +192,16 @@ describe("ProjectClaimSlot", () => {
     act(() => vi.advanceTimersByTime(PROJECT_CLAIM_TOAST_DELAY_MS))
     vi.useRealTimers()
 
+    // Sonner passes the toast's own id to the render callback; the toast is
+    // created with the deterministic id "project-claim:<projectId>".
     const renderToast = mocks.toastCustom.mock.calls[0][0]
-    render(renderToast("toast-id"))
+    render(renderToast("project-claim:project-a"))
 
     fireEvent.click(screen.getByRole("button", { name: "Save to account" }))
 
     await waitFor(() => expect(storeState.claimActiveProject).toHaveBeenCalled())
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Project saved to your account.")
-    expect(mocks.toastDismiss).toHaveBeenCalledWith("toast-id")
+    expect(mocks.toastDismiss).toHaveBeenCalledWith("project-claim:project-a")
   })
 
   it("persists claim toast dismissal for the current browser session", () => {
@@ -212,9 +214,9 @@ describe("ProjectClaimSlot", () => {
     act(() => vi.advanceTimersByTime(PROJECT_CLAIM_TOAST_DELAY_MS))
 
     const renderToast = mocks.toastCustom.mock.calls[0][0]
-    render(renderToast("toast-id"))
+    render(renderToast("project-claim:project-a"))
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }))
-    expect(mocks.toastDismiss).toHaveBeenCalledWith("toast-id")
+    expect(mocks.toastDismiss).toHaveBeenCalledWith("project-claim:project-a")
 
     unmount()
     mocks.toastCustom.mockClear()

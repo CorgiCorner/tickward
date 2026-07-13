@@ -21,6 +21,19 @@ describe("client-api", () => {
     })
   })
 
+  it("uses the fallback when the error envelope message is not a string", async () => {
+    await expect(
+      readApiJson(
+        Response.json({ error: { type: "validation_error", message: { detail: "nope" } } }, { status: 400 }),
+        "Failed",
+      ),
+    ).rejects.toMatchObject({
+      message: "Failed",
+      status: 400,
+      type: "validation_error",
+    })
+  })
+
   it("uses the fallback for failed responses without a JSON error envelope", async () => {
     await expect(readApiJson(new Response("not json", { status: 503 }), "Failed")).rejects.toMatchObject({
       message: "Failed",

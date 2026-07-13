@@ -57,6 +57,15 @@ export function getDatabaseUrl(): string | null {
   return optionalNonEmpty(optionalServerEnv("DATABASE_URL")) ?? null
 }
 
+export function getDatabaseSchema(): string | undefined {
+  const configuredSchema = optionalNonEmpty(optionalServerEnv("TICKWARD_DATABASE_SCHEMA"))
+  if (configuredSchema) return configuredSchema
+
+  const databaseUrl = getDatabaseUrl()
+  if (!databaseUrl) return undefined
+  return optionalNonEmpty(new URL(databaseUrl).searchParams.get("schema") ?? undefined)
+}
+
 export function getDirectDatabaseUrl(): string | null {
   return optionalNonEmpty(optionalServerEnv("DIRECT_URL")) ?? null
 }

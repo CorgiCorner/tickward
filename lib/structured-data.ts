@@ -23,16 +23,28 @@ export function buildOrganizationJsonLd() {
   }
 }
 
-// Schema.org SoftwareApplication markup for the marketing homepage.
-export function buildSoftwareApplicationJsonLd() {
+// Schema.org SoftwareApplication markup. Defaults describe the web app on the
+// marketing homepage; the download page overrides them for the desktop build.
+export function buildSoftwareApplicationJsonLd(
+  overrides: Readonly<{
+    name?: string
+    operatingSystem?: string
+    url?: string
+    description?: string
+    softwareVersion?: string
+    downloadUrl?: string
+  }> = {},
+) {
   return {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    name: "tickward",
+    name: overrides.name ?? "tickward",
     applicationCategory: "UtilitiesApplication",
-    operatingSystem: "Web",
-    url: getSiteOrigin(),
-    description: formatMessage("app.description"),
+    operatingSystem: overrides.operatingSystem ?? "Web",
+    url: overrides.url ?? getSiteOrigin(),
+    description: overrides.description ?? formatMessage("app.description"),
+    ...(overrides.softwareVersion ? { softwareVersion: overrides.softwareVersion } : {}),
+    ...(overrides.downloadUrl ? { downloadUrl: overrides.downloadUrl } : {}),
     offers: {
       "@type": "Offer",
       price: "0",
@@ -106,5 +118,5 @@ export function buildBreadcrumbListJsonLd(items: ReadonlyArray<{ name: string; p
 }
 
 export function jsonLdScriptContent(jsonLd: unknown): string {
-  return JSON.stringify(jsonLd).replace(/</g, "\\u003c")
+  return JSON.stringify(jsonLd).replaceAll("<", String.raw`\u003c`)
 }

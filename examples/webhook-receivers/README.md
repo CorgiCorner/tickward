@@ -12,6 +12,13 @@ trusting a delivery. Each example:
 Set the signing secret (shown once when the endpoint is created) as the
 `TICKWARD_WEBHOOK_SECRET` environment variable.
 
+The Node.js and Python examples use plain HTTP and bind to `127.0.0.1` by
+default. For production, keep that listener behind a trusted reverse proxy that
+terminates HTTPS. If the proxy requires the receiver to bind to a non-loopback
+interface, set both `HOST` and `TICKWARD_TLS_TERMINATED=true`; the receiver
+refuses that binding unless TLS termination is explicitly acknowledged. Never
+expose either HTTP listener directly to the internet.
+
 | Example | Runtime | Notes |
 | - | - |
 | `node/server.mjs` | Node.js 18+ | zero dependencies, `node server.mjs` |

@@ -40,8 +40,8 @@ function OfflineBadge() {
   )
 }
 
-function formatTimeAgo(isoDate: string) {
-  const diffMs = Date.now() - new Date(isoDate).getTime()
+function formatTimeAgo(isoDate: string, nowMs: number) {
+  const diffMs = nowMs - new Date(isoDate).getTime()
   const seconds = Math.floor(diffMs / 1000)
   if (seconds < 60) return formatMessage("footer.justNow")
   const minutes = Math.floor(seconds / 60)
@@ -55,11 +55,12 @@ function syncStatusLabel(args: {
   isSyncing: boolean
   lastSyncError: string | null
   lastSyncAt: string | null
+  nowMs: number
 }) {
   if (!args.hasCloudAccess) return formatMessage("footer.localOnly")
   if (args.isSyncing) return formatMessage("footer.syncing")
   if (args.lastSyncError) return formatMessage("footer.syncError")
-  if (args.lastSyncAt) return formatMessage("footer.syncedAt", { timeAgo: formatTimeAgo(args.lastSyncAt) })
+  if (args.lastSyncAt) return formatMessage("footer.syncedAt", { timeAgo: formatTimeAgo(args.lastSyncAt, args.nowMs) })
   return formatMessage("footer.synced")
 }
 
@@ -78,7 +79,7 @@ function SyncStatus() {
   const lastSyncError = useTimerStore((s) => s.lastSyncError)
   const lastSyncAt = useTimerStore((s) => s.lastSyncAt)
   const session = authClient.useSession()
-  const [, setTick] = useState(0)
+  const [nowMs, setNowMs] = useState(() => Date.now())
   // The signed-in state resolves only on the client, so gate session-dependent
   // copy until after mount to keep SSR and the first client render identical
   // (otherwise React reports a hydration mismatch).
@@ -90,7 +91,7 @@ function SyncStatus() {
   // re-render every 30s to keep it from going stale while the tab idles.
   useEffect(() => {
     if (!lastSyncAt) return
-    const id = setInterval(() => setTick((t) => t + 1), 30_000)
+    const id = setInterval(() => setNowMs(Date.now()), 30_000)
     return () => clearInterval(id)
   }, [lastSyncAt])
 
@@ -100,7 +101,7 @@ function SyncStatus() {
   // "Synced" label needs a hint that this project is not tied to an account yet.
   const isAnonymousCloud = hasCloudAccess && !activeProject?.cloudProjectId
 
-  const label = syncStatusLabel({ hasCloudAccess, isSyncing, lastSyncError, lastSyncAt })
+  const label = syncStatusLabel({ hasCloudAccess, isSyncing, lastSyncError, lastSyncAt, nowMs })
   const dotClass = syncStatusDotClass({ hasCloudAccess, isSyncing, lastSyncError })
   const suffixParts = []
   // Only hint "no account" when the visitor is genuinely signed out — a signed-in

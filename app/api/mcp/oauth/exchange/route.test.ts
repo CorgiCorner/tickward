@@ -53,6 +53,22 @@ describe("/api/mcp/oauth/exchange", () => {
     )
   })
 
+  it("rejects non-string grants instead of stringifying them", async () => {
+    const { POST } = await import("./route")
+
+    const res = await POST(
+      new Request("https://tickward.test/api/mcp/oauth/exchange", {
+        body: JSON.stringify({ grant: { nested: "mcpg_secret" } }),
+        method: "POST",
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "validation_error" } })
+    expect(mocks.checkRateLimit).not.toHaveBeenCalled()
+    expect(mocks.exchangeMcpAuthorizationGrant).not.toHaveBeenCalled()
+  })
+
   it("rejects invalid grants", async () => {
     mocks.exchangeMcpAuthorizationGrant.mockResolvedValue(null)
     const { POST } = await import("./route")

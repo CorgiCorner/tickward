@@ -1,8 +1,8 @@
 import "server-only"
 
 import { hashRestoreKeyToken, type RestoreKeyTokenHash } from "@/lib/auth/restore-key-token.server"
+import { jsonInput } from "@/lib/db/prisma-json.server"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
-import type { Prisma } from "@/lib/generated/prisma/client"
 import type { ShareRepository, TimerShareAccess } from "@/lib/repositories"
 import { spaceSchema, timerSchema } from "@/lib/schemas/timer"
 import type { ResolvedShare, ShareRecord } from "@/lib/share-model"
@@ -10,10 +10,6 @@ import { isValidShareId, sharedTimerFromTimer } from "@/lib/share-model"
 import { emitWebhookEvent } from "@/lib/webhooks.server"
 
 const SHARE_KIND_TIMER = "timer"
-
-function jsonInput(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)

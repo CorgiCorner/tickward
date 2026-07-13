@@ -13,6 +13,16 @@ vi.mock("@/lib/store", () => ({
   useTimerStore: <T,>(selector: (store: TimerStore) => T) => selector(storeState as TimerStore),
 }))
 
+// Mock the auth client like every other test rendering session-aware components:
+// the real client mounts better-auth's session atom, whose delayed nanostores
+// cleanup can fire after jsdom teardown and crash the run with an unhandled
+// "window is not defined" error.
+vi.mock("@/lib/auth/auth-client", () => ({
+  authClient: {
+    useSession: () => ({ data: null }),
+  },
+}))
+
 vi.mock("@/hooks/use-media-query", () => ({
   useMediaQuery: () => true,
 }))

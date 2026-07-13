@@ -1,11 +1,6 @@
-import OpenGraphImage from "./opengraph-image"
-
-import { socialImageContentType, socialImageSize } from "@/app/social-image"
-
 export const runtime = "nodejs"
 export const revalidate = 15
 export const alt = "tickward shared timer preview"
-export const size = socialImageSize
-export const contentType = socialImageContentType
+export { socialImageSize as size, socialImageContentType as contentType } from "@/app/social-image"
 
-export default OpenGraphImage
+export { default } from "./opengraph-image"

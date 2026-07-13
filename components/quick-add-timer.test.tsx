@@ -7,7 +7,7 @@ import { QuickAddTimer } from "@/components/quick-add-timer"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { getEntitlements, timerSpaceLimitMessage } from "@/lib/entitlements"
 import type { TimerStore } from "@/lib/store"
-import { MAX_TIMERS, timerLimitMessage } from "@/lib/timer-limits"
+import { timerLimitMessage } from "@/lib/timer-limits"
 import type { Timer } from "@/lib/types"
 import { toast } from "sonner"
 
@@ -177,7 +177,7 @@ describe("QuickAddTimer", () => {
 
   it("keeps quick add visible but disables submit at the timer limit", async () => {
     const user = userEvent.setup()
-    storeState.timers = Array.from({ length: MAX_TIMERS }, (_, index) => timerFixture(index))
+    storeState.timers = Array.from({ length: getEntitlements().maxTimers }, (_, index) => timerFixture(index))
 
     renderQuickAddTimer()
 
@@ -216,7 +216,7 @@ describe("QuickAddTimer", () => {
     expect(getEnterHintAddButton()).toBeDisabled()
 
     unmount()
-    storeState.timers = Array.from({ length: MAX_TIMERS }, (_, index) => timerFixture(index))
+    storeState.timers = Array.from({ length: getEntitlements().maxTimers }, (_, index) => timerFixture(index))
 
     renderQuickAddTimer()
 

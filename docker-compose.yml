@@ -18,8 +18,8 @@ services:
       HOSTNAME: 0.0.0.0
       PORT: 3000
       SITE_URL: ${SITE_URL:-http://localhost:3000}
-      DATABASE_URL: ${DATABASE_URL:-postgresql://tickward:tickward-local-password@postgres:5432/tickward?schema=public}
-      DIRECT_URL: ${DIRECT_URL:-postgresql://tickward:tickward-local-password@postgres:5432/tickward?schema=public}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env before starting Docker Compose}
+      DIRECT_URL: ${DIRECT_URL:?Set DIRECT_URL in .env before starting Docker Compose}
       UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-http://redis-http:80}
       UPSTASH_REDIS_REST_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-local-dev-token-change-me}
       TICKWARD_DOCS_ORIGIN: ${TICKWARD_DOCS_ORIGIN:-https://tickward.com/docs}
@@ -55,7 +55,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-tickward}
       POSTGRES_USER: ${POSTGRES_USER:-tickward}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tickward-local-password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env before starting Docker Compose}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:

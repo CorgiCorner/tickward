@@ -6,17 +6,26 @@ description: "Run tickward locally or deploy it with PostgreSQL, Redis rate limi
 tickward runs as a Next.js app with PostgreSQL for durable data and a
 Redis-compatible REST endpoint for rate limiting.
 
+Moving an existing account? See [Account migration](/guides/account-migration)
+for Cloud-to-self-host and self-host-to-Cloud steps.
+
 ## Docker Compose
 
 ```bash
 git clone https://github.com/CorgiCorner/tickward.git tickward
 cd tickward
 cp .env.example .env
+# Edit .env and set POSTGRES_PASSWORD, DATABASE_URL, and DIRECT_URL.
 docker compose pull
 docker compose up -d
 ```
 
 Open `http://localhost:3000`.
+
+Generate a unique local database password with `openssl rand -hex 32`. Put it
+in `POSTGRES_PASSWORD`, then use the same URL-safe value in `DATABASE_URL` and
+`DIRECT_URL`. The example leaves all three values empty deliberately so a
+committed development password cannot be reused in a real deployment.
 
 The Compose stack starts the published tickward app image, PostgreSQL, Redis,
 and an Upstash-compatible HTTP proxy for local rate limiting.
@@ -64,16 +73,17 @@ Use host-reachable URLs in `.env` when you run services outside Compose.
 
 | Variable                                    | Required | Description                                                                         |
 | ------------------------------------------- | -------: | ----------------------------------------------------------------------------------- |
+| `POSTGRES_PASSWORD`                         |      Yes | Unique password for the PostgreSQL container in the Compose stack.                  |
 | `DATABASE_URL`                              |      Yes | Runtime PostgreSQL connection used by the app.                                      |
 | `DIRECT_URL`                                |      Yes | Direct PostgreSQL connection used by Prisma migrations.                             |
 | `UPSTASH_REDIS_REST_URL`                    |      Yes | Upstash-compatible Redis REST endpoint for rate limiting.                           |
 | `UPSTASH_REDIS_REST_TOKEN`                  |      Yes | Token accepted by the Redis REST endpoint.                                          |
 | `TICKWARD_IMAGE`                            |       No | Docker image used by the Compose app service.                                       |
 | `SITE_URL`                                  |      Yes | Public app URL used for metadata, sitemap, robots.txt, and generated social images. |
-| `NEXT_PUBLIC_TICKWARD_MAX_TIMERS`           |       No | Public timer limit embedded into the browser bundle at build time.                  |
-| `NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE` |       No | Public per-space active timer limit embedded into the browser bundle at build time. |
-| `NEXT_PUBLIC_TICKWARD_MAX_SPACES`           |       No | Public space limit embedded into the browser bundle at build time.                  |
-| `NEXT_PUBLIC_TICKWARD_MAX_PROJECTS`         |       No | Public project limit embedded into the browser bundle at build time.                |
+| `NEXT_PUBLIC_TICKWARD_MAX_TIMERS`           |       No | Anonymous-plan timer default, overridable at runtime in the admin area.             |
+| `NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE` |       No | Anonymous-plan per-space timer default, overridable in the admin area.              |
+| `NEXT_PUBLIC_TICKWARD_MAX_SPACES`           |       No | Anonymous-plan space default, overridable at runtime in the admin area.             |
+| `NEXT_PUBLIC_TICKWARD_MAX_PROJECTS`         |       No | Anonymous-plan project default, overridable at runtime in the admin area.           |
 | `UNSPLASH_ACCESS_KEY`                       |       No | Enables Unsplash image search.                                                      |
 | `NEXT_PUBLIC_PLAUSIBLE_URL`                 |       No | Enables the optional Plausible Analytics script.                                    |
 | `NEXT_PUBLIC_PLAUSIBLE_DOMAIN`              |       No | Plausible domain override. Defaults to the `SITE_URL` hostname.                     |
@@ -101,16 +111,19 @@ Use host-reachable URLs in `.env` when you run services outside Compose.
 For Web Push, generate a VAPID key pair with `npx web-push generate-vapid-keys`
 (from the [`web-push`](https://github.com/web-push-libs/web-push) library; no
 install needed, `npx` fetches it). It prints a **Public Key** and a **Private
-Key** — copy them into `WEB_PUSH_VAPID_PUBLIC_KEY` and
+Key**. Copy them into `WEB_PUSH_VAPID_PUBLIC_KEY` and
 `WEB_PUSH_VAPID_PRIVATE_KEY`. Set `WEB_PUSH_VAPID_SUBJECT` to a contact
-`mailto:` address such as `mailto:admin@example.com`, or to your site URL — it
+`mailto:` address such as `mailto:admin@example.com`, or to your site URL. It
 identifies the sender to push services as required by the
 [VAPID spec (RFC 8292)](https://datatracker.ietf.org/doc/html/rfc8292). Keep the
 private key secret; the public key is exposed to browsers via
 `/api/push/public-key`.
 
 `SITE_URL` and `NEXT_PUBLIC_*` values affect build-time metadata or browser
-bundles. Rebuild the app after changing them.
+bundles. Rebuild the app after changing them. The four plan-limit variables are
+fallback defaults for the anonymous plan. Free account defaults double those
+values, capped at 1000, and saved plan limits from the admin area override both
+plans at runtime.
 
 Webhook delivery needs a scheduler caller in production. See
 [Webhooks and scheduler](/guides/webhooks) for the Cloudflare Cron, EventBridge,
@@ -162,11 +175,11 @@ Both halves are mandatory for accounts:
 - Without `BETTER_AUTH_URL` and `BETTER_AUTH_SECRET`, every `/api/auth/*` route
   responds `501 auth_not_configured` and no sign-in is possible.
 - Without `RESEND_API_KEY` (and `RESEND_FROM`), Better Auth loads but the
-  verification code can never be delivered — OTP requests fail with "Email
+  verification code can never be delivered. OTP requests fail with "Email
   sign-in is not configured", so **accounts cannot be created or accessed**.
 
 In other words, a working email provider is required to have an account. With
-neither configured — the default — tickward runs anonymous-only with projects
+neither configured (the default), tickward runs anonymous-only with projects
 and restore keys, and every other feature still works. These are runtime
 variables, so you can add them to an existing deployment without rebuilding the
 image.
@@ -191,6 +204,22 @@ depends on new tables or columns:
 ```bash
 npm run db:migrate:deploy
 ```
+
+## First administrator
+
+After migrations and account sign-in are configured, choose either onboarding
+path for the first administrator:
+
+- Set `SEED_ADMIN_EMAIL`, then run `npm run db:seed:admin` to create or promote
+  that account.
+- On a fresh deployment with no administrator, sign in and visit `/setup`. The
+  first signed-in user claims the administrator role.
+
+Visiting `/admin` before an administrator exists redirects to `/setup`. Once any
+administrator exists, `/setup` redirects away and cannot be used to claim
+another one. The `/admin` area then hosts the plan limits editor. It can change
+every anonymous and free account limit at runtime, including the saved snapshot
+cap, and changes apply immediately.
 
 ## Demo data
 

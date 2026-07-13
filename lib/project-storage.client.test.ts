@@ -14,7 +14,7 @@ import {
   writeProjectPayload,
   writeProjectRegistry,
 } from "@/lib/project-storage.client"
-import { MAX_PROJECTS } from "@/lib/project-model"
+import { getEntitlements } from "@/lib/entitlements"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
 import { makeSpace, makeTimer } from "@/test/factories"
 
@@ -183,12 +183,13 @@ describe("local project storage", () => {
   it("readProjectRegistry keeps more than MAX_PROJECTS account metas (no slice on account entries)", () => {
     // Account metas mirror the server list and must never be capped by the
     // device registry read; only local entries are bounded.
-    const entries = Array.from({ length: MAX_PROJECTS + 2 }, () => makeAccountEntry())
+    const maxProjects = getEntitlements().maxProjects
+    const entries = Array.from({ length: maxProjects + 2 }, () => makeAccountEntry())
     localStorage.setItem(TD_PROJECTS_STORAGE_KEY, JSON.stringify(entries))
 
     const registry = readProjectRegistry()
 
-    expect(registry).toHaveLength(MAX_PROJECTS + 2)
+    expect(registry).toHaveLength(maxProjects + 2)
     expect(registry.every((p) => p.cloudProjectId !== undefined)).toBe(true)
   })
 
@@ -196,11 +197,12 @@ describe("local project storage", () => {
     // Write MAX_PROJECTS+2 purely local projects — cap must still apply after fix.
     // Before fix: the global slice already caps, so this would pass, BUT the fix
     // changes the logic to only cap locals — this verifies the cap is preserved.
-    const entries = Array.from({ length: MAX_PROJECTS + 2 }, () => makeLocalEntry())
+    const maxProjects = getEntitlements().maxProjects
+    const entries = Array.from({ length: maxProjects + 2 }, () => makeLocalEntry())
     localStorage.setItem(TD_PROJECTS_STORAGE_KEY, JSON.stringify(entries))
 
     const registry = readProjectRegistry()
 
-    expect(registry).toHaveLength(MAX_PROJECTS)
+    expect(registry).toHaveLength(maxProjects)
   })
 })

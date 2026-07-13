@@ -29,9 +29,10 @@ import { useNow } from "@/components/use-now"
 import { useLocalTimerAlarms } from "@/components/use-local-timer-alarms"
 import { useProjectUrlSync } from "@/hooks/use-project-url-sync"
 import { authClient } from "@/lib/auth/auth-client"
+import { runInBackground } from "@/lib/background-task"
 import { browserTitle } from "@/lib/browser-title"
 import { logClientError } from "@/lib/client-errors"
-import { getEntitlements } from "@/lib/entitlements"
+import { getEntitlements, setActiveClientPlan } from "@/lib/entitlements"
 import { formatMessage } from "@/lib/i18n/messages"
 import { useTimerStore } from "@/lib/store"
 import { timerMatchesFilters } from "@/lib/timer-filters"
@@ -583,19 +584,24 @@ export function HomeClient() {
   useEffect(() => {
     if (!hasHydrated || sessionPending) return
     if (signedInUserKey) {
-      void refreshAccountProjectsFromCloud()
-        .then(() => maybeAutoClaimActiveProject())
-        .then((status) => {
-          if (status === "claimed") toast.success(formatMessage("auth.claim.claimed"))
-          if (status === "claimed_read_only")
-            toast(formatMessage("auth.claim.claimedReadOnly", { max: String(getEntitlements().maxProjects) }))
-        })
-        .catch((error) => {
-          // Silent failure: the manual claim toast stays as the fallback.
-          logClientError("home.autoClaimActiveProject", error)
-        })
+      setActiveClientPlan("free")
+      runInBackground(
+        "home.autoClaimActiveProject",
+        refreshAccountProjectsFromCloud()
+          .then(() => maybeAutoClaimActiveProject())
+          .then((status) => {
+            if (status === "claimed") toast.success(formatMessage("auth.claim.claimed"))
+            if (status === "claimed_read_only")
+              toast(formatMessage("auth.claim.claimedReadOnly", { max: String(getEntitlements().maxProjects) }))
+          })
+          .catch((error) => {
+            // Silent failure: the manual claim toast stays as the fallback.
+            logClientError("home.autoClaimActiveProject", error)
+          }),
+      )
       return
     }
+    setActiveClientPlan("anonymous")
     removeAccountProjectsFromDevice()
   }, [
     hasHydrated,
@@ -621,9 +627,9 @@ export function HomeClient() {
 
   useEffect(() => {
     if (!hasHydrated) return
-    void refreshFollowedTimers()
+    runInBackground("home.refreshFollowedTimers", refreshFollowedTimers())
     const id = globalThis.setInterval(() => {
-      void refreshFollowedTimers()
+      runInBackground("home.refreshFollowedTimers", refreshFollowedTimers())
     }, 300_000)
     return () => globalThis.clearInterval(id)
   }, [hasHydrated, refreshFollowedTimers])

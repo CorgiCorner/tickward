@@ -57,6 +57,10 @@ const LazyTimerShareDialog = lazy(() =>
   import("@/components/timer-card-share-dialog").then((mod) => ({ default: mod.TimerShareDialog })),
 )
 
+function absoluteShareUrl(url: string) {
+  return url.startsWith("http://") || url.startsWith("https://") ? url : `${globalThis.location.origin}${url}`
+}
+
 export const TimerCard = memo(function TimerCard(props: Readonly<{ timer: Timer; nowMs: number; sortable?: boolean }>) {
   const { timer, nowMs } = props
   const session = authClient.useSession()
@@ -107,10 +111,6 @@ export const TimerCard = memo(function TimerCard(props: Readonly<{ timer: Timer;
 
   function shareOwnerPayload() {
     return { projectId: activeProject?.cloudProjectId, restoreKey, timerId: timer.id }
-  }
-
-  function absoluteShareUrl(url: string) {
-    return url.startsWith("http://") || url.startsWith("https://") ? url : `${globalThis.location.origin}${url}`
   }
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({

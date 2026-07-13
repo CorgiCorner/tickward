@@ -22,11 +22,11 @@ import { Label } from "@/components/ui/label"
 import { OtpInput } from "@/components/ui/otp-input"
 import { authClient } from "@/lib/auth/auth-client"
 import { authErrorMessage, authErrorRetryAfter } from "@/lib/auth/auth-client-errors"
+import { isValidEmailAddress } from "@/lib/email-address"
 import { formatMessage, isSupportedLocale, localeHref, type Locale } from "@/lib/i18n/messages"
 
 const OTP_COOLDOWN_SECONDS = 60
 const DEFAULT_SIGN_IN_NEXT_PATH = "/"
-const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
 const emailInputProps = {
   autoCapitalize: "none",
@@ -68,7 +68,7 @@ function writeCooldownUntil(email: string, seconds: number) {
 }
 
 function isValidEmail(email: string) {
-  return EMAIL_PATTERN.test(email)
+  return isValidEmailAddress(email)
 }
 
 function hasLocalePrefix(path: string) {

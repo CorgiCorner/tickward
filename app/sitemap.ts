@@ -20,6 +20,24 @@ const APP_SITEMAP_ENTRIES = [
     localized: true,
   },
   {
+    path: "/legal/privacy",
+    changeFrequency: "monthly",
+    priority: 0.4,
+    localized: true,
+  },
+  {
+    path: "/legal/terms",
+    changeFrequency: "monthly",
+    priority: 0.4,
+    localized: true,
+  },
+  {
+    path: "/legal/subprocessors",
+    changeFrequency: "monthly",
+    priority: 0.4,
+    localized: true,
+  },
+  {
     path: "/download",
     changeFrequency: "monthly",
     priority: 0.7,

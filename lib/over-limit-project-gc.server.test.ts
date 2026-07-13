@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   requirePrismaClient: vi.fn(),
-  getEntitlements: vi.fn(),
+  getEntitlementsTable: vi.fn(),
   getResendConfig: vi.fn(),
   getSiteOrigin: vi.fn(),
 }))
@@ -11,8 +11,8 @@ vi.mock("@/lib/db/prisma.server", () => ({
   requirePrismaClient: mocks.requirePrismaClient,
 }))
 
-vi.mock("@/lib/entitlements", () => ({
-  getEntitlements: mocks.getEntitlements,
+vi.mock("@/lib/entitlements.server", () => ({
+  getEntitlementsTable: mocks.getEntitlementsTable,
 }))
 
 vi.mock("@/lib/private-config.server", () => ({
@@ -99,8 +99,8 @@ describe("over-limit project cleanup", () => {
   beforeEach(() => {
     vi.unstubAllEnvs()
     mocks.requirePrismaClient.mockReset()
-    mocks.getEntitlements.mockReset()
-    mocks.getEntitlements.mockReturnValue({ maxProjects: 2 })
+    mocks.getEntitlementsTable.mockReset()
+    mocks.getEntitlementsTable.mockResolvedValue({ free: { maxProjects: 2 } })
     mocks.getResendConfig.mockReset()
     mocks.getResendConfig.mockReturnValue(null)
     mocks.getSiteOrigin.mockReset()

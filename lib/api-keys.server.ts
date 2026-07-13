@@ -85,6 +85,10 @@ export function createApiKeyToken() {
 }
 
 export function hashApiKeyToken(token: string) {
+  // API keys are generated above from 32 random bytes (256 bits), rather than
+  // chosen by a user like a password. This digest is a stable database lookup
+  // key; changing it would invalidate every issued API and MCP credential.
+  // codeql[js/insufficient-password-hash]
   return createHash("sha256").update(`tickward:api-key:${token}`, "utf8").digest("hex")
 }
 

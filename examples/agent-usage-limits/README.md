@@ -34,6 +34,7 @@ Authorization: Bearer $TICKWARD_API_KEY
 | `TICKWARD_REMINDER_MINUTES` | no | `10` | Reminder offset before the reset |
 | `TICKWARD_USAGE_THRESHOLD` | no | `80` | Utilization percent that triggers timer creation |
 | `TICKWARD_DRY_RUN` | no | unset | Set to `1` to verify credentials and print what would be created without creating timers |
+| `CODEX_EXECUTABLE` | no | trusted `PATH` lookup | Absolute path to the Codex executable; useful for cron and launchd |
 
 ### Try it without creating anything
 
@@ -111,6 +112,7 @@ Create an env file, for example `<path-to>/codex/env`:
 TICKWARD_BASE_URL=https://your-tickward-instance.example
 TICKWARD_API_KEY=placeholder
 TICKWARD_PROJECT_ID=placeholder
+CODEX_EXECUTABLE=/absolute/path/to/codex
 ```
 
 Cron, every 5 minutes:
@@ -143,6 +145,8 @@ use your shell `PATH` - then load with `launchctl load` on the file):
     <string>&lt;api-key&gt;</string>
     <key>TICKWARD_PROJECT_ID</key>
     <string>&lt;project-id&gt;</string>
+    <key>CODEX_EXECUTABLE</key>
+    <string>&lt;absolute-path-to-codex&gt;</string>
   </dict>
   <key>StartInterval</key>
   <integer>300</integer>
@@ -168,7 +172,8 @@ both scripts treat as success.
 - Timer-limit errors - projects cap the number of timers; clean up ended
   reset timers (they are easy to spot by the `cc-` / `cdx-` id prefixes).
 - `codex`/`node` not found under cron or launchd - cron runs with a minimal
-  `PATH`; use absolute binary paths or set `PATH=` in the crontab.
+  `PATH`; set `CODEX_EXECUTABLE` to the absolute Codex binary path and use an
+  absolute Node path in the command.
 
 Full walkthrough, including agent-assisted install prompts:
 `/docs/guides/claude-code-codex-usage-limits`.

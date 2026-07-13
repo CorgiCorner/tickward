@@ -1,5 +1,6 @@
 "use client"
 
+import { runInBackground } from "@/lib/background-task"
 import { notificationSoundSource, type NotificationSound } from "@/lib/notification-preferences"
 
 let unlockedAudioContext: AudioContext | null = null
@@ -107,10 +108,8 @@ async function loadBuffer(sound: NotificationSound): Promise<AudioBuffer | null>
 
   const promise = (async () => {
     let buf = await attempt(src)
-    if (!buf) {
-      // .ogg fallback
-      buf = await attempt(src.replace(/\.mp3$/, ".ogg"))
-    }
+    // .ogg fallback
+    buf ??= await attempt(src.replace(/\.mp3$/, ".ogg"))
     decodedBuffers.set(sound, buf)
     inflightDecodes.delete(sound)
     return buf
@@ -145,14 +144,11 @@ export async function prepareNotificationSound(sound: NotificationSound): Promis
  * IMPORTANT: callers must check the return value and store the cancel handle
  * so it can be invoked if the timer is disarmed before firing.
  */
-export function scheduleNotificationSound(
-  sound: NotificationSound,
-  targetEpochMs: number,
-): { cancel(): void } | null {
+export function scheduleNotificationSound(sound: NotificationSound, targetEpochMs: number): { cancel(): void } | null {
   if (sound === "none" || globalThis.window === undefined) return null
 
   const ctx = reusableAudioContext()
-  if (!ctx || ctx.state !== "running") return null
+  if (ctx?.state !== "running") return null
 
   const buffer = decodedBuffers.get(sound)
   if (!buffer) return null
@@ -245,9 +241,12 @@ export function resumeAudioContextIfNeeded() {
   const ctx = unlockedAudioContext
   if (!ctx || ctx.state === "closed") return
   if (ctx.state === "suspended") {
-    void ctx.resume().then(() => {
-      if (ctx.state === "running") startKeepAlive(ctx)
-    })
+    runInBackground(
+      "notificationAudio.resume",
+      ctx.resume().then(() => {
+        if (ctx.state === "running") startKeepAlive(ctx)
+      }),
+    )
   } else {
     startKeepAlive(ctx)
   }

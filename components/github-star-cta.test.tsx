@@ -38,13 +38,15 @@ describe("GitHubStarCta", () => {
   it("shows fetched star progress", async () => {
     stubStars(1234)
 
-    await renderGitHubStarCta()
+    const { container } = await renderGitHubStarCta()
 
     await waitFor(() => expect(screen.getByText("1,234 of 5,000 stars")).toBeInTheDocument())
     const progressbar = screen.getByRole("progressbar", { name: "1,234 of 5,000 stars" })
 
-    expect(progressbar).toHaveAttribute("aria-valuenow", "1234")
-    expect(progressbar.firstElementChild).toHaveStyle({ width: "24.68%" })
+    expect(progressbar.tagName).toBe("PROGRESS")
+    expect(progressbar).toHaveAttribute("value", "1234")
+    expect(progressbar).toHaveAttribute("max", "5000")
+    expect(container.querySelector('[data-slot="star-progress-fill"]')).toHaveStyle({ width: "24.68%" })
   })
 
   it("falls back to the goal when the star request fails", async () => {
@@ -55,15 +57,15 @@ describe("GitHubStarCta", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     expect(screen.getByText("Goal: 5,000 stars")).toBeInTheDocument()
-    expect(screen.getByRole("progressbar", { name: "Goal: 5,000 stars" })).toHaveAttribute("aria-valuenow", "0")
+    expect(screen.getByRole("progressbar", { name: "Goal: 5,000 stars" })).toHaveAttribute("value", "0")
   })
 
   it("keeps a small star count visible in the progress fill", async () => {
     stubStars(21)
 
-    await renderGitHubStarCta()
+    const { container } = await renderGitHubStarCta()
 
     await waitFor(() => expect(screen.getByText("21 of 5,000 stars")).toBeInTheDocument())
-    expect(screen.getByRole("progressbar").firstElementChild).toHaveStyle({ width: "1.5%" })
+    expect(container.querySelector('[data-slot="star-progress-fill"]')).toHaveStyle({ width: "1.5%" })
   })
 })

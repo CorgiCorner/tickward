@@ -7,6 +7,8 @@ import { DEFAULT_ACCOUNT_PREFERENCES } from "@/lib/account-preferences"
 import { getAccountPreferencesForUser } from "@/lib/account-preferences.server"
 import { listApiKeysForUser } from "@/lib/api-keys.server"
 import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/cookies.server"
+import { planForUser } from "@/lib/entitlements"
+import { getEntitlementsTable } from "@/lib/entitlements.server"
 import type { UserActor } from "@/lib/contracts"
 import { getDocsHref, getDocsPageHref } from "@/lib/docs-config"
 import { formatMessage, localeHref, type Locale } from "@/lib/i18n/messages"
@@ -94,9 +96,12 @@ export default async function SettingsPage(props: Readonly<{ params: Promise<{ l
   const rawSpaces = await readSpacesCookie<unknown>()
   const spaces: Space[] = isSpaceArray(rawSpaces) ? rawSpaces : []
   const restoreKey = await readRestoreKeyCookie()
+  const entitlementsTable = await getEntitlementsTable()
 
   return (
-    <TimerStoreProvider initialState={{ timers, spaces, restoreKey }}>
+    <TimerStoreProvider
+      initialState={{ timers, spaces, restoreKey, entitlementsTable, activePlan: planForUser(actor.user) }}
+    >
       <div className="flex min-h-dvh flex-col bg-background text-foreground">
         <Header />
         <AccountPageClient {...initialAccountData} />

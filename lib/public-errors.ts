@@ -1,6 +1,7 @@
 import { formatMessage, type MessageKey, type MessageParams } from "@/lib/i18n/messages"
 
 export const PUBLIC_ERROR_CODES = {
+  adminAlreadyExists: "admin_already_exists",
   authNotConfigured: "auth_not_configured",
   claimSignInRequired: "claim_sign_in_required",
   claimUnsupported: "claim_unsupported",
@@ -28,6 +29,7 @@ export const PUBLIC_ERROR_CODES = {
   storageUnavailable: "storage_unavailable",
   tooManySpaces: "too_many_spaces",
   tooManyTimers: "too_many_timers",
+  tooManyTimersPerSpace: "too_many_timers_per_space",
   unsplashApi: "unsplash_api",
   unsplashNotConfigured: "unsplash_not_configured",
   webPushNotConfigured: "web_push_not_configured",

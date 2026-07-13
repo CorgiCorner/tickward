@@ -3,35 +3,35 @@ title: "Plans and Limits"
 description: "What the free plan includes, the default limits, and how self-hosted deployments configure their own."
 ---
 
-tickward has one plan. It is free and it includes every feature: timers with
-timezones and recurrence, projects and spaces, share links, embeds, device
-notifications, the REST API, webhooks, and MCP. There is no paid tier, no
-feature gating, and no trial clock.
+tickward has no paid plan. Anonymous use and free accounts include every
+feature: timers with timezones and recurrence, projects and spaces, share
+links, embeds, device notifications, the REST API, webhooks, and MCP. There is
+no feature gating and no trial clock.
 
 ## Default limits
 
-The same limits apply to every project, signed in or not:
+Anonymous use and free accounts have different default limits:
 
-| Limit | Default |
-|-|-|
-| Active timers per project | 20 |
-| Active timers per space | 20 |
-| Projects in a browser's registry | 10 |
-| Spaces per project | 2 |
-| Timers per saved snapshot | 50 |
+| Limit | Anonymous default | Free account default |
+|-|-|-|
+| Active timers per project | 20 | 40 |
+| Active timers per space | 20 | 40 |
+| Projects in a browser's registry | 10 | 20 |
+| Spaces per project | 2 | 4 |
+| Timers per saved snapshot | 50 | 50 |
 
-Archived timers do not count toward the active-timer caps. The snapshot cap
-is intentionally looser than the creation cap so a project written through
-the public API — which may hold up to 50 timers — still saves and restores;
-the lower cap only blocks creating new timers in the client. See
+Archived timers do not count toward the active-timer caps. The default snapshot
+cap is intentionally looser than the creation caps so a project written through
+the public API, which may hold up to 50 timers by default, still saves and
+restores. The lower caps only block creating new timers in the client. See
 [Where Timers Live](/concepts/where-timers-live#limits) for how each limit is
 enforced.
 
 ## Self-hosted deployments choose their own
 
-A self-hosted tickward sets most limits at build time:
+Four environment variables set the anonymous plan's build-time defaults:
 
-| Limit | Environment variable |
+| Anonymous plan limit | Build-time environment variable |
 |-|-|
 | Active timers per project | `NEXT_PUBLIC_TICKWARD_MAX_TIMERS` |
 | Active timers per space | `NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE` |
@@ -39,12 +39,21 @@ A self-hosted tickward sets most limits at build time:
 | Spaces per project | `NEXT_PUBLIC_TICKWARD_MAX_SPACES` |
 
 Values are validated as integers from 1 to 1000; invalid values fall back to
-the defaults. The snapshot cap has no override. See
+the hardcoded anonymous defaults of 20, 20, 10, and 2. The free account defaults
+to double the anonymous values, capped at 1000. Both plans default to a saved
+snapshot cap of 50, which has no build-time environment variable.
+
+At runtime, administrators can change every limit for each plan, including the
+saved snapshot cap, in the plan limits editor under `/admin`. Saved values are
+kept between 1 and 1000. The snapshot timer limit must be at least the total
+timer limit, and the per-space timer limit cannot exceed the total timer limit.
+Changes apply immediately. Build-time values remain the fallback when a plan
+has no saved runtime override. See
 [Self-Hosting](/guides/self-hosting) for the full deployment configuration.
 
 ## Projects over the limit
 
-Claiming a project always succeeds — your data is never stranded. If claiming
+Claiming a project always succeeds, so your data is never stranded. If claiming
 pushes your account over the project limit, the newest projects become
 read-only: you can still view and delete them, but edits are blocked until you
 are back within the limit. Deleting any project immediately unblocks the
@@ -55,13 +64,14 @@ When the server is configured with a retention window
 read-only for longer than that window are deleted automatically. You will
 receive an email with the scheduled date before deletion happens.
 
-For higher limits without these constraints, self-host tickward and set
-`NEXT_PUBLIC_TICKWARD_MAX_PROJECTS` to the value you need.
+For higher limits without these constraints, self-host tickward and set the
+project limit in the `/admin` plan limits editor. The build-time environment
+variable remains the anonymous plan's default fallback.
 
 ## Why limits at all?
 
 The hosted app is free and works without an account, so the limits are what
 keep it fast and abuse-resistant for everyone. If a limit is in your way,
 self-host with your own values, or open a GitHub issue describing the use
-case — limits are plan attributes in the code, not hard-wired constants, and
+case. Limits are plan attributes in the code, not hard-wired constants, and
 real usage reports shape where the defaults go next.

@@ -113,6 +113,97 @@ function timerAlarmCandidate(
   return { boundary, firedKey, fullPageAlarm, sound, timer }
 }
 
+type UpcomingAlarmBoundary = {
+  firedKey: string
+  boundaryIso: string
+  boundaryMs: number
+  msUntil: number
+}
+
+// Returns the upcoming (future) alarm boundary a timer should be armed for,
+// or null when there is nothing to schedule within the horizon.
+function upcomingAlarmBoundary(
+  timer: Timer,
+  now: number,
+  preferences: LocalNotificationPreferences,
+  firedKeys: Set<string>,
+): UpcomingAlarmBoundary | null {
+  if (!timerIsAlarmable(timer)) return null
+
+  // Compute the FORWARD (future) boundary, not the last-elapsed one.
+  const boundaryIso = effectiveTargetDate(timer, now)
+  if (!boundaryIso) return null
+
+  const boundaryMs = new Date(boundaryIso).getTime()
+  const msUntil = boundaryMs - now
+
+  // Skip boundaries in the past or already fired.
+  if (msUntil <= 0 || msUntil > HORIZON_MS) return null
+
+  const firedKey = `${timer.id}::${boundaryIso}`
+  if (firedKeys.has(firedKey)) return null
+
+  // Check whether there is anything to do (preferences gate).
+  if (!browserNotificationAllowed(preferences) && !preferences.fullPageAlarm && preferences.sound === "none") {
+    return null
+  }
+
+  return { firedKey, boundaryIso, boundaryMs, msUntil }
+}
+
+// Returns true when an identical entry is already armed (nothing to do).
+// Cancels and removes a stale entry (boundary or selected sound changed).
+function reconcileExistingScheduleEntry(
+  scheduled: Map<string, ScheduleEntry>,
+  firedKey: string,
+  boundaryMs: number,
+  sound: NotificationSound,
+): boolean {
+  const existing = scheduled.get(firedKey)
+  if (!existing) return false
+  if (existing.boundaryMs === boundaryMs && existing.sound === sound) return true
+  existing.cancelSound?.()
+  clearTimeout(existing.timeoutId)
+  scheduled.delete(firedKey)
+  return false
+}
+
+type ScheduleSoundArgs = {
+  firedKey: string
+  boundaryMs: number
+  sound: NotificationSound
+  fired: Set<string>
+  scheduled: Map<string, ScheduleEntry>
+}
+
+// Re-arms the scheduled sound once its buffer finished decoding. Only
+// reschedules if this key hasn't fired or been cancelled, and the entry still
+// refers to the same boundary and sound we decoded for (a concurrent reconcile
+// may have replaced it).
+function rearmDecodedScheduledSound(args: ScheduleSoundArgs): void {
+  if (args.fired.has(args.firedKey)) return
+  const entry = args.scheduled.get(args.firedKey)
+  if (!entry) return
+  if (entry.boundaryMs !== args.boundaryMs || entry.sound !== args.sound) return
+  if (entry.cancelSound) return
+  const newHandle = scheduleNotificationSound(args.sound, args.boundaryMs)
+  if (newHandle) {
+    entry.cancelSound = newHandle.cancel
+  }
+}
+
+// PRIMARY: schedule sound via Web Audio hardware clock.
+// If the buffer isn't ready yet, try to decode it now and reschedule once
+// done (issue #3 fix: lazy decode for sounds changed after the gesture).
+function armScheduledSound(args: ScheduleSoundArgs): (() => void) | undefined {
+  const soundHandle = scheduleNotificationSound(args.sound, args.boundaryMs)
+  if (soundHandle) return soundHandle.cancel
+  if (args.sound === "none") return undefined
+  // Buffer not decoded yet — kick off decode and reschedule when ready.
+  void prepareNotificationSound(args.sound).then(() => rearmDecodedScheduledSound(args))
+  return undefined
+}
+
 function showTimerBrowserNotification(candidate: TimerAlarmCandidate, preferences: LocalNotificationPreferences) {
   if (!browserNotificationAllowed(preferences)) return
 
@@ -233,40 +324,15 @@ export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
     const wantedKeys = new Set<string>()
 
     for (const timer of timers) {
-      if (!timerIsAlarmable(timer)) continue
+      const upcoming = upcomingAlarmBoundary(timer, now, preferences, firedRef.current)
+      if (!upcoming) continue
 
-      // Compute the FORWARD (future) boundary, not the last-elapsed one.
-      const boundaryIso = effectiveTargetDate(timer, now)
-      if (!boundaryIso) continue
-
-      const boundaryMs = new Date(boundaryIso).getTime()
-      const msUntil = boundaryMs - now
-
-      // Skip boundaries in the past or already fired.
-      if (msUntil <= 0) continue
-      if (msUntil > HORIZON_MS) continue
-
-      const firedKey = `${timer.id}::${boundaryIso}`
-      if (firedRef.current.has(firedKey)) continue
-
-      // Check whether there is anything to do (preferences gate).
-      if (!browserNotificationAllowed(preferences) && !preferences.fullPageAlarm && preferences.sound === "none") {
-        continue
-      }
-
+      const { firedKey, boundaryIso, boundaryMs, msUntil } = upcoming
       wantedKeys.add(firedKey)
 
-      const existing = scheduledRef.current.get(firedKey)
-      if (existing && existing.boundaryMs === boundaryMs && existing.sound === preferences.sound) {
-        // Already scheduled at the correct time with the current sound — nothing to do.
+      // Already scheduled at the correct time with the current sound — nothing to do.
+      if (reconcileExistingScheduleEntry(scheduledRef.current, firedKey, boundaryMs, preferences.sound)) {
         continue
-      }
-
-      // Cancel stale entry (boundary changed or selected sound changed).
-      if (existing) {
-        existing.cancelSound?.()
-        clearTimeout(existing.timeoutId)
-        scheduledRef.current.delete(firedKey)
       }
 
       // Build the candidate object used by fire().
@@ -278,30 +344,13 @@ export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
         timer,
       }
 
-      // PRIMARY: schedule sound via Web Audio hardware clock.
-      // If the buffer isn't ready yet, try to decode it now and reschedule once
-      // done (issue #3 fix: lazy decode for sounds changed after the gesture).
-      let cancelSound: (() => void) | undefined
-      const soundHandle = scheduleNotificationSound(preferences.sound, boundaryMs)
-      if (soundHandle) {
-        cancelSound = soundHandle.cancel
-      } else if (preferences.sound !== "none") {
-        // Buffer not decoded yet — kick off decode and reschedule when ready.
-        void prepareNotificationSound(preferences.sound).then(() => {
-          // Only reschedule if this key hasn't fired or been cancelled, and the
-          // entry still refers to the same boundary and sound we decoded for
-          // (a concurrent reconcile may have replaced it).
-          if (firedRef.current.has(firedKey)) return
-          const entry = scheduledRef.current.get(firedKey)
-          if (!entry) return
-          if (entry.boundaryMs !== boundaryMs || entry.sound !== preferences.sound) return
-          if (entry.cancelSound) return
-          const newHandle = scheduleNotificationSound(preferences.sound, boundaryMs)
-          if (newHandle) {
-            entry.cancelSound = newHandle.cancel
-          }
-        })
-      }
+      const cancelSound = armScheduledSound({
+        firedKey,
+        boundaryMs,
+        sound: preferences.sound,
+        fired: firedRef.current,
+        scheduled: scheduledRef.current,
+      })
 
       // PRIMARY: setTimeout for notification + overlay (background-safe; fires
       // even in hidden tabs unlike the stalled render loop).

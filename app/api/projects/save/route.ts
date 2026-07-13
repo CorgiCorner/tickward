@@ -4,6 +4,7 @@ import { getCurrentActor } from "@/lib/actor.server"
 import { apiErrorResponse, publicErrorResponse } from "@/lib/api-error-response"
 import { publicServerErrorResponse } from "@/lib/api-server-errors"
 import type { Actor } from "@/lib/contracts"
+import { getEntitlementsForActor } from "@/lib/entitlements.server"
 import {
   type ProjectSnapshotV2,
   isProjectSnapshot,
@@ -58,11 +59,6 @@ function validateSavePayload(payload: SavePayload): ValidSaveRequest | Response 
   }
 
   const project: ProjectSnapshotV2 = payload.project
-  const validationError = validateProjectSnapshot(project)
-  if (validationError) {
-    return publicErrorResponse(validationError, { status: 400 })
-  }
-
   const input = {
     project,
     baseUpdatedAt: typeof payload.baseUpdatedAt === "string" ? payload.baseUpdatedAt : null,
@@ -71,6 +67,11 @@ function validateSavePayload(payload: SavePayload): ValidSaveRequest | Response 
 
   if (hasProjectId) return { kind: "user-project", projectId: payload.projectId as string, ...input }
   return { kind: "restore-key", restoreKey: payload.key as string, ...input }
+}
+
+async function validateProjectForActor(project: ProjectSnapshotV2, actor: Actor): Promise<Response | null> {
+  const validationError = validateProjectSnapshot(project, await getEntitlementsForActor(actor))
+  return validationError ? publicErrorResponse(validationError, { status: 400 }) : null
 }
 
 function isResponse(value: unknown): value is Response {
@@ -133,6 +134,9 @@ async function saveUserProjectRequest(req: Request, input: Extract<ValidSaveRequ
   const actor = await authenticatedActor(req)
   if (isResponse(actor)) return actor
 
+  const validationError = await validateProjectForActor(input.project, actor)
+  if (validationError) return validationError
+
   const rateLimitResponse = await enforceRateLimit("write", projectWriteRateLimitKey(actor, input.projectId))
   if (rateLimitResponse) return rateLimitResponse
 
@@ -146,9 +150,6 @@ async function saveUserProjectRequest(req: Request, input: Extract<ValidSaveRequ
 }
 
 async function saveRestoreKeyProjectRequest(req: Request, input: Extract<ValidSaveRequest, { kind: "restore-key" }>) {
-  const rateLimitResponse = await enforceRateLimit("write", input.restoreKey)
-  if (rateLimitResponse) return rateLimitResponse
-
   let actor: Actor
   try {
     actor = await getCurrentActor({
@@ -158,6 +159,12 @@ async function saveRestoreKeyProjectRequest(req: Request, input: Extract<ValidSa
   } catch {
     return apiErrorResponse(PUBLIC_ERROR_CODES.signInRequired, "errors.signInRequired", { status: 401 })
   }
+
+  const validationError = await validateProjectForActor(input.project, actor)
+  if (validationError) return validationError
+
+  const rateLimitResponse = await enforceRateLimit("write", input.restoreKey)
+  if (rateLimitResponse) return rateLimitResponse
 
   try {
     return savedProjectResponse(await saveProject({ actor, ...saveInputFromRequest(input) }))

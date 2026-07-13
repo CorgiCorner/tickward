@@ -20,9 +20,8 @@ import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { SettingsSheet } from "@/components/settings-sheet"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
-import { getEntitlements } from "@/lib/entitlements"
+import { getEntitlements, projectLimitMessage } from "@/lib/entitlements"
 import { formatMessage } from "@/lib/i18n/messages"
-import { LIMITS } from "@/lib/limits"
 import { accountProjectMemberships, readOnlyProjectIds } from "@/lib/project-lock"
 import { useTimerStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
@@ -61,9 +60,10 @@ export function ProjectSwitcher() {
 
   const activeProject = projects.find((project) => project.id === activeProjectId)
   const activeProjectName = activeProject?.name ?? formatMessage("project.defaultName")
-  const atProjectLimit = projects.length >= LIMITS.projects
+  const entitlements = getEntitlements()
+  const atProjectLimit = projects.length >= entitlements.maxProjects
 
-  const readOnlyIds = readOnlyProjectIds(accountProjectMemberships(projects), getEntitlements().maxProjects)
+  const readOnlyIds = readOnlyProjectIds(accountProjectMemberships(projects), entitlements.maxProjects)
 
   if (hasHydrated && projects.length === 0) return null
 
@@ -103,7 +103,7 @@ export function ProjectSwitcher() {
       <PopoverContent forceMount hidden={!open} align="start" className="w-[296px] p-1.5">
         <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5 pt-1">
           <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            {formatMessage("project.listHeading", { count: projects.length, max: LIMITS.projects })}
+            {formatMessage("project.listHeading", { count: projects.length, max: entitlements.maxProjects })}
           </span>
           <SettingsSheet
             className="size-6 rounded text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5"
@@ -174,24 +174,24 @@ export function ProjectSwitcher() {
                         className="inline-flex items-center gap-1"
                         aria-label={formatMessage("project.timerUsage", {
                           count: timerCount,
-                          max: LIMITS.timersPerProject,
+                          max: entitlements.maxTimers,
                         })}
                       >
                         <TimerIcon className="size-3" />
                         <span className="tabular-nums">
-                          {formatMessage("project.usageFraction", { count: timerCount, max: LIMITS.timersPerProject })}
+                          {formatMessage("project.usageFraction", { count: timerCount, max: entitlements.maxTimers })}
                         </span>
                       </span>
                       <span
                         className="inline-flex items-center gap-1"
                         aria-label={formatMessage("project.spaceUsage", {
                           count: spaceCount,
-                          max: LIMITS.spacesPerProject,
+                          max: entitlements.maxSpaces,
                         })}
                       >
                         <LayersIcon className="size-3" />
                         <span className="tabular-nums">
-                          {formatMessage("project.usageFraction", { count: spaceCount, max: LIMITS.spacesPerProject })}
+                          {formatMessage("project.usageFraction", { count: spaceCount, max: entitlements.maxSpaces })}
                         </span>
                       </span>
                     </span>
@@ -230,7 +230,7 @@ export function ProjectSwitcher() {
             variant="ghost"
             className="h-auto w-full justify-start px-2 py-2 text-sm font-normal"
             disabled={atProjectLimit}
-            title={atProjectLimit ? formatMessage("project.limit.total", { max: LIMITS.projects }) : undefined}
+            title={atProjectLimit ? projectLimitMessage(entitlements) : undefined}
             onClick={() => {
               createProject(formatMessage("project.new"))
               toast.success(formatMessage("project.created"))

@@ -8,6 +8,7 @@ import {
   type AccountPreferencesPatch,
   type AccountPreferencesRecord,
 } from "@/lib/account-preferences"
+import { runInBackground } from "@/lib/background-task"
 import { readApiJson } from "@/lib/client-api"
 import { resetDefaultTimeZonePreference, setDefaultTimeZonePreference } from "@/lib/default-timezone.client"
 import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
@@ -119,7 +120,7 @@ export function AccountPreferencesProvider(
 
   useEffect(() => {
     if (hasInitialPreferences) return
-    void refreshPreferences()
+    runInBackground("accountPreferences.refresh", refreshPreferences())
   }, [hasInitialPreferences, refreshPreferences])
 
   const dismissError = useCallback(() => setError(null), [])

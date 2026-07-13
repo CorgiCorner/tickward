@@ -22,6 +22,12 @@ describe("normalizeAdminSeedEnv", () => {
     expect(() => normalizeAdminSeedEnv({ NODE_ENV: "test" })).toThrow("SEED_ADMIN_EMAIL")
     expect(() => normalizeAdminSeedEnv({ NODE_ENV: "test", SEED_ADMIN_EMAIL: "ada" })).toThrow("valid email")
   })
+
+  it("rejects adversarial long email input without regex backtracking", () => {
+    const longInvalidEmail = `${"a".repeat(100_000)}@example`
+
+    expect(() => normalizeAdminSeedEnv({ NODE_ENV: "test", SEED_ADMIN_EMAIL: longInvalidEmail })).toThrow("valid email")
+  })
 })
 
 describe("seedAdmin", () => {

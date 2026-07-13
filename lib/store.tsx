@@ -5,19 +5,21 @@ import { useStore } from "zustand"
 import { immer } from "zustand/middleware/immer"
 import { type StoreApi, createStore } from "zustand/vanilla"
 
-import { canCreateTimerInSpace, getEntitlements } from "./entitlements"
+import {
+  canCreateTimerInSpace,
+  defaultEntitlementsTable,
+  getEntitlements,
+  projectLimitMessage,
+  setActiveClientPlan,
+  setEntitlementsTable,
+} from "./entitlements"
 import { accountProjectMemberships, isProjectReadOnly } from "./project-lock"
+import { runInBackground } from "./background-task"
 import { logClientError, safeClientErrorMessage } from "./client-errors"
 import { formatMessage } from "./i18n/messages"
 import { isProjectClaimDismissed } from "./project-claim-dismissal.client"
 import { projectCloudClient, type RestoreProjectResult } from "./project-client"
-import {
-  MAX_PROJECTS,
-  type ProjectMeta,
-  type UserProjectSummary,
-  isValidRestoreKey,
-  normalizeProjectName,
-} from "./project-model"
+import { type ProjectMeta, type UserProjectSummary, isValidRestoreKey, normalizeProjectName } from "./project-model"
 import { readProjectPayload, removeProjectPayload } from "./project-storage.client"
 import { newPublicId } from "./public-ids"
 import { activeTimerCountForTargetSpace } from "./timer-space-limits"
@@ -62,7 +64,7 @@ import {
   isRefreshConflict,
 } from "./stores/timer-store-sync"
 import type { TimerStore, TimerStoreInit } from "./stores/timer-store-types"
-import type { Timer } from "./types"
+import type { Space, Timer } from "./types"
 
 export type {
   ProjectConflict,
@@ -177,9 +179,53 @@ function applyProjectPayloadToState(state: TimerStore, project: ProjectMeta | nu
   state.timerFilters = safeTimerFilters(payload.timerFilters)
 }
 
+function projectMetaById(projects: ProjectMeta[], projectId: string): ProjectMeta | undefined {
+  return projects.find((project) => project.id === projectId)
+}
+
+type RestoredProjectData = Extract<RestoreProjectResult, { status: "ok" }>["data"]
+
+// Applies a successfully restored remote snapshot to the active project.
+function applyRestoredProjectSnapshot(
+  s: TimerStore,
+  args: {
+    access: ProjectCloudAccess
+    data: RestoredProjectData
+    remoteTimers: Timer[]
+    remoteSpaces: Space[]
+    now: string
+  },
+): void {
+  const project = activeProject(s)
+  if (!project) return
+  const remote = args.data.project
+  project.name = remote.name
+  project.color = remote.color
+  if (args.access.kind === "user-project") {
+    project.cloudProjectId = args.data.projectId ?? project.cloudProjectId
+    project.ownerId = args.data.ownerId ?? project.ownerId
+  }
+  project.updatedAt = remote.updatedAt
+  project.lastRemoteUpdatedAt = remote.updatedAt
+  project.lastSyncedAt = args.now
+  project.hasUnsyncedChanges = false
+  project.timerCount = remote.timers.length
+  project.spaceCount = remote.spaces.length
+  s.timers = args.remoteTimers
+  s.spaces = args.remoteSpaces
+  s.activeSpaceId = safeActiveSpaceId(s.activeSpaceId, s.spaces)
+  s.lastSyncAt = args.now
+  s.lastSyncError = null
+  s.isCheckingCloud = false
+  s.projectConflict = null
+}
+
 export function createTimerStore(init?: TimerStoreInit) {
+  setEntitlementsTable(init?.entitlementsTable ?? defaultEntitlementsTable())
+  setActiveClientPlan(init?.activePlan ?? "anonymous")
+
   const syncScheduler = createSyncScheduler(() => {
-    void store.getState().syncToCloud()
+    runInBackground("store.syncToCloud", store.getState().syncToCloud())
   })
   let refreshFollowedInFlight: Promise<void> | null = null
   let cloudCheckInFlight: Promise<void> | null = null
@@ -239,6 +285,54 @@ export function createTimerStore(init?: TimerStoreInit) {
         if (changed) persistAndSchedule()
       }
 
+      // A stale response can resolve while a newer check for another project
+      // is already in flight; only the request still owning the cloud-check
+      // slot may clear the shared loading flag.
+      function clearCheckingIfCurrent(startedProjectId: string) {
+        if (cloudCheckProjectId !== startedProjectId) return
+        set((s) => {
+          s.isCheckingCloud = false
+        })
+      }
+
+      // A stale refresh must stay silent: a sign-out bumped the account epoch,
+      // or the active project changed while the request was in flight.
+      function isStaleActiveProjectRefresh(access: ProjectCloudAccess, startedEpoch: number, startedProjectId: string) {
+        if (access.kind === "user-project" && startedEpoch !== accountEpoch) return true
+        return get().activeProjectId !== startedProjectId
+      }
+
+      // Handles a restore result that reported the project unavailable
+      // (not_found / unauthenticated / unsupported).
+      function handleUnavailableRestoreResult(
+        result: Exclude<RestoreProjectResult, { status: "ok" }>,
+        access: ProjectCloudAccess,
+        wasCookieGhost: boolean,
+      ) {
+        const syncError = restoreStatusErrorMessage(result.status)
+        if (access.kind === "restore-key" && result.status === "not_found") {
+          deadRestoreKeys.add(access.restoreKey)
+          if (wasCookieGhost && get().timers.length === 0 && get().spaces.length === 0) {
+            // The cookie pointed at a consumed key and the resurrected
+            // project never had content: drop the empty ghost instead of
+            // keeping a local project that can only ever 404.
+            set((s) => {
+              s.isCheckingCloud = false
+            })
+            get().removeActiveProjectFromDevice()
+            return
+          }
+        }
+        set((s) => {
+          s.isCheckingCloud = false
+          s.lastSyncError = syncError
+        })
+        writeBrowserState(get())
+        if (shouldRecoverMissingProject(result, get(), access)) {
+          runInBackground("store.syncToCloud", get().syncToCloud({ force: true }))
+        }
+      }
+
       async function refreshActiveProjectFromCloudOnce(startedProjectId: string, access: ProjectCloudAccess) {
         const startedEpoch = accountEpoch
         cloudCheckProjectId = startedProjectId
@@ -247,55 +341,19 @@ export function createTimerStore(init?: TimerStoreInit) {
           s.isCheckingCloud = true
         })
 
-        // A stale response can resolve while a newer check for another project
-        // is already in flight; only the request still owning the cloud-check
-        // slot may clear the shared loading flag.
-        const clearCheckingIfCurrent = () => {
-          if (cloudCheckProjectId !== startedProjectId) return
-          set((s) => {
-            s.isCheckingCloud = false
-          })
-        }
-
         try {
           const result = await restoreProjectByAccess(access)
 
-          if (access.kind === "user-project" && startedEpoch !== accountEpoch) {
-            clearCheckingIfCurrent()
-            return
-          }
-
-          if (get().activeProjectId !== startedProjectId) {
-            clearCheckingIfCurrent()
+          if (isStaleActiveProjectRefresh(access, startedEpoch, startedProjectId)) {
+            clearCheckingIfCurrent(startedProjectId)
             return
           }
 
           const wasCookieGhost = cookieGhostProjectId === startedProjectId
           if (wasCookieGhost) cookieGhostProjectId = null
 
-          if (result.status === "not_found" || result.status === "unauthenticated" || result.status === "unsupported") {
-            const syncError = restoreStatusErrorMessage(result.status)
-            if (access.kind === "restore-key" && result.status === "not_found") {
-              deadRestoreKeys.add(access.restoreKey)
-              if (wasCookieGhost && get().timers.length === 0 && get().spaces.length === 0) {
-                // The cookie pointed at a consumed key and the resurrected
-                // project never had content: drop the empty ghost instead of
-                // keeping a local project that can only ever 404.
-                set((s) => {
-                  s.isCheckingCloud = false
-                })
-                get().removeActiveProjectFromDevice()
-                return
-              }
-            }
-            set((s) => {
-              s.isCheckingCloud = false
-              s.lastSyncError = syncError
-            })
-            writeBrowserState(get())
-            if (shouldRecoverMissingProject(result, get(), access)) {
-              void get().syncToCloud({ force: true })
-            }
+          if (result.status !== "ok") {
+            handleUnavailableRestoreResult(result, access, wasCookieGhost)
             return
           }
 
@@ -316,39 +374,11 @@ export function createTimerStore(init?: TimerStoreInit) {
             return
           }
 
-          set((s) => {
-            const project = activeProject(s)
-            if (!project) return
-            project.name = remote.name
-            project.color = remote.color
-            if (access.kind === "user-project") {
-              project.cloudProjectId = data.projectId ?? project.cloudProjectId
-              project.ownerId = data.ownerId ?? project.ownerId
-            }
-            project.updatedAt = remote.updatedAt
-            project.lastRemoteUpdatedAt = remote.updatedAt
-            project.lastSyncedAt = now
-            project.hasUnsyncedChanges = false
-            project.timerCount = remote.timers.length
-            project.spaceCount = remote.spaces.length
-            s.timers = remoteTimers
-            s.spaces = remoteSpaces
-            s.activeSpaceId = safeActiveSpaceId(s.activeSpaceId, s.spaces)
-            s.lastSyncAt = now
-            s.lastSyncError = null
-            s.isCheckingCloud = false
-            s.projectConflict = null
-          })
+          set((s) => applyRestoredProjectSnapshot(s, { access, data, remoteTimers, remoteSpaces, now }))
           writeBrowserState(get())
         } catch (err) {
-          if (access.kind === "user-project" && startedEpoch !== accountEpoch) {
-            clearCheckingIfCurrent()
-            return
-          }
-          // A stale refresh must stay silent: if the active project changed
-          // while the request was in flight, the error belongs to the old one.
-          if (get().activeProjectId !== startedProjectId) {
-            clearCheckingIfCurrent()
+          if (isStaleActiveProjectRefresh(access, startedEpoch, startedProjectId)) {
+            clearCheckingIfCurrent(startedProjectId)
             return
           }
           logClientError("store.refreshActiveProjectFromCloud", err)
@@ -448,7 +478,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             initialRestoreKey &&
             legacyHasPayload &&
             !projects.some((project) => project.restoreKey === initialRestoreKey) &&
-            projects.length < MAX_PROJECTS
+            projects.length < getEntitlements().maxProjects
           ) {
             const project = defaultProjectMeta({
               now,
@@ -494,7 +524,7 @@ export function createTimerStore(init?: TimerStoreInit) {
           })
 
           writeBrowserState(get())
-          void get().refreshActiveProjectFromCloud()
+          runInBackground("store.refreshActiveProjectFromCloud", get().refreshActiveProjectFromCloud())
         },
 
         addTimer: (timer) => {
@@ -821,7 +851,7 @@ export function createTimerStore(init?: TimerStoreInit) {
 
           let moved = false
           set((s) => {
-            const targetMeta = s.projects.find((project) => project.id === targetProjectId)
+            const targetMeta = projectMetaById(s.projects, targetProjectId)
             if (!targetMeta) return
             targetMeta.updatedAt = now
             targetMeta.hasUnsyncedChanges = true
@@ -900,7 +930,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         createProject: (name) => {
-          if (get().projects.length >= MAX_PROJECTS) return
+          if (get().projects.length >= getEntitlements().maxProjects) return
           const now = new Date().toISOString()
           const project = defaultProjectMeta({
             now,
@@ -951,7 +981,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             syncReadOnlyState(s)
           })
           writeBrowserState(get())
-          void get().refreshActiveProjectFromCloud()
+          runInBackground("store.refreshActiveProjectFromCloud", get().refreshActiveProjectFromCloud())
         },
 
         renameActiveProject: (name) => {
@@ -988,7 +1018,9 @@ export function createTimerStore(init?: TimerStoreInit) {
             syncReadOnlyState(s)
           })
           writeBrowserState(get())
-          if (nextProject?.cloudProjectId) void get().refreshActiveProjectFromCloud()
+          if (nextProject?.cloudProjectId) {
+            runInBackground("store.refreshActiveProjectFromCloud", get().refreshActiveProjectFromCloud())
+          }
         },
 
         removeAccountProjectsFromDevice: () => {
@@ -1043,8 +1075,9 @@ export function createTimerStore(init?: TimerStoreInit) {
           const now = new Date().toISOString()
 
           const existing = get().projects.find((p) => p.restoreKey === restoreKey)
-          if (!existing && get().projects.length >= MAX_PROJECTS) {
-            throw new Error(formatMessage("project.limit.total", { max: MAX_PROJECTS }))
+          const entitlements = getEntitlements()
+          if (!existing && get().projects.length >= entitlements.maxProjects) {
+            throw new Error(projectLimitMessage(entitlements))
           }
 
           const project: ProjectMeta = existing
@@ -1201,7 +1234,7 @@ export function createTimerStore(init?: TimerStoreInit) {
 
           set((s) => {
             const project = activeProject(s)
-            if (!project || project.id !== current.id) return
+            if (project?.id !== current.id) return
             project.name = remote.name
             project.color = remote.color
             project.cloudProjectId = claimed.projectId
@@ -1226,7 +1259,9 @@ export function createTimerStore(init?: TimerStoreInit) {
           // Existing epoch guards inside refreshAccountProjectsFromCloud prevent
           // writes after sign-out.
           const claimStatus = result.overLimit ? "claimed_read_only" : "claimed"
-          if (result.overLimit) void get().refreshAccountProjectsFromCloud()
+          if (result.overLimit) {
+            runInBackground("store.refreshAccountProjectsFromCloud", get().refreshAccountProjectsFromCloud())
+          }
           return claimStatus
         },
 

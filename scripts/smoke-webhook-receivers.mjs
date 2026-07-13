@@ -1,13 +1,14 @@
-import { createHmac } from "node:crypto"
+import { createHmac, randomBytes } from "node:crypto"
 import { once } from "node:events"
 import net from "node:net"
 import { spawn, spawnSync } from "node:child_process"
 
-const secret = "test_signing_secret"
+const secret = randomBytes(32).toString("hex")
+const invalidSecret = randomBytes(32).toString("hex")
 const payload = JSON.stringify({
   object: "event",
-  id: "evt_smoke",
-  type: "webhook.test",
+  id: "evt_%j_smoke",
+  type: "webhook.%s.test",
   created: "2026-06-10T12:00:00.000Z",
   environment: "test",
   event_version: "2026-06-10",
@@ -84,8 +85,11 @@ async function smokeReceiver(name, command, args) {
 
     const valid = await post(port, signatureFor(payload))
     if (valid.status !== 200) throw new Error(`${name} rejected a valid signature with ${valid.status}\n${output}`)
+    if (!output.includes("[tickward] webhook received") || !output.includes("webhook.%s.test")) {
+      throw new Error(`${name} did not emit constant-structure event metadata\n${output}`)
+    }
 
-    const invalid = await post(port, signatureFor(payload, "wrong_secret"))
+    const invalid = await post(port, signatureFor(payload, invalidSecret))
     if (invalid.status !== 401) throw new Error(`${name} accepted an invalid signature with ${invalid.status}`)
 
     console.log(`${name}: ok`)
@@ -95,14 +99,53 @@ async function smokeReceiver(name, command, args) {
   }
 }
 
+async function rejectsUnsafeBinding(name, command, args) {
+  const child = spawn(command, args, {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      HOST: "0.0.0.0",
+      PORT: "0",
+      TICKWARD_WEBHOOK_SECRET: secret,
+      TICKWARD_TLS_TERMINATED: "",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+
+  let output = ""
+  child.stdout.on("data", (chunk) => {
+    output += chunk.toString()
+  })
+  child.stderr.on("data", (chunk) => {
+    output += chunk.toString()
+  })
+
+  let timeout
+  const [code] = await Promise.race([
+    once(child, "exit"),
+    new Promise((resolve) => {
+      timeout = setTimeout(() => {
+        child.kill("SIGTERM")
+        resolve([null])
+      }, 5_000)
+    }),
+  ])
+  clearTimeout(timeout)
+  if (code === 0 || !output.includes("Refusing a non-loopback HTTP listener")) {
+    throw new Error(`${name} did not reject an unsafe public HTTP binding\n${output}`)
+  }
+}
+
 function commandAvailable(command) {
   return spawnSync(command, ["--version"], { stdio: "ignore" }).status === 0
 }
 
 await smokeReceiver("node receiver", process.execPath, ["examples/webhook-receivers/node/server.mjs"])
+await rejectsUnsafeBinding("node receiver", process.execPath, ["examples/webhook-receivers/node/server.mjs"])
 
 if (commandAvailable("python3")) {
   await smokeReceiver("python receiver", "python3", ["examples/webhook-receivers/python/receiver.py"])
+  await rejectsUnsafeBinding("python receiver", "python3", ["examples/webhook-receivers/python/receiver.py"])
 } else {
   console.warn("python receiver: skipped, python3 not found")
 }

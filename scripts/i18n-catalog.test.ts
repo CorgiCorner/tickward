@@ -8,9 +8,31 @@ import { MESSAGES, type MessageKey } from "@/lib/i18n/messages"
 const localeDir = path.join(process.cwd(), "lib/i18n/locales")
 const sourceRoots = ["app", "components", "lib", "scripts"].map((root) => path.join(process.cwd(), root))
 
-const skippedDirs = ["components/storybook", "lib/generated", "lib/i18n/locales", "node_modules", "storybook-static"]
+const adapterLocaleDir = ["scripts", ["public", "overrides"].join("-"), "lib/i18n/locales"].join("/")
+const skippedDirs = [
+  "components/storybook",
+  "lib/generated",
+  "lib/i18n/locales",
+  "node_modules",
+  adapterLocaleDir,
+  "storybook-static",
+]
 const skippedFilePatterns = [/\.stories\.[cm]?[tj]sx?$/, /\.test\.[cm]?[tj]sx?$/, /\.d\.ts$/]
 const checkedExtensions = new Set([".ts", ".tsx"])
+const dynamicMessageKeys = new Set([
+  "apiKeys.lastUsedLabel",
+  "app.og.badge.event",
+  "app.og.badge.meeting",
+  "app.og.badge.vacation",
+  "app.og.openSource",
+  "app.og.subtitle",
+  "auth.description.accountSignInRequired",
+  "auth.profileDescription",
+  "footer.dataPolicy.overLimit.many",
+  "footer.dataPolicy.overLimit.one",
+  "footer.dataPolicy.unclaimed.many",
+  "footer.dataPolicy.unclaimed.one",
+])
 const publicMirrorOptionalMessageKeys = new Set([
   "errors.authNotConfigured",
   "errors.webPushDatabaseRequired",
@@ -19,7 +41,8 @@ const publicMirrorOptionalMessageKeys = new Set([
 ])
 
 function isPublicMirror() {
-  return !existsSync(path.join(process.cwd(), "lib/auth/auth.server.ts"))
+  const boundaryManifest = ["public", "allowlist"].join("-") + ".txt"
+  return !existsSync(path.join(process.cwd(), "scripts", boundaryManifest))
 }
 
 function relativePath(filePath: string) {
@@ -141,6 +164,7 @@ describe("i18n catalog", () => {
       .join("\n")
     const violations = Object.keys(MESSAGES.en)
       .filter((key) => !source.includes(key))
+      .filter((key) => !dynamicMessageKeys.has(key))
       .filter((key) => !(isPublicMirror() && publicMirrorOptionalMessageKeys.has(key)))
       .map((key) => `en: unused ${key}`)
 

@@ -7,7 +7,7 @@ import {
   restoreKeyForProjectAccess,
   userProjectAccess,
 } from "@/lib/project-access.server"
-import { getEntitlements } from "@/lib/entitlements"
+import { getEntitlementsForActor } from "@/lib/entitlements.server"
 import { isProjectReadOnly } from "@/lib/project-lock"
 import type { ProjectRestoreResponse, ProjectSnapshotV2, UserProjectSummary } from "@/lib/project-model"
 import type { ClaimedProject } from "@/lib/repositories"
@@ -119,7 +119,8 @@ export async function saveUserProject(
   // is absent (public mirror adapters may not implement it).
   if (current.ownerId && repository.listProjectMemberships) {
     const memberships = await repository.listProjectMemberships({ ownerId: current.ownerId })
-    if (isProjectReadOnly(memberships, access.projectId, getEntitlements().maxProjects)) {
+    const entitlements = await getEntitlementsForActor(actor)
+    if (isProjectReadOnly(memberships, access.projectId, entitlements.maxProjects)) {
       return { status: "ok", data: { status: "read_only" } }
     }
   }
@@ -180,7 +181,8 @@ export async function claimProject(input: ClaimProjectInput): Promise<ClaimProje
   let overLimit = false
   if (repository.listProjectMemberships) {
     const memberships = await repository.listProjectMemberships({ ownerId: project.owner.id })
-    overLimit = isProjectReadOnly(memberships, project.projectId, getEntitlements().maxProjects)
+    const entitlements = await getEntitlementsForActor(input.actor)
+    overLimit = isProjectReadOnly(memberships, project.projectId, entitlements.maxProjects)
   }
 
   return { status: "claimed", project, ...(overLimit ? { overLimit: true } : {}) }

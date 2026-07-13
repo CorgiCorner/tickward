@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { existsSync } from "node:fs"
+import path from "node:path"
+import { resolveTrustedExecutable } from "./trusted-executable.mjs"
 
 const schemaPath = "prisma/schema.prisma"
 
@@ -8,7 +10,10 @@ if (!existsSync(schemaPath)) {
   process.exit(0)
 }
 
-const result = spawnSync("prisma", ["generate", "--schema", schemaPath], {
+const prismaExecutable = resolveTrustedExecutable("prisma", {
+  candidates: [path.resolve("node_modules", ".bin", process.platform === "win32" ? "prisma.cmd" : "prisma")],
+})
+const result = spawnSync(prismaExecutable, ["generate", "--schema", schemaPath], {
   shell: process.platform === "win32",
   stdio: "inherit",
 })

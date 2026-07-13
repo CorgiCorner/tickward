@@ -22,6 +22,7 @@ const RATE_LIMITS = {
   "public-api-ip": { limit: 300, window: "60 s", prefix: "tickward:ratelimit:public-api-ip" },
   inbox: { limit: 60, window: "60 s", prefix: "tickward:ratelimit:inbox" },
   "account-export": { limit: 2, window: "60 s", prefix: "tickward:ratelimit:account-export" },
+  "account-import": { limit: 2, window: "60 s", prefix: "tickward:ratelimit:account-import" },
   "api-key-management": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:api-key-management" },
   "webhook-management": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:webhook-management" },
   "webhook-test": { limit: 3, window: "60 s", prefix: "tickward:ratelimit:webhook-test" },

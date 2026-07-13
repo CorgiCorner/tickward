@@ -129,6 +129,14 @@
 }
 
 @layer components {
+  /* Success toasts are short, auto-dismissing confirmations, so the close
+     button is noise (and misleading over a modal). Hide it only for the
+     success type; errors and persistent toasts keep their close button. The
+     button is absolutely positioned, so hiding it shifts no layout. */
+  [data-sonner-toast][data-type="success"] [data-close-button] {
+    display: none;
+  }
+
   .no-scrollbar {
     scrollbar-width: none;
   }

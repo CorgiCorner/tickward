@@ -26,7 +26,7 @@ function demoTimer(args: {
   label: string
   notify?: boolean
   pinned?: boolean
-  recurrence?: Timer["recurrence"]
+  recurrence?: NonNullable<Timer["recurrence"]>
   sharedAt?: string
   shareId?: string
   spaceId?: string

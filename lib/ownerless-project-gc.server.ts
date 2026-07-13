@@ -1,8 +1,8 @@
 import "server-only"
 
 import type { PrismaClient } from "@/lib/generated/prisma/client"
+import { ownerlessProjectRetentionDays } from "@/lib/data-retention.server"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
-import { optionalServerEnv } from "@/lib/env.server"
 
 const OWNERLESS_PROJECT_GC_BATCH_SIZE = 100
 const DAY_MS = 24 * 60 * 60_000
@@ -14,14 +14,6 @@ export type OwnerlessProjectGcResult = {
 
 function ownerlessProjectGcPrisma(): PrismaClient {
   return requirePrismaClient()
-}
-
-function ownerlessProjectRetentionDays() {
-  const raw = optionalServerEnv("TICKWARD_OWNERLESS_PROJECT_RETENTION_DAYS")
-  if (!raw || !/^\d+$/.test(raw)) return null
-
-  const days = Number.parseInt(raw, 10)
-  return Number.isSafeInteger(days) && days > 0 ? days : null
 }
 
 export async function collectOwnerlessProjects(now = new Date()): Promise<OwnerlessProjectGcResult> {

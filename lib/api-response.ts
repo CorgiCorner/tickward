@@ -8,6 +8,7 @@ export type ApiErrorType =
   | "limit_exceeded"
   | "missing_api_key"
   | "method_not_allowed"
+  | "not_supported"
   | "not_found"
   | "plan_hash_mismatch"
   | "rate_limit_unavailable"

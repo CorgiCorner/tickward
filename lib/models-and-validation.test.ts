@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { getEntitlements } from "@/lib/entitlements"
 import {
   DEFAULT_PROJECT_NAME,
   createProjectSnapshot,
@@ -40,22 +41,28 @@ describe("project/share/space models", () => {
 
     expect(snapshot.name).toBe("Product launch")
     expect(isProjectSnapshot(snapshot)).toBe(true)
-    expect(validateProjectSnapshot(snapshot)).toBeNull()
+    expect(validateProjectSnapshot(snapshot, getEntitlements())).toBeNull()
     expect(
-      validateProjectSnapshot({
-        ...snapshot,
-        timers: Array.from({ length: 51 }, (_, i) => makeTimer({ id: `t-${i}` })),
-      }),
+      validateProjectSnapshot(
+        {
+          ...snapshot,
+          timers: Array.from({ length: 51 }, (_, i) => makeTimer({ id: `t-${i}` })),
+        },
+        getEntitlements(),
+      ),
     ).toEqual({
       code: PUBLIC_ERROR_CODES.tooManyTimers,
       details: { max: 50 },
       messageKey: "errors.tooManyTimers",
     })
     expect(
-      validateProjectSnapshot({
-        ...snapshot,
-        spaces: Array.from({ length: 3 }, (_, i) => makeSpace({ id: `s-${i}` })),
-      }),
+      validateProjectSnapshot(
+        {
+          ...snapshot,
+          spaces: Array.from({ length: 3 }, (_, i) => makeSpace({ id: `s-${i}` })),
+        },
+        getEntitlements(),
+      ),
     ).toEqual({
       code: PUBLIC_ERROR_CODES.tooManySpaces,
       details: { max: 2 },

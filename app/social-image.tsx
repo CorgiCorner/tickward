@@ -1,7 +1,7 @@
 import { DEFAULT_LOCALE, formatMessage, type Locale } from "@/lib/i18n/messages"
-import { DefaultOgImage, OG_IMAGE_SIZE } from "@/lib/og/image"
+import { DefaultOgImage } from "@/lib/og/image"
 
-export const socialImageSize = OG_IMAGE_SIZE
+export { OG_IMAGE_SIZE as socialImageSize } from "@/lib/og/image"
 
 export const socialImageContentType = "image/png"
 

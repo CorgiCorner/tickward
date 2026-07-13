@@ -21,19 +21,19 @@ export type MessageParams = Record<string, boolean | null | number | string | un
 
 export function formatMessage(key: MessageKey, params: MessageParams = {}, locale: Locale = getActiveLocale()): string {
   const template = String(MESSAGES[locale]?.[key] ?? MESSAGES[DEFAULT_LOCALE][key])
-  return template.replace(/\{(\w+)\}/g, (match, name: string) => {
+  return template.replaceAll(/\{(\w+)\}/g, (match, name: string) => {
     const value = params[name]
     return value === undefined || value === null ? match : String(value)
   })
 }
 
 function escapeRegex(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
 }
 
 function messageTemplateRegex(template: string) {
   const token = "{n}"
-  return new RegExp(`^${template.split(token).map(escapeRegex).join("(\\d+)")}$`)
+  return new RegExp(`^${template.split(token).map(escapeRegex).join(String.raw`(\d+)`)}$`)
 }
 
 const defaultTimerLabelRegexes = Array.from(

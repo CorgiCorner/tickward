@@ -181,7 +181,7 @@ describe("HomeClient", () => {
     const footer = section?.querySelector("footer")
     expect(footer).toHaveClass("sticky", "bottom-0", "z-30")
     expect(screen.getByText("Stored on this device")).toBeVisible()
-    expect(screen.queryByText("Cloud data stays until you delete it.")).not.toBeInTheDocument()
+    expect(screen.queryByText("Projects on your account stay until you delete them.")).not.toBeInTheDocument()
     expect(screen.queryByText(/^v\d+\.\d+\.\d+/)).not.toBeInTheDocument()
     expect(screen.queryByText("tickward")).not.toBeInTheDocument()
     expect(screen.queryByText(/^© \d{4}$/)).not.toBeInTheDocument()

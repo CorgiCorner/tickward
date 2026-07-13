@@ -1,7 +1,8 @@
 import "server-only"
 
+import { runInBackground } from "@/lib/background-task"
+import { jsonInput } from "@/lib/db/prisma-json.server"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
-import type { Prisma } from "@/lib/generated/prisma/client"
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
@@ -23,11 +24,7 @@ export type AuditRequestContext = {
 
 function cleanString(value: string | null | undefined) {
   const trimmed = value?.trim()
-  return trimmed ? trimmed : null
-}
-
-function jsonInput(value: Record<string, unknown>): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
+  return trimmed || null
 }
 
 export function auditRequestContext(input: Request | Headers): AuditRequestContext {
@@ -44,8 +41,9 @@ export function recordAuditEvent(input: AuditEventInput): void {
     const prisma = requirePrismaClient()
     const metadata = input.metadata ? jsonInput(input.metadata) : undefined
 
-    void prisma.auditLog
-      .create({
+    runInBackground(
+      "audit.write",
+      prisma.auditLog.create({
         data: {
           action: input.action,
           actorEmail: cleanString(input.actorEmail),
@@ -56,10 +54,8 @@ export function recordAuditEvent(input: AuditEventInput): void {
           targetType: cleanString(input.targetType),
           userAgent: cleanString(input.userAgent),
         },
-      })
-      .catch((err: unknown) => {
-        console.error("[tickward] audit.write", err)
-      })
+      }),
+    )
   } catch (err) {
     console.error("[tickward] audit.write", err)
   }

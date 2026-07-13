@@ -187,6 +187,7 @@ describe("TimerCard", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Launch" })
     expect(dialog).toBeVisible()
+    expect(dialog.tagName).toBe("DIALOG")
     expect(dialog.querySelector(".font-mono.tabular-nums")).toBeInTheDocument()
     await waitFor(() => expect(document.body.style.overflow).toBe("hidden"))
 
@@ -471,7 +472,19 @@ describe("TimerCard", () => {
 
     render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
 
-    await user.click(screen.getAllByText("Launch")[0])
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0])
+
+    expect(await screen.findByRole("dialog", { name: "Edit timer" }, { timeout: 4000 })).toBeVisible()
+  })
+
+  it("opens the edit form from the keyboard via the mobile card button", async () => {
+    const user = userEvent.setup()
+    setViewportMobile(true)
+
+    render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+
+    screen.getAllByRole("button", { name: "Edit" })[0].focus()
+    await user.keyboard("{Enter}")
 
     expect(await screen.findByRole("dialog", { name: "Edit timer" }, { timeout: 4000 })).toBeVisible()
   })

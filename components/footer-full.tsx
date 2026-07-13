@@ -1,10 +1,12 @@
 import Link from "next/link"
 
+import { FooterDataPolicy } from "@/components/footer-data-policy"
 import { FooterStatusDot } from "@/components/footer-status-dot"
 import { LocaleSwitcher } from "@/components/locale-switcher"
 import type { MarketingFooterLink, MarketingFooterSection } from "@/lib/app-extension-points"
 import { appExtensions } from "@/lib/app-extensions"
-import { DEFAULT_LOCALE, formatMessage, localeHref, type Locale } from "@/lib/i18n/messages"
+import { overLimitProjectRetentionDays, ownerlessProjectRetentionDays } from "@/lib/data-retention.server"
+import { DEFAULT_LOCALE, formatMessage, formatPluralMessage, localeHref, type Locale } from "@/lib/i18n/messages"
 import { STATUS_PAGE_URL } from "@/lib/status-summary"
 import { cn } from "@/lib/utils"
 
@@ -134,6 +136,18 @@ function FooterProductColumn(props: Readonly<{ docsHref?: string | null; locale:
   )
 }
 
+// Retention disclosures for the deployments that garbage-collect data: only
+// the windows actually configured via env are listed, so a self-hosted
+// instance without GC keeps the unqualified summary.
+function dataPolicyDetails(locale: Locale): string[] {
+  const details: string[] = []
+  const unclaimedDays = ownerlessProjectRetentionDays()
+  if (unclaimedDays) details.push(formatPluralMessage("footer.dataPolicy.unclaimed", unclaimedDays, {}, locale))
+  const overLimitDays = overLimitProjectRetentionDays()
+  if (overLimitDays) details.push(formatPluralMessage("footer.dataPolicy.overLimit", overLimitDays, {}, locale))
+  return details
+}
+
 function FooterCopyright(props: Readonly<{ locale: Locale }>) {
   const year = new Date().getFullYear()
 
@@ -183,7 +197,25 @@ export function FooterFull({
       </div>
       <div className="border-t border-border">
         <div className="mx-auto flex w-full max-w-[640px] flex-wrap items-center justify-between gap-3 px-4 py-6 text-xs text-muted-foreground">
-          <p className="leading-relaxed">{formatMessage("footer.inactivityPolicy", {}, locale)}</p>
+          <FooterDataPolicy
+            summary={formatMessage("footer.dataPolicy", {}, locale)}
+            details={dataPolicyDetails(locale)}
+            detailsLabel={formatMessage("footer.dataPolicy.details", {}, locale)}
+          />
+          <nav
+            aria-label={formatMessage("footer.legal", {}, locale)}
+            className="flex flex-wrap items-center gap-x-3 gap-y-2"
+          >
+            <Link className={cn(FOOTER_LINK_CLASS, "text-xs")} href={localeHref(locale, "/legal/privacy")}>
+              {formatMessage("footer.legal.privacy", {}, locale)}
+            </Link>
+            <Link className={cn(FOOTER_LINK_CLASS, "text-xs")} href={localeHref(locale, "/legal/terms")}>
+              {formatMessage("footer.legal.terms", {}, locale)}
+            </Link>
+            <Link className={cn(FOOTER_LINK_CLASS, "text-xs")} href={localeHref(locale, "/legal/subprocessors")}>
+              {formatMessage("footer.legal.subprocessors", {}, locale)}
+            </Link>
+          </nav>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <LocaleSwitcher alternates={localeAlternates} />
             <div className="flex items-center gap-2">

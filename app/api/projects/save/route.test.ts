@@ -7,6 +7,7 @@ import { expectPublicError } from "@/test/public-error-assertions"
 
 const mocks = vi.hoisted(() => ({
   getCurrentActor: vi.fn(),
+  getEntitlementsForActor: vi.fn(),
   saveProject: vi.fn(),
   saveUserProject: vi.fn(),
   enforceRateLimit: vi.fn(),
@@ -14,6 +15,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/actor.server", () => ({
   getCurrentActor: mocks.getCurrentActor,
+}))
+
+vi.mock("@/lib/entitlements.server", () => ({
+  getEntitlementsForActor: mocks.getEntitlementsForActor,
 }))
 
 vi.mock("@/lib/project-service.server", () => ({
@@ -31,10 +36,19 @@ const userActor = { kind: "user" as const, user: { id: "user_123", email: "ada@e
 describe("POST /api/projects/save", () => {
   beforeEach(() => {
     mocks.getCurrentActor.mockReset()
+    mocks.getEntitlementsForActor.mockReset()
     mocks.saveProject.mockReset()
     mocks.saveUserProject.mockReset()
     mocks.enforceRateLimit.mockReset()
     mocks.getCurrentActor.mockResolvedValue(actor)
+    mocks.getEntitlementsForActor.mockImplementation(async (currentActor: typeof actor | typeof userActor) => ({
+      plan: currentActor.kind === "user" ? "free" : "anonymous",
+      maxProjects: currentActor.kind === "user" ? 4 : 2,
+      maxSnapshotTimers: 50,
+      maxSpaces: currentActor.kind === "user" ? 4 : 2,
+      maxTimers: currentActor.kind === "user" ? 40 : 20,
+      maxTimersPerSpace: currentActor.kind === "user" ? 40 : 20,
+    }))
     mocks.enforceRateLimit.mockResolvedValue(null)
   })
 
@@ -91,16 +105,17 @@ describe("POST /api/projects/save", () => {
     expect(mocks.saveUserProject).not.toHaveBeenCalled()
   })
 
-  it("returns validation public errors for structurally valid but oversized snapshots", async () => {
+  it("rejects snapshots over the actor's total timer limit, including archived timers", async () => {
     const { POST } = await import("./route")
     const project = makeProjectSnapshot({
-      timers: Array.from({ length: 51 }, (_, index) => ({
+      timers: Array.from({ length: 21 }, (_, index) => ({
         id: `timer-${index}`,
         label: `Timer ${index}`,
         targetDate: "2026-05-25T12:00:00.000Z",
         timezone: "Europe/Warsaw",
         createdAt: "2026-05-20T00:00:00.000Z",
         updatedAt: "2026-05-20T00:00:00.000Z",
+        archivedAt: "2026-05-21T00:00:00.000Z",
       })),
     })
 
@@ -116,7 +131,42 @@ describe("POST /api/projects/save", () => {
     expect(mocks.saveProject).not.toHaveBeenCalled()
   })
 
-  it("rate limits valid project saves before resolving the actor or saving", async () => {
+  it("rejects snapshots over the active timer limit for one space", async () => {
+    const { POST } = await import("./route")
+    mocks.getEntitlementsForActor.mockResolvedValue({
+      plan: "anonymous",
+      maxProjects: 2,
+      maxSnapshotTimers: 50,
+      maxSpaces: 2,
+      maxTimers: 20,
+      maxTimersPerSpace: 2,
+    })
+    const project = makeProjectSnapshot({
+      spaces: [{ id: "space-a", name: "Work", createdAt: "2026-05-20T00:00:00.000Z" }],
+      timers: Array.from({ length: 3 }, (_, index) => ({
+        id: `timer-${index}`,
+        label: `Timer ${index}`,
+        targetDate: "2026-05-25T12:00:00.000Z",
+        timezone: "Europe/Warsaw",
+        createdAt: "2026-05-20T00:00:00.000Z",
+        updatedAt: "2026-05-20T00:00:00.000Z",
+        spaceId: "space-a",
+      })),
+    })
+
+    const res = await POST(
+      jsonRequest("https://tickward.test/api/projects/save", {
+        key: "restoreKey_123",
+        project,
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    await expectPublicError(res, PUBLIC_ERROR_CODES.tooManyTimersPerSpace, "errors.tooManyTimersPerSpace")
+    expect(mocks.saveProject).not.toHaveBeenCalled()
+  })
+
+  it("resolves the actor before rate limiting valid project saves", async () => {
     const { POST } = await import("./route")
     mocks.enforceRateLimit.mockResolvedValue(new Response("limited", { status: 429 }))
 
@@ -130,8 +180,43 @@ describe("POST /api/projects/save", () => {
     expect(res.status).toBe(429)
     await expect(res.text()).resolves.toBe("limited")
     expect(mocks.enforceRateLimit).toHaveBeenCalledWith("write", "restoreKey_123")
-    expect(mocks.getCurrentActor).not.toHaveBeenCalled()
+    expect(mocks.getCurrentActor).toHaveBeenCalledWith({
+      restoreKey: "restoreKey_123",
+      request: expect.any(Request),
+    })
     expect(mocks.saveProject).not.toHaveBeenCalled()
+  })
+
+  it("allows signed-in snapshots that exceed anonymous caps but fit the free plan", async () => {
+    const { POST } = await import("./route")
+    const project = makeProjectSnapshot({
+      spaces: Array.from({ length: 3 }, (_, index) => ({
+        id: `space-${index}`,
+        name: `Space ${index}`,
+        createdAt: "2026-05-20T00:00:00.000Z",
+      })),
+      timers: Array.from({ length: 21 }, (_, index) => ({
+        id: `timer-${index}`,
+        label: `Timer ${index}`,
+        targetDate: "2026-05-25T12:00:00.000Z",
+        timezone: "Europe/Warsaw",
+        createdAt: "2026-05-20T00:00:00.000Z",
+        updatedAt: "2026-05-20T00:00:00.000Z",
+      })),
+    })
+    mocks.getCurrentActor.mockResolvedValue(userActor)
+    mocks.saveUserProject.mockResolvedValue({ status: "ok", data: { status: "saved", project } })
+
+    const res = await POST(
+      jsonRequest("https://tickward.test/api/projects/save", {
+        projectId: "project_123",
+        project,
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(mocks.getEntitlementsForActor).toHaveBeenCalledWith(userActor)
+    expect(mocks.saveUserProject).toHaveBeenCalled()
   })
 
   it("returns a conflict when the cloud project changed since baseUpdatedAt", async () => {

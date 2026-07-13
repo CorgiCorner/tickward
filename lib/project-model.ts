@@ -1,13 +1,11 @@
-import { getEntitlements } from "@/lib/entitlements"
+import type { Entitlements } from "@/lib/entitlements"
 import { formatMessage } from "@/lib/i18n/messages"
-import { LIMITS } from "@/lib/limits"
 import { PUBLIC_ERROR_CODES, createPublicError, type PublicError } from "@/lib/public-errors"
 import type { Space, Timer, TimerFilters, TimerSortMode } from "@/lib/types"
+import { timerTargetSpaceId } from "@/lib/timer-space-limits"
 import { isSpaceArray, isTimerArray, validateSpacesPayload, validateTimersPayload } from "@/lib/validate"
 
 export const PROJECT_SNAPSHOT_VERSION = 2
-// Kept as a named export for back-compat; entitlements define current limits.
-export const MAX_PROJECTS = LIMITS.projects
 export const DEFAULT_PROJECT_NAME = formatMessage("project.defaultTimersName")
 
 export type ProjectMeta = {
@@ -103,12 +101,11 @@ export function isProjectSnapshot(value: unknown): value is ProjectSnapshotV2 {
   )
 }
 
-export function validateProjectSnapshot(project: ProjectSnapshotV2): PublicError | null {
+export function validateProjectSnapshot(project: ProjectSnapshotV2, entitlements: Entitlements): PublicError | null {
   if (!isProjectSnapshot(project)) {
     return createPublicError(PUBLIC_ERROR_CODES.invalidProjectPayload, "errors.invalidProjectPayload")
   }
 
-  const entitlements = getEntitlements()
   if (project.timers.length > entitlements.maxSnapshotTimers) {
     return createPublicError(PUBLIC_ERROR_CODES.tooManyTimers, "errors.tooManyTimers", {
       max: entitlements.maxSnapshotTimers,
@@ -118,6 +115,25 @@ export function validateProjectSnapshot(project: ProjectSnapshotV2): PublicError
   const timersError = validateTimersPayload(project.timers)
   if (timersError) {
     return createPublicError(PUBLIC_ERROR_CODES.invalidTimerFields, "errors.invalidTimerFields")
+  }
+
+  if (project.timers.length > entitlements.maxTimers) {
+    return createPublicError(PUBLIC_ERROR_CODES.tooManyTimers, "errors.tooManyTimers", {
+      max: entitlements.maxTimers,
+    })
+  }
+
+  const activeTimersBySpace = new Map<string | undefined, number>()
+  for (const timer of project.timers) {
+    if (timer.archivedAt) continue
+    const targetSpaceId = timerTargetSpaceId(timer.spaceId)
+    const count = (activeTimersBySpace.get(targetSpaceId) ?? 0) + 1
+    if (count > entitlements.maxTimersPerSpace) {
+      return createPublicError(PUBLIC_ERROR_CODES.tooManyTimersPerSpace, "errors.tooManyTimersPerSpace", {
+        max: entitlements.maxTimersPerSpace,
+      })
+    }
+    activeTimersBySpace.set(targetSpaceId, count)
   }
 
   if (project.spaces.length > entitlements.maxSpaces) {

@@ -8,7 +8,12 @@ function numberProperty(value: unknown, name: string) {
 
 function stringProperty(value: unknown, name: string) {
   if (!value || typeof value !== "object" || !(name in value)) return ""
-  return String((value as Record<string, unknown>)[name] ?? "")
+  const propertyValue = (value as Record<string, unknown>)[name]
+  if (typeof propertyValue === "string") return propertyValue
+  // Only primitives have a meaningful string form; objects would stringify
+  // as "[object Object]" and pollute the searchable error text.
+  if (typeof propertyValue === "number" || typeof propertyValue === "boolean") return String(propertyValue)
+  return ""
 }
 
 export function authErrorRetryAfter(error: unknown) {

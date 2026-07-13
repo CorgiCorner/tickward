@@ -102,14 +102,20 @@ function OgIcon(props: Readonly<{ name: IconName; size?: number; color?: string 
 }
 
 function PatternRows() {
-  const rows: ReadonlyArray<{ opacity: number; marginLeft?: number; icons: IconName[] }> = [
-    { opacity: 0.1, icons: ["timer", "calendar", "clock", "bell", "repeat", "hourglass", "clock"] },
+  const rows: ReadonlyArray<{ id: string; opacity: number; marginLeft?: number; icons: IconName[] }> = [
+    { id: "primary", opacity: 0.1, icons: ["timer", "calendar", "clock", "bell", "repeat", "hourglass", "clock"] },
     {
+      id: "offset",
       opacity: 0.06,
       marginLeft: -48,
       icons: ["clock", "repeat", "timer", "bell", "calendar", "clock", "hourglass"],
     },
-    { opacity: 0.03, marginLeft: 24, icons: ["calendar", "timer", "clock", "repeat", "bell", "hourglass"] },
+    {
+      id: "faint",
+      opacity: 0.03,
+      marginLeft: 24,
+      icons: ["calendar", "timer", "clock", "repeat", "bell", "hourglass"],
+    },
   ]
 
   return (
@@ -124,9 +130,9 @@ function PatternRows() {
         gap: 34,
       }}
     >
-      {rows.map((row, index) => (
+      {rows.map((row) => (
         <div
-          key={index}
+          key={row.id}
           style={{
             display: "flex",
             justifyContent: "center",

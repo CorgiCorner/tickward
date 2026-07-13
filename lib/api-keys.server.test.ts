@@ -39,6 +39,12 @@ describe("api key helpers", () => {
     expect(hashApiKeyToken(token)).not.toContain(token)
   })
 
+  it("preserves the domain-separated hash used by existing credentials", () => {
+    expect(hashApiKeyToken("tw_compatibility_fixture_2026")).toBe(
+      "51ca99dc5571c58cf5690ae7cf7753199370d9f8b985552fa0f32907941d9dc3",
+    )
+  })
+
   it("normalizes public API key permissions and names", () => {
     expect(normalizeApiKeyPermission("read")).toBe("read")
     expect(normalizeApiKeyPermission("full_access")).toBe("full_access")

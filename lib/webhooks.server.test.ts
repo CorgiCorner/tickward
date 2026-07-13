@@ -15,6 +15,7 @@ import {
   webhookAutoDisableFailureThreshold,
   webhookMaxEndpointsPerUser,
 } from "@/lib/webhooks.server"
+import { syntheticSecret } from "@/test/security-fixtures"
 
 const prismaMocks = vi.hoisted(() => ({
   requirePrismaClient: vi.fn(),
@@ -57,9 +58,10 @@ describe("webhook signing", () => {
   it("uses timestamp-prefixed HMAC SHA-256 signatures", () => {
     const payload = JSON.stringify({ id: "evt_123", type: "timer.ended" })
     const timestamp = 1_780_000_000
-    const expected = createHmac("sha256", "test_signing_secret").update(`${timestamp}.${payload}`, "utf8").digest("hex")
+    const signingSecret = syntheticSecret("webhook-signing")
+    const expected = createHmac("sha256", signingSecret).update(`${timestamp}.${payload}`, "utf8").digest("hex")
 
-    expect(signWebhookPayload("test_signing_secret", payload, timestamp)).toBe(`t=${timestamp},v1=${expected}`)
+    expect(signWebhookPayload(signingSecret, payload, timestamp)).toBe(`t=${timestamp},v1=${expected}`)
   })
 
   it("classifies private webhook network targets before delivery", () => {
@@ -173,7 +175,7 @@ describe("webhook abuse protections", () => {
           lastDeliveredAt: null,
           lastFailedAt: null,
           name: "Production",
-          secret: "whsec_secret",
+          secret: syntheticSecret("created-webhook", "whsec"),
           status: "active",
           updatedAt: createdAt,
           url: "https://8.8.8.8/tickward",
@@ -228,7 +230,7 @@ describe("webhook abuse protections", () => {
       {
         id: "wh_123",
         name: "Production",
-        secret: "whsec_test",
+        secret: syntheticSecret("updated-webhook", "whsec"),
         url: "https://example.com/tickward",
         eventTypes: ["timer.created", "timer.ended"],
         status: "active",
@@ -308,7 +310,7 @@ describe("webhook abuse protections", () => {
       endpointId: "wh_123",
       endpoint: {
         id: "wh_123",
-        secret: "test_signing_secret",
+        secret: syntheticSecret("delivery-signing"),
         url: "https://8.8.8.8/tickward",
       },
       event: {
@@ -373,13 +375,14 @@ describe("webhook abuse protections", () => {
 
   it("upgrades plaintext endpoint secrets after signing with a configured key", async () => {
     vi.stubEnv("TICKWARD_ENCRYPTION_KEY", Buffer.alloc(32, 8).toString("base64"))
+    const plaintextSecret = syntheticSecret("plaintext-webhook", "whsec")
     const delivery = {
       id: "wd_123",
       attemptCount: 0,
       endpointId: "wh_123",
       endpoint: {
         id: "wh_123",
-        secret: "whsec_plain_secret",
+        secret: plaintextSecret,
         url: "https://8.8.8.8/tickward",
       },
       event: {
@@ -432,7 +435,7 @@ describe("webhook abuse protections", () => {
     const signature = (fetchInit.headers as Record<string, string>)["tickward-signature"]
     const body = fetchInit.body as string
     const timestamp = Number.parseInt(signature.match(/^t=(\d+),v1=/)?.[1] ?? "", 10)
-    const expected = createHmac("sha256", "whsec_plain_secret").update(`${timestamp}.${body}`, "utf8").digest("hex")
+    const expected = createHmac("sha256", plaintextSecret).update(`${timestamp}.${body}`, "utf8").digest("hex")
 
     expect(signature).toBe(`t=${timestamp},v1=${expected}`)
   })

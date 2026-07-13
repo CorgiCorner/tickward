@@ -1,12 +1,21 @@
 // Minimal tickward webhook receiver for Node.js 18+ (no dependencies).
 // Usage: set TICKWARD_WEBHOOK_SECRET, then run `node server.mjs`.
+// Production: terminate HTTPS at a trusted reverse proxy; never expose this HTTP listener directly.
 
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { createServer } from "node:http"
 
 const SECRET = process.env.TICKWARD_WEBHOOK_SECRET ?? ""
+const HOST = process.env.HOST ?? "127.0.0.1"
 const PORT = Number(process.env.PORT ?? 8787)
 const MAX_AGE_SECONDS = 300
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"])
+
+if (!LOOPBACK_HOSTS.has(HOST) && process.env.TICKWARD_TLS_TERMINATED !== "true") {
+  throw new Error(
+    "Refusing a non-loopback HTTP listener. Terminate TLS at a trusted reverse proxy and set TICKWARD_TLS_TERMINATED=true.",
+  )
+}
 
 function verifySignature(header, rawBody) {
   const timestamp = (header.split(",")[0] ?? "").replace("t=", "")
@@ -38,11 +47,15 @@ const server = createServer((req, res) => {
     }
 
     const event = JSON.parse(rawBody)
-    console.log(`[tickward] ${event.type} ${event.id}`, event.data.object)
+    console.log("[tickward] webhook received", {
+      type: event.type,
+      id: event.id,
+      object: event.data.object,
+    })
     // Handle the event here. Keep it idempotent - deliveries can retry.
 
     res.writeHead(200).end("ok")
   })
 })
 
-server.listen(PORT, () => console.log(`listening on :${PORT}`))
+server.listen(PORT, HOST, () => console.log("[tickward] receiver listening", { host: HOST, port: PORT }))

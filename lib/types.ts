@@ -1,5 +1,4 @@
 import type { TimerNotificationSettings } from "@/lib/notification-preferences"
-import { LIMITS } from "@/lib/limits"
 
 export type TimerReminder = {
   offsetMinutes: number
@@ -48,7 +47,6 @@ export type Space = {
   createdAt: string
 }
 
-export const MAX_SPACES = LIMITS.spacesPerProject
 export const UNASSIGNED_SPACE_ID = "__unassigned"
 
 export type TimerSortMode = "manual" | "soonest" | "latest" | "name_asc" | "recently_added"

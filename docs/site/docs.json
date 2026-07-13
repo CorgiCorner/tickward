@@ -19,6 +19,7 @@
             "pages": [
               "index",
               "guides/self-hosting",
+              "guides/account-migration",
               "guides/api-quickstart",
               "guides/embedding-timers",
               "guides/webhooks",

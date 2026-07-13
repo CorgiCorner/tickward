@@ -65,7 +65,7 @@ function SheetContent({
   function handleTouchMove(event: React.TouchEvent) {
     if (startYRef.current === null) return
     const delta = (event.touches[0]?.clientY ?? startYRef.current) - startYRef.current
-    setDragY(delta > 0 ? delta : 0)
+    setDragY(Math.max(delta, 0))
   }
   function handleTouchEnd() {
     setDragging(false)

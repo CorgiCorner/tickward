@@ -2,91 +2,52 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   ANONYMOUS_ENTITLEMENTS,
-  type Entitlements,
   canCreateTimer,
   canCreateTimerInSpace,
+  defaultEntitlementsTable,
   getEntitlements,
+  projectLimitMessage,
+  setActiveClientPlan,
+  setEntitlementsTable,
   spaceLimitMessage,
   timerLimitMessage,
   timerSpaceLimitMessage,
+  type Entitlements,
 } from "@/lib/entitlements"
-import { LIMITS } from "@/lib/limits"
-import { MAX_PROJECTS } from "@/lib/project-model"
-import { MAX_TIMERS, timerLimitMessage as legacyTimerLimitMessage } from "@/lib/timer-limits"
-import { MAX_SPACES } from "@/lib/types"
+import { getLimits } from "@/lib/limits"
+import { timerLimitMessage as legacyTimerLimitMessage, timerWarnThreshold } from "@/lib/timer-limits"
 
 describe("entitlements", () => {
   afterEach(() => {
     vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+    setEntitlementsTable(defaultEntitlementsTable())
+    setActiveClientPlan("anonymous")
   })
 
-  it("exposes the anonymous plan limits", () => {
-    expect(ANONYMOUS_ENTITLEMENTS).toEqual({
-      plan: "anonymous",
-      maxTimers: 20,
-      maxTimersPerSpace: 20,
-      maxProjects: 10,
-      maxSpaces: 2,
+  it("builds anonymous and doubled free defaults while preserving the snapshot cap", () => {
+    const table = defaultEntitlementsTable()
+    expect(table.anonymous).toEqual(ANONYMOUS_ENTITLEMENTS)
+    expect(table.free).toEqual({
+      plan: "free",
+      maxTimers: 40,
+      maxTimersPerSpace: 40,
+      maxProjects: 20,
+      maxSpaces: 4,
       maxSnapshotTimers: 50,
     })
   })
 
-  it("returns the anonymous plan for any actor today", () => {
-    expect(getEntitlements()).toEqual(ANONYMOUS_ENTITLEMENTS)
-    expect(getEntitlements(null)).toEqual(ANONYMOUS_ENTITLEMENTS)
-    expect(getEntitlements({ kind: "anonymous", restoreKey: "abc" })).toEqual(ANONYMOUS_ENTITLEMENTS)
-  })
-
-  it("allows creating timers below the limit and blocks at the limit", () => {
-    const entitlements = ANONYMOUS_ENTITLEMENTS
-    expect(canCreateTimer(0, entitlements)).toBe(true)
-    expect(canCreateTimer(entitlements.maxTimers - 1, entitlements)).toBe(true)
-    expect(canCreateTimer(entitlements.maxTimers, entitlements)).toBe(false)
-    expect(canCreateTimer(entitlements.maxTimers + 1, entitlements)).toBe(false)
-  })
-
-  it("allows creating timers in a space below both limits", () => {
-    const entitlements = ANONYMOUS_ENTITLEMENTS
-    expect(canCreateTimerInSpace(0, 0, entitlements)).toBe(true)
-    expect(canCreateTimerInSpace(1, entitlements.maxTimersPerSpace, entitlements)).toBe(false)
-    expect(canCreateTimerInSpace(entitlements.maxTimers, 0, entitlements)).toBe(false)
-  })
-
-  it("produces the same limit message as the legacy helper", () => {
-    expect(timerLimitMessage(ANONYMOUS_ENTITLEMENTS)).toBe(
-      "You have reached the 20 timer limit. Delete a timer to add another.",
-    )
-    expect(timerLimitMessage(ANONYMOUS_ENTITLEMENTS)).toBe(legacyTimerLimitMessage())
-    expect(timerLimitMessage(ANONYMOUS_ENTITLEMENTS)).toBe(legacyTimerLimitMessage(MAX_TIMERS))
-  })
-
-  it("reflects custom limits in the message", () => {
-    const custom: Entitlements = { ...ANONYMOUS_ENTITLEMENTS, maxTimers: 7 }
-    expect(timerLimitMessage(custom)).toBe("You have reached the 7 timer limit. Delete a timer to add another.")
-    expect(timerLimitMessage(custom)).toBe(legacyTimerLimitMessage(7))
-  })
-
-  it("reflects custom space limits in messages", () => {
-    const custom: Entitlements = { ...ANONYMOUS_ENTITLEMENTS, maxSpaces: 3, maxTimersPerSpace: 4 }
-    expect(timerSpaceLimitMessage(custom)).toBe(
-      "This space already has 4 active timers. Archive one to add another here.",
-    )
-    expect(spaceLimitMessage(custom)).toBe("You have reached the 3 space limit.")
-  })
-
-  it("reads safe public limit overrides from env", () => {
+  it("doubles anonymous environment overrides into the free plan", () => {
     vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_TIMERS", "8")
     vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE", "3")
     vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_PROJECTS", "2")
     vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_SPACES", "4")
 
-    expect(getEntitlements()).toEqual({
-      ...ANONYMOUS_ENTITLEMENTS,
-      maxTimers: 8,
-      maxTimersPerSpace: 3,
-      maxProjects: 2,
-      maxSpaces: 4,
-    })
+    const table = defaultEntitlementsTable()
+    expect(table.anonymous).toMatchObject({ maxTimers: 8, maxTimersPerSpace: 3, maxProjects: 2, maxSpaces: 4 })
+    expect(table.free).toMatchObject({ maxTimers: 16, maxTimersPerSpace: 6, maxProjects: 4, maxSpaces: 8 })
+    expect(table.free.maxSnapshotTimers).toBe(50)
   })
 
   it("ignores invalid public limit overrides", () => {
@@ -95,26 +56,65 @@ describe("entitlements", () => {
     vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_PROJECTS", "0")
     vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_SPACES", "1001")
 
-    expect(getEntitlements()).toEqual(ANONYMOUS_ENTITLEMENTS)
+    expect(defaultEntitlementsTable().anonymous).toEqual(ANONYMOUS_ENTITLEMENTS)
   })
 
-  it("keeps MAX_TIMERS in sync with the anonymous plan", () => {
-    expect(MAX_TIMERS).toBe(ANONYMOUS_ENTITLEMENTS.maxTimers)
+  it("round-trips the active client table and plan", () => {
+    const table = defaultEntitlementsTable()
+    table.anonymous.maxProjects = 3
+    table.free.maxProjects = 9
+    setEntitlementsTable(table)
+
+    setActiveClientPlan("anonymous")
+    expect(getEntitlements().maxProjects).toBe(3)
+    setActiveClientPlan("free")
+    expect(getEntitlements().maxProjects).toBe(9)
+    expect(getEntitlements({ kind: "user", user: { id: "user_1" } }).plan).toBe("free")
   })
 
-  it("keeps MAX_PROJECTS in sync with the anonymous plan", () => {
-    expect(MAX_PROJECTS).toBe(ANONYMOUS_ENTITLEMENTS.maxProjects)
+  it("keeps client bridge setters as no-ops on the server", () => {
+    const browserWindow = window
+    vi.stubGlobal("window", undefined)
+    const table = defaultEntitlementsTable()
+    table.anonymous.maxProjects = 1
+    setEntitlementsTable(table)
+    setActiveClientPlan("free")
+
+    expect(getEntitlements()).toEqual(defaultEntitlementsTable().anonymous)
+    vi.stubGlobal("window", browserWindow)
   })
 
-  it("keeps MAX_SPACES in sync with the anonymous plan", () => {
-    expect(ANONYMOUS_ENTITLEMENTS.maxSpaces).toBe(MAX_SPACES)
+  it("allows creating timers below the total and per-space limits", () => {
+    const entitlements = ANONYMOUS_ENTITLEMENTS
+    expect(canCreateTimer(0, entitlements)).toBe(true)
+    expect(canCreateTimer(entitlements.maxTimers, entitlements)).toBe(false)
+    expect(canCreateTimerInSpace(1, entitlements.maxTimersPerSpace, entitlements)).toBe(false)
+    expect(canCreateTimerInSpace(entitlements.maxTimers, 0, entitlements)).toBe(false)
   })
 
-  it("exposes UI limits from the anonymous plan", () => {
-    expect(LIMITS).toEqual({
-      projects: ANONYMOUS_ENTITLEMENTS.maxProjects,
-      spacesPerProject: ANONYMOUS_ENTITLEMENTS.maxSpaces,
-      timersPerProject: ANONYMOUS_ENTITLEMENTS.maxTimers,
-    })
+  it("adds the registration upsell only to anonymous limit messages", () => {
+    const anonymous = defaultEntitlementsTable().anonymous
+    const free = defaultEntitlementsTable().free
+    const upsell = "Sign up free for higher limits."
+
+    expect(timerLimitMessage(anonymous)).toContain(upsell)
+    expect(timerSpaceLimitMessage(anonymous)).toContain(upsell)
+    expect(spaceLimitMessage(anonymous)).toContain(upsell)
+    expect(projectLimitMessage(anonymous)).toContain(upsell)
+    expect(timerLimitMessage(free)).not.toContain(upsell)
+    expect(timerSpaceLimitMessage(free)).not.toContain(upsell)
+    expect(spaceLimitMessage(free)).not.toContain(upsell)
+    expect(projectLimitMessage(free)).not.toContain(upsell)
+  })
+
+  it("keeps compatibility helpers dynamic", () => {
+    const custom: Entitlements = { ...defaultEntitlementsTable().anonymous, maxTimers: 8 }
+    const table = defaultEntitlementsTable()
+    table.anonymous = custom
+    setEntitlementsTable(table)
+
+    expect(legacyTimerLimitMessage()).toBe(timerLimitMessage(custom))
+    expect(timerWarnThreshold()).toBe(6)
+    expect(getLimits()).toEqual({ projects: 10, spacesPerProject: 2, timersPerProject: 8 })
   })
 })

@@ -1,5 +1,6 @@
 # Minimal tickward webhook receiver for Python 3.10+ (standard library only).
 # Usage: set TICKWARD_WEBHOOK_SECRET, then run `python receiver.py`.
+# Production: terminate HTTPS at a trusted reverse proxy; never expose this HTTP listener directly.
 
 import hashlib
 import hmac
@@ -9,12 +10,19 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 SECRET = os.environ.get("TICKWARD_WEBHOOK_SECRET", "").encode("utf-8")
+HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8787"))
 MAX_AGE_SECONDS = 300
+LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 
 def verify_signature(header: str, raw_body: bytes) -> bool:
-    parts = dict(part.split("=", 1) for part in header.split(",") if "=" in part)
+    parts = {
+        key: value
+        for key, value in (
+            part.split("=", 1) for part in header.split(",") if "=" in part
+        )
+    }
     timestamp = parts.get("t", "")
     expected = parts.get("v1", "")
     if not timestamp or not expected:
@@ -37,7 +45,15 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         event = json.loads(raw_body)
-        print(f"[tickward] {event['type']} {event['id']}", event["data"]["object"])
+        print(
+            "[tickward] webhook received",
+            {
+                "type": event["type"],
+                "id": event["id"],
+                "object": event["data"]["object"],
+            },
+            flush=True,
+        )
         # Handle the event here. Keep it idempotent - deliveries can retry.
 
         self.send_response(200)
@@ -46,4 +62,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    HTTPServer(("", PORT), Handler).serve_forever()
+    if HOST not in LOOPBACK_HOSTS and os.environ.get("TICKWARD_TLS_TERMINATED") != "true":
+        raise RuntimeError(
+            "Refusing a non-loopback HTTP listener. Terminate TLS at a trusted "
+            "reverse proxy and set TICKWARD_TLS_TERMINATED=true."
+        )
+    HTTPServer((HOST, PORT), Handler).serve_forever()

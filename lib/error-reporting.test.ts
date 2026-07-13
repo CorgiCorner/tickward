@@ -33,6 +33,20 @@ describe("shouldRecoverFromChunkError", () => {
   })
 })
 
+describe("toClientErrorReport", () => {
+  it("never stringifies malformed error objects into the message", () => {
+    expect(toClientErrorReport({ kind: "window", error: { message: { nested: true } } }).message).toBe("Unknown error")
+    expect(toClientErrorReport({ kind: "window", error: {} }).message).toBe("Unknown error")
+    expect(toClientErrorReport({ kind: "window", error: null }).message).toBe("Unknown error")
+  })
+
+  it("keeps string and primitive messages readable", () => {
+    expect(toClientErrorReport({ kind: "window", error: { message: "boom" } }).message).toBe("boom")
+    expect(toClientErrorReport({ kind: "window", error: { message: 503 } }).message).toBe("503")
+    expect(toClientErrorReport({ kind: "window", error: "boom" }).message).toBe("boom")
+  })
+})
+
 describe("reportClientError", () => {
   beforeEach(() => {
     __resetClientErrorReporting()

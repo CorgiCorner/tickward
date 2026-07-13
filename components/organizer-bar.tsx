@@ -16,10 +16,12 @@ import {
   RepeatIcon,
   type LucideIcon,
 } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { toast } from "sonner"
 
 import { ColorSwatches } from "@/components/spaces-manager"
+import { useLocale } from "@/components/locale-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -27,7 +29,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useNow } from "@/components/use-now"
 import { getEntitlements, spaceLimitMessage } from "@/lib/entitlements"
-import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
+import { formatMessage, localeHref, type MessageKey } from "@/lib/i18n/messages"
 import { useTimerStore } from "@/lib/store"
 import { activeTimerFilterCount, timerToggleFilterCount } from "@/lib/timer-filters"
 import type { Space, Timer, TimerFilterKey, TimerFilterType, TimerSortMode } from "@/lib/types"
@@ -90,6 +92,8 @@ function chipClass(active: boolean) {
 // popover where you type a name and press Enter (no plus to hunt for in a modal).
 // Renaming / recoloring / reordering / deleting spaces lives in project settings.
 function SpacesControl() {
+  const locale = useLocale()
+  const router = useRouter()
   const spaces = useTimerStore((s) => s.spaces)
   const createSpace = useTimerStore((s) => s.createSpace)
 
@@ -103,7 +107,12 @@ function SpacesControl() {
 
   function handleCreate() {
     if (atSpaceLimit) {
-      toast.error(spaceLimitMessage(entitlements))
+      toast.error(spaceLimitMessage(entitlements), {
+        action:
+          entitlements.plan === "anonymous"
+            ? { label: formatMessage("auth.signIn"), onClick: () => router.push(localeHref(locale, "/sign-in")) }
+            : undefined,
+      })
       return
     }
     if (!canCreate) return

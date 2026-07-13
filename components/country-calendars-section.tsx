@@ -12,11 +12,14 @@ import { formatMessage, localeHref, type Locale } from "@/lib/i18n/messages"
 // heading links to that country's section on the full /timers index.
 const COUNTRY_LINK_LIMIT = 6
 
+// Every country code that has an inline flag below; codes outside the set
+// render no flag at all, so keep this in sync when adding a country.
+const FLAG_CODES = new Set(["PL", "GB", "US", "CA", "DE", "AU"])
+
 function normalizeFlagCode(code: string) {
   const normalized = code.toUpperCase()
   if (normalized === "UK") return "GB"
-  if (normalized === "PL" || normalized === "GB" || normalized === "US" || normalized === "CA") return normalized
-  return null
+  return FLAG_CODES.has(normalized) ? normalized : null
 }
 
 function CountryFlag(props: Readonly<{ code: string }>) {
@@ -55,6 +58,33 @@ function CountryFlag(props: Readonly<{ code: string }>) {
             <rect y="12" width="20" height="2" />
           </g>
           <rect width="9" height="8" fill="#3C3B6E" />
+        </svg>
+      ) : null}
+      {flagCode === "DE" ? (
+        <svg viewBox="0 0 20 14" className="h-full w-full">
+          <rect width="20" height="4.67" fill="#000" />
+          <rect y="4.67" width="20" height="4.66" fill="#DD0000" />
+          <rect y="9.33" width="20" height="4.67" fill="#FFCE00" />
+        </svg>
+      ) : null}
+      {flagCode === "AU" ? (
+        <svg viewBox="0 0 20 14" className="h-full w-full">
+          <rect width="20" height="14" fill="#012169" />
+          <g transform="scale(0.5)">
+            <path d="M0,0 L20,14 M20,0 L0,14" stroke="#fff" strokeWidth="3" />
+            <path d="M0,0 L20,14 M20,0 L0,14" stroke="#C8102E" strokeWidth="1.5" />
+            <rect x="8" width="4" height="14" fill="#fff" />
+            <rect y="5" width="20" height="4" fill="#fff" />
+            <rect x="9" width="2" height="14" fill="#C8102E" />
+            <rect y="6" width="20" height="2" fill="#C8102E" />
+          </g>
+          <g fill="#fff">
+            <circle cx="5" cy="10.8" r="1.1" />
+            <circle cx="14.5" cy="3" r="0.8" />
+            <circle cx="17.5" cy="5.5" r="0.8" />
+            <circle cx="14" cy="8.2" r="0.8" />
+            <circle cx="16.5" cy="11.2" r="0.8" />
+          </g>
         </svg>
       ) : null}
       {flagCode === "CA" ? (

@@ -13,6 +13,7 @@ import {
   EMBED_RECOMMENDED_SIZE,
   EMBED_THEMES,
   embedQueryString,
+  parseEmbedParams,
   type EmbedEndMode,
   type EmbedLayout,
   type EmbedTheme,
@@ -23,11 +24,39 @@ import { isRoutableShareId } from "@/lib/share-model"
 const fieldClassName =
   "border-input dark:bg-input/30 w-full min-w-0 rounded-md border bg-transparent shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
 
+function currentOrigin(): string | null {
+  try {
+    return globalThis.location.origin
+  } catch {
+    return null
+  }
+}
+
+export function normalizeEmbedOrigin(origin: string, expectedOrigin = currentOrigin()): string | null {
+  try {
+    const candidate = new URL(origin)
+    if (candidate.protocol !== "http:" && candidate.protocol !== "https:") return null
+    if (candidate.username || candidate.password) return null
+
+    if (expectedOrigin) {
+      const expected = new URL(expectedOrigin)
+      if (expected.protocol !== "http:" && expected.protocol !== "https:") return null
+      if (candidate.origin !== expected.origin) return null
+    }
+
+    return candidate.origin
+  } catch {
+    return null
+  }
+}
+
 export function parseShareUrl(shareUrl: string): { origin: string; shareId: string } | null {
   try {
     const url = new URL(shareUrl)
-    const shareId = url.pathname.split("/").filter(Boolean).pop()
-    return shareId && isRoutableShareId(shareId) ? { origin: url.origin, shareId } : null
+    const origin = normalizeEmbedOrigin(url.origin)
+    const pathMatch = /^\/share\/([^/]+)\/?$/.exec(url.pathname)
+    const shareId = pathMatch?.[1]
+    return origin && shareId && isRoutableShareId(shareId) ? { origin, shareId } : null
   } catch {
     return null
   }
@@ -55,13 +84,18 @@ export function EmbedSnippetControls(props: Readonly<{ origin: string; shareId: 
   const endSelectId = useId()
   const doneTextId = useId()
 
-  const size = EMBED_RECOMMENDED_SIZE[layout]
-  const src = `${props.origin}/embed/${props.shareId}${embedQueryString({
-    doneText: endMode === "countup" ? null : doneText.trim() || null,
-    endMode,
+  const params = parseEmbedParams({
+    done: endMode === "countup" ? undefined : doneText,
+    end: endMode,
     layout,
     theme,
-  })}`
+  })
+  const size = EMBED_RECOMMENDED_SIZE[params.layout]
+  const origin = normalizeEmbedOrigin(props.origin)
+  const src =
+    origin && isRoutableShareId(props.shareId)
+      ? new URL(`/embed/${encodeURIComponent(props.shareId)}${embedQueryString(params)}`, origin).toString()
+      : null
   const timerName = props.timerLabel || formatMessage("app.title.sharedTimer")
   const iframeTitle = formatMessage("share.embed.iframeTitle", { timer: timerName })
   const previewTitle = formatMessage("share.embed.previewTitle", { timer: timerName })
@@ -70,8 +104,10 @@ export function EmbedSnippetControls(props: Readonly<{ origin: string; shareId: 
       ? { width: size.width, minWidth: size.minWidth, maxWidth: "100%", aspectRatio: "1 / 1" }
       : { width: size.width, minWidth: size.minWidth, maxWidth: "100%", height: size.height }
   const title = ` title="${escapeAttribute(iframeTitle)}"`
-  const snippet = `<iframe src="${src}" width="${size.width}" height="${size.height}" style="border:0" loading="lazy"${title}></iframe>`
-  const previewLoading = loadedPreviewSrc !== src
+  const snippet = src
+    ? `<iframe src="${escapeAttribute(src)}" width="${size.width}" height="${size.height}" style="border:0" loading="lazy"${title}></iframe>`
+    : ""
+  const previewLoading = src !== null && loadedPreviewSrc !== src
 
   async function copySnippet() {
     await navigator.clipboard.writeText(snippet)
@@ -142,18 +178,15 @@ export function EmbedSnippetControls(props: Readonly<{ origin: string; shareId: 
         </div>
       </div>
 
-      {isRoutableShareId(props.shareId) && (
+      {src && (
         <div className="grid gap-1.5">
           <div className="text-sm font-medium">{formatMessage("share.embed.preview")}</div>
           <div className="max-w-full overflow-x-auto rounded-lg border bg-muted/30 p-3" aria-busy={previewLoading}>
             <div className="relative mx-auto overflow-hidden rounded-md bg-background" style={previewStyle}>
               {previewLoading && (
-                <div
-                  role="status"
-                  className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/80 text-xs text-muted-foreground"
-                >
+                <output className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/80 text-xs text-muted-foreground">
                   {formatMessage("share.embed.previewLoading")}
-                </div>
+                </output>
               )}
               <iframe
                 key={src}
@@ -178,7 +211,7 @@ export function EmbedSnippetControls(props: Readonly<{ origin: string; shareId: 
         className={`${fieldClassName} resize-none px-3 py-2 font-mono text-xs`}
       />
 
-      <Button type="button" variant="outline" size="sm" onClick={() => void copySnippet()}>
+      <Button type="button" variant="outline" size="sm" disabled={!src} onClick={() => void copySnippet()}>
         {formatMessage("share.embed.copy")}
       </Button>
     </div>

@@ -7,6 +7,7 @@ import { admin, emailOTP } from "better-auth/plugins"
 import { auditRequestContext, recordAuditEvent } from "@/lib/audit-log.server"
 import { appAccessControl, appAccessRoles } from "@/lib/auth/access-control"
 import { assertEmailOtpProviderConfigured, sendEmailOtpMessage } from "@/lib/auth/email-otp.server"
+import { runInBackground } from "@/lib/background-task"
 import { getPrismaClient } from "@/lib/db/prisma.server"
 import { getBetterAuthConfig } from "@/lib/private-config.server"
 
@@ -39,9 +40,7 @@ function sendEmailOtpWithoutTimingSignal(
     targetType: "auth_otp",
     userAgent: requestContext.userAgent,
   })
-  void sendEmailOtpMessage(data).catch((error: unknown) => {
-    console.error("[tickward] auth.emailOtpDelivery", error)
-  })
+  runInBackground("auth.emailOtpDelivery", sendEmailOtpMessage(data))
 }
 
 function createTickwardAuth(args: {

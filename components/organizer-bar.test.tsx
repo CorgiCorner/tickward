@@ -9,6 +9,10 @@ import { makeSpace, makeTimer } from "@/test/factories"
 
 let storeState: Partial<TimerStore>
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
 vi.mock("@/lib/store", () => ({
   useTimerStore: <T,>(selector: (store: TimerStore) => T) => selector(storeState as TimerStore),
 }))

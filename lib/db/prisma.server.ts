@@ -4,7 +4,7 @@ import { PrismaPg } from "@prisma/adapter-pg"
 
 import { PrismaClient } from "@/lib/generated/prisma/client"
 import { formatMessage } from "@/lib/i18n/messages"
-import { getDatabaseUrl } from "@/lib/private-config.server"
+import { getDatabaseSchema, getDatabaseUrl } from "@/lib/private-config.server"
 
 type TickwardPrismaGlobal = typeof globalThis & {
   tickwardPrisma?: PrismaClient
@@ -26,11 +26,9 @@ export function getPrismaClient(): PrismaClient | null {
   if (!databaseUrl) return null
 
   const globalForPrisma = globalThis as TickwardPrismaGlobal
-  if (!globalForPrisma.tickwardPrisma) {
-    globalForPrisma.tickwardPrisma = new PrismaClient({
-      adapter: new PrismaPg({ connectionString: databaseUrl }),
-    })
-  }
+  globalForPrisma.tickwardPrisma ??= new PrismaClient({
+    adapter: new PrismaPg({ connectionString: databaseUrl }, { schema: getDatabaseSchema() }),
+  })
 
   return globalForPrisma.tickwardPrisma
 }

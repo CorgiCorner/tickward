@@ -68,7 +68,7 @@ export function parseHexColor(value: string | undefined): string | null {
   const match = value ? HEX_COLOR_PATTERN.exec(value) : null
   if (!match?.[1]) return null
   const hex = match[1].toLowerCase()
-  const expanded = hex.length === 3 ? hex.replace(/./g, (char) => char + char) : hex
+  const expanded = hex.length === 3 ? hex.replaceAll(/./g, (char) => char + char) : hex
   return `#${expanded}`
 }
 
@@ -91,8 +91,8 @@ function parseBg(value: string | undefined): string | null {
 
 function parseDoneText(value: string | undefined): string | null {
   const normalized = value
-    ?.replace(/[\u0000-\u001f\u007f]/g, " ")
-    .replace(/\s+/g, " ")
+    ?.replaceAll(/[\u0000-\u001f\u007f]/g, " ")
+    .replaceAll(/\s+/g, " ")
     .trim()
   if (!normalized) return null
   return normalized.slice(0, EMBED_DONE_TEXT_MAX_LENGTH)
@@ -113,20 +113,28 @@ export function parseEmbedParams(searchParams: SearchParams): EmbedParams {
   }
 }
 
-/** Build the query string for a snippet, omitting params at their defaults. */
-export function embedQueryString(params: Partial<EmbedParams>): string {
-  const query = new URLSearchParams()
+function appendEmbedStyleParams(query: URLSearchParams, params: Partial<EmbedParams>): void {
   if (params.layout && params.layout !== DEFAULT_EMBED_PARAMS.layout) query.set("layout", params.layout)
   if (params.theme && params.theme !== DEFAULT_EMBED_PARAMS.theme) query.set("theme", params.theme)
   if (params.bg) query.set("bg", params.bg === "transparent" ? "transparent" : params.bg.replace(/^#/, ""))
   if (params.accent) query.set("accent", params.accent.replace(/^#/, ""))
   if (params.font && params.font !== DEFAULT_EMBED_PARAMS.font) query.set("font", params.font)
+}
+
+function appendEmbedBehaviorParams(query: URLSearchParams, params: Partial<EmbedParams>): void {
   if (params.scale !== undefined && params.scale !== DEFAULT_EMBED_PARAMS.scale)
     query.set("scale", String(params.scale))
   if (params.labels === false) query.set("labels", "off")
   if (params.showTarget === false) query.set("target", "off")
   if (params.endMode && params.endMode !== DEFAULT_EMBED_PARAMS.endMode) query.set("end", params.endMode)
   if (params.doneText) query.set("done", params.doneText)
+}
+
+/** Build the query string for a snippet, omitting params at their defaults. */
+export function embedQueryString(params: Partial<EmbedParams>): string {
+  const query = new URLSearchParams()
+  appendEmbedStyleParams(query, params)
+  appendEmbedBehaviorParams(query, params)
   const value = query.toString()
   return value ? `?${value}` : ""
 }

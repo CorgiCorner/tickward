@@ -12,7 +12,6 @@
 import type { ProjectMeta, ProjectSnapshotV2 } from "@/lib/project-model"
 import type { ShareRecord, SharedTimerSnapshot } from "@/lib/share-model"
 import type { UserRole } from "@/lib/auth/permissions"
-import type { Space, Timer } from "@/lib/types"
 
 /**
  * Who is performing an operation. Today every caller is anonymous and is
@@ -50,7 +49,7 @@ export type UserRef = {
 export type Project = ProjectSnapshotV2
 export type ProjectRef = ProjectMeta
 
-export type { Timer, Space }
+export type { Space, Timer } from "@/lib/types"
 
 export type Share = ShareRecord
 export type SharedTimer = SharedTimerSnapshot

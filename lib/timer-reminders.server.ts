@@ -308,11 +308,11 @@ function parsedReminderIntentPayload(item: ReminderOutboxRow) {
   const parsedOffset =
     typeof payload.offsetMinutes === "number"
       ? payload.offsetMinutes
-      : Number(item.transactionId.match(/^timer-reminder:[^:]+:(\d+)m:/)?.[1])
+      : Number(/^timer-reminder:[^:]+:(\d+)m:/.exec(item.transactionId)?.[1])
   const occurrenceAt =
     typeof payload.occurrenceAt === "string"
       ? payload.occurrenceAt
-      : item.transactionId.match(/^timer-reminder:[^:]+:\d+m:(.+)$/)?.[1]
+      : /^timer-reminder:[^:]+:\d+m:(.+)$/.exec(item.transactionId)?.[1]
 
   if (!Number.isSafeInteger(parsedOffset) || parsedOffset < 0 || !occurrenceAt) return null
   const occurrenceMs = new Date(occurrenceAt).getTime()
@@ -360,7 +360,9 @@ async function emailAllowedByCaps(prisma: PrismaClient, email: string) {
   return perUserCount < perUserCap
 }
 
-function intentStatusFromDeliveryResults(results: DeliveryResult[]): "sent" | "skipped" | "failed" {
+type ReminderIntentStatus = "sent" | "skipped" | "failed"
+
+function intentStatusFromDeliveryResults(results: DeliveryResult[]): ReminderIntentStatus {
   if (results.some((result) => result.status === "sent")) return "sent"
   if (results.some((result) => result.status === "failed")) return "failed"
   return "skipped"
@@ -368,7 +370,7 @@ function intentStatusFromDeliveryResults(results: DeliveryResult[]): "sent" | "s
 
 async function markReminderIntentResult(
   item: ReminderOutboxRow,
-  result: { error?: string; status: "sent" | "skipped" | "failed" },
+  result: { error?: string; status: ReminderIntentStatus },
 ) {
   const now = new Date()
   await reminderPrisma().notificationOutboxItem.updateMany({
@@ -467,7 +469,7 @@ async function scheduleNextRecurringReminder(args: {
   })
 }
 
-async function deliverTimerReminderIntent(item: ReminderOutboxRow): Promise<"sent" | "skipped" | "failed"> {
+async function deliverTimerReminderIntent(item: ReminderOutboxRow): Promise<ReminderIntentStatus> {
   const payload = parsedReminderIntentPayload(item)
   if (!payload) {
     await markReminderIntentResult(item, { status: "skipped", error: "invalid_payload" })
@@ -492,12 +494,11 @@ async function deliverTimerReminderIntent(item: ReminderOutboxRow): Promise<"sen
       return "skipped"
     }
 
-    const capResult =
-      owner.preference?.emailReminders === true && owner.email
-        ? (await emailAllowedByCaps(reminderPrisma(), owner.email))
-          ? null
-          : emailCapSkippedResult()
-        : null
+    let capResult: DeliveryResult | null = null
+    if (owner.preference?.emailReminders === true && owner.email) {
+      const emailAllowed = await emailAllowedByCaps(reminderPrisma(), owner.email)
+      capResult = emailAllowed ? null : emailCapSkippedResult()
+    }
     const inAppNotificationsEnabled = owner.preference?.inAppNotifications !== false
     const channels: NotificationChannel[] = inAppNotificationsEnabled ? ["in_app"] : []
     if (owner.preference?.emailReminders === true && owner.email && !capResult) channels.push("email")

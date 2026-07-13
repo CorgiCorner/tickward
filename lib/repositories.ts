@@ -8,6 +8,13 @@
 import type { ProjectRestoreResponse, ProjectSnapshotV2, UserProjectSummary } from "@/lib/project-model"
 import type { ResolvedShare, ShareRecord } from "@/lib/share-model"
 import type { UserRef } from "@/lib/contracts"
+import type {
+  AccountImportConflictStrategy,
+  AccountImportResult,
+  AccountMigrationNotificationPreference,
+  AccountMigrationProject,
+} from "@/lib/account-migration"
+import type { AccountPreferencesRecord } from "@/lib/account-preferences"
 import type { ProjectMembership } from "@/lib/project-lock"
 
 export type ClaimedProject = {
@@ -29,6 +36,16 @@ export interface ProjectRepository {
   // Returns all project memberships for an owner (used to compute the read-only set).
   // Optional so public mirror overrides that don't implement it fail-open.
   listProjectMemberships?(args: { ownerId: string }): Promise<ProjectMembership[]>
+  importUserProjects?(args: {
+    conflictStrategy: AccountImportConflictStrategy
+    importedAt: string
+    maxProjects: number
+    accountPreferences?: AccountPreferencesRecord
+    notificationPreferences?: AccountMigrationNotificationPreference[]
+    profileName?: string
+    projects: AccountMigrationProject[]
+    user: UserRef
+  }): Promise<AccountImportResult>
 }
 
 export interface ShareRepository {
@@ -62,6 +79,7 @@ export type RateLimitBucket =
   | "public-api-ip"
   | "inbox"
   | "account-export"
+  | "account-import"
   | "api-key-management"
   | "webhook-management"
   | "webhook-test"

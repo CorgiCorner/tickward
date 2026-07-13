@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import type { AccountPreferencesPatch, AccountPreferencesRecord } from "@/lib/account-preferences"
+import { runInBackground } from "@/lib/background-task"
 import { formatMessage } from "@/lib/i18n/messages"
 import {
   setLocalBrowserNotificationsEnabled,
@@ -253,14 +254,20 @@ export function NotificationSettingsPanel() {
           disabled={accountControlsDisabled}
           inAppNotifications={preferences.in_app_notifications}
           onInAppNotificationsChange={(enabled) =>
-            void saveAccountAlertPreferences({ in_app_notifications: enabled }, updatePreferences)
+            runInBackground(
+              "settings.saveAlertPreferences",
+              saveAccountAlertPreferences({ in_app_notifications: enabled }, updatePreferences),
+            )
           }
         />
         <FullPageAlarmRow
           disabled={accountControlsDisabled}
           fullPageAlarm={preferences.full_page_alarm}
           onFullPageAlarmChange={(enabled) =>
-            void saveAccountAlertPreferences({ full_page_alarm: enabled }, updatePreferences)
+            runInBackground(
+              "settings.saveAlertPreferences",
+              saveAccountAlertPreferences({ full_page_alarm: enabled }, updatePreferences),
+            )
           }
         />
         <SoundRow
@@ -278,7 +285,10 @@ export function NotificationSettingsPanel() {
           disabled={accountControlsDisabled}
           emailReminders={preferences.email_reminders}
           onEmailRemindersChange={(enabled) =>
-            void saveAccountAlertPreferences({ email_reminders: enabled }, updatePreferences)
+            runInBackground(
+              "settings.saveAlertPreferences",
+              saveAccountAlertPreferences({ email_reminders: enabled }, updatePreferences),
+            )
           }
         />
       </div>

@@ -1,6 +1,6 @@
 {
   "name": "tickward",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "engines": {
@@ -32,7 +32,8 @@
     "demo:seed": "node scripts/open-demo-seed.mjs",
     "press:screenshots": "node scripts/press-screenshots.mjs",
     "press:kit": "node scripts/build-press-kit.mjs",
-    "release:check": "npm run check:node && npm run lint && npx tsc --noEmit && npm run test:unit && npm run test:storybook && npm run smoke:app && npm run smoke:visual && npm run smoke:email-otp && npm run build && npm run build-storybook && npm run smoke:docker",
+    "security:dependencies": "npm audit --audit-level=high",
+    "release:check": "npm run check:node && npm run security:dependencies && npm run lint && npx tsc --noEmit && npm run test:unit && npm run test:storybook && npm run smoke:app && npm run smoke:visual && npm run smoke:email-otp && npm run build && npm run build-storybook && npm run smoke:docker",
     "test:watch": "vitest --project unit",
     "test:coverage": "vitest run --project unit --coverage",
     "db:download-rds-ca": "node scripts/download-rds-ca.mjs",

@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { runInBackground } from "@/lib/background-task"
 import { apiUnavailableErrorMessage, readApiJson } from "@/lib/client-api"
 import { formatMessage } from "@/lib/i18n/messages"
 import {
@@ -579,19 +580,22 @@ export function WebhooksSettingsPanel(
   const loadWebhooks = useCallback((isCancelled: () => boolean = () => false) => {
     setLoadError(null)
     setLoading(true)
-    void fetchWebhooks()
-      .then((records) => {
-        if (isCancelled()) return
-        setWebhooks(records)
-      })
-      .catch((error: unknown) => {
-        if (isCancelled()) return
-        setWebhooks([])
-        setLoadError(webhookLoadErrorMessage(error))
-      })
-      .finally(() => {
-        if (!isCancelled()) setLoading(false)
-      })
+    runInBackground(
+      "webhooks.load",
+      fetchWebhooks()
+        .then((records) => {
+          if (isCancelled()) return
+          setWebhooks(records)
+        })
+        .catch((error: unknown) => {
+          if (isCancelled()) return
+          setWebhooks([])
+          setLoadError(webhookLoadErrorMessage(error))
+        })
+        .finally(() => {
+          if (!isCancelled()) setLoading(false)
+        }),
+    )
   }, [])
 
   function resetCreateDialog() {

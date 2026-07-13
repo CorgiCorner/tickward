@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createTimerStore, type TimerStoreInit } from "@/lib/store"
 import { dismissProjectClaim } from "@/lib/project-claim-dismissal.client"
-import { MAX_PROJECTS, type ProjectMeta, type UserProjectSummary } from "@/lib/project-model"
+import { getEntitlements } from "@/lib/entitlements"
+import type { ProjectMeta, UserProjectSummary } from "@/lib/project-model"
 import {
   TD_ACTIVE_PROJECT_STORAGE_KEY,
   TD_PROJECTS_STORAGE_KEY,
@@ -94,6 +95,12 @@ describe("timer store", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(FIXED_NOW))
     mockNotFoundFetch()
+  })
+
+  it("honors the active plan supplied in the initial state", () => {
+    createTimerStore({ activePlan: "free" })
+
+    expect(getEntitlements().plan).toBe("free")
   })
 
   it("hydrates an empty browser without creating a default project", () => {
@@ -1362,7 +1369,7 @@ describe("timer store", () => {
       const store = createHydratedStore({ timers: [timer] })
       await settleInitialCloudCheck()
       const anonymousProject = store.getState().projects[0]
-      const accountProjects = Array.from({ length: MAX_PROJECTS }, (_, index) =>
+      const accountProjects = Array.from({ length: getEntitlements().maxProjects }, (_, index) =>
         makeAccountProjectMeta({
           id: `project-local-account-${index}`,
           restoreKey: `restoreKey_account${index}`,

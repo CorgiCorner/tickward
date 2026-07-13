@@ -94,7 +94,7 @@ function clampTimePart(value: number, max: number) {
 
 function updateTimePart(value: string, part: "hours" | "minutes", rawValue: string) {
   const [hours = "00", minutes = "00"] = value.split(":")
-  const digits = rawValue.replace(/\D/g, "").slice(-2)
+  const digits = rawValue.replaceAll(/\D/g, "").slice(-2)
   const parsed = digits === "" ? 0 : Number(digits)
   const nextPart = clampTimePart(parsed, part === "hours" ? 23 : 59)
   return part === "hours"
@@ -102,12 +102,18 @@ function updateTimePart(value: string, part: "hours" | "minutes", rawValue: stri
     : `${hours.padStart(2, "0").slice(0, 2)}:${nextPart}`
 }
 
+function wrapTimePart(next: number, max: number) {
+  if (next < 0) return max
+  if (next > max) return 0
+  return next
+}
+
 function stepTimePart(value: string, part: "hours" | "minutes", step: number) {
   const [hours = "00", minutes = "00"] = value.split(":")
   const current = Number(part === "hours" ? hours : minutes)
   const max = part === "hours" ? 23 : 59
   const next = (Number.isFinite(current) ? current : 0) + step
-  const wrapped = next < 0 ? max : next > max ? 0 : next
+  const wrapped = wrapTimePart(next, max)
   const nextPart = String(wrapped).padStart(2, "0")
   return part === "hours"
     ? `${nextPart}:${minutes.padStart(2, "0").slice(0, 2)}`

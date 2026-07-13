@@ -16,10 +16,13 @@ export async function readApiJson<T>(res: Response, fallback: string): Promise<T
       data && typeof data === "object" && "error" in data
         ? ((data as { error?: { type?: unknown } }).error?.type ?? null)
         : null
-    const message =
+    const rawMessage =
       data && typeof data === "object" && "error" in data
-        ? String((data as { error?: { message?: unknown } }).error?.message ?? fallback)
-        : fallback
+        ? (data as { error?: { message?: unknown } }).error?.message
+        : undefined
+    // API errors carry string messages; anything else falls back so malformed
+    // payloads cannot surface "[object Object]" to users.
+    const message = typeof rawMessage === "string" ? rawMessage : fallback
     throw new ApiRequestError(message, typeof type === "string" ? type : null, res.status)
   }
   return data as T

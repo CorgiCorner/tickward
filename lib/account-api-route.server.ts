@@ -30,7 +30,12 @@ export async function enforceAccountRateLimit(input: {
   }
 }
 
-export async function readAccountRouteJson(req: Request): Promise<unknown | Response> {
+/**
+ * Resolves with the parsed JSON body, or with a 400 error `Response` when the
+ * body is not valid JSON (check with `isResponse`). The body stays `unknown`
+ * on purpose: callers must validate it before use.
+ */
+export async function readAccountRouteJson(req: Request): Promise<unknown> {
   try {
     return await req.json()
   } catch {
@@ -38,7 +43,12 @@ export async function readAccountRouteJson(req: Request): Promise<unknown | Resp
   }
 }
 
-export async function readOptionalAccountRouteJson(req: Request): Promise<unknown | null> {
+/**
+ * Resolves with the parsed JSON body, or with `null` when the body is missing
+ * or not valid JSON. The body stays `unknown` on purpose: callers must
+ * validate it before use.
+ */
+export async function readOptionalAccountRouteJson(req: Request): Promise<unknown> {
   return await req.json().catch(() => null)
 }
 

@@ -15,9 +15,11 @@ import {
   readBearerApiKey,
 } from "@/lib/api-keys.server"
 import type { UserRef } from "@/lib/contracts"
+import { jsonInput } from "@/lib/db/prisma-json.server"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
+import type { Entitlements } from "@/lib/entitlements"
+import { getEntitlementsForActor } from "@/lib/entitlements.server"
 import type { Prisma } from "@/lib/generated/prisma/client"
-import { getEntitlements } from "@/lib/entitlements"
 import { getMcpRemoteUrl } from "@/lib/mcp-config.server"
 import type { McpOAuthScope } from "@/lib/mcp-oauth"
 import { timerNotificationsEnabled } from "@/lib/notification-preferences"
@@ -26,6 +28,7 @@ import { type ProjectSnapshotV2, createProjectSnapshot, isProjectSnapshot } from
 import { checkRateLimit } from "@/lib/rate-limit.server"
 import { stableShareId } from "@/lib/static-share-id.server"
 import { tenantDb } from "@/lib/tenant-db.server"
+import { timerTargetSpaceId } from "@/lib/timer-space-limits"
 import {
   cancelScheduledTimerReminderIntentsForTimer,
   cancelScheduledTimerReminderIntentsForTimers,
@@ -219,6 +222,8 @@ function remediationHint(type: ApiErrorType) {
       return "Remove or disable an existing resource of this type, then retry the request."
     case "method_not_allowed":
       return "Use one of the documented methods for this endpoint."
+    case "not_supported":
+      return "Use a deployment that supports this operation."
     case "not_found":
       return "Check the resource id and confirm the API key can access it."
     case "plan_hash_mismatch":
@@ -272,10 +277,6 @@ function augmentPublicApiErrorBody(body: PublicApiErrorBody, meta: PublicApiRequ
   }
 }
 
-function jsonInput(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
-}
-
 function nonEmptyOrNull(value: string | null | undefined) {
   if (!value) return null
   return value
@@ -323,17 +324,23 @@ function canonicalRequestBody(rawBody: string) {
   }
 }
 
-function sha256Hex(value: string) {
+function stablePublicApiFingerprintHex(value: string) {
+  // These values are protocol fingerprints (idempotency records, plan hashes,
+  // and ETags), never password verifiers. Their exact output is part of the
+  // existing public API contract and must remain deterministic across deploys.
+  // codeql[js/insufficient-password-hash]
   return createHash("sha256").update(value, "utf8").digest("hex")
 }
 
 function idempotencyKeyHash(ctx: PublicApiContext, key: string) {
-  return sha256Hex(`tickward:public-api-idempotency-key:${ctx.apiKey.id}:${key}`)
+  return stablePublicApiFingerprintHex(`tickward:public-api-idempotency-key:${ctx.apiKey.id}:${key}`)
 }
 
 async function idempotentRequestHash(method: string, req: Request) {
   const body = await req.clone().text()
-  return sha256Hex(JSON.stringify({ body: canonicalRequestBody(body), method, path: requestTarget(req) }))
+  return stablePublicApiFingerprintHex(
+    JSON.stringify({ body: canonicalRequestBody(body), method, path: requestTarget(req) }),
+  )
 }
 
 function publicApiIdempotencyKeyDelegate(): PublicApiIdempotencyDelegate {
@@ -749,7 +756,8 @@ function shouldAuditScopeAll(ctx: PublicApiContext, response: Response) {
   return ctx.visibility === "all" && (response.ok || response.status === 304)
 }
 
-function publicApiCapabilities() {
+async function publicApiCapabilities() {
+  const entitlements = await getEntitlementsForActor({ kind: "user", user: { id: "public-api" } })
   return apiJson({
     object: "capabilities",
     api_version: PUBLIC_API_VERSION,
@@ -773,8 +781,8 @@ function publicApiCapabilities() {
       timer_reminders: true,
     },
     limits: {
-      project_create_max_spaces: getEntitlements().maxSpaces,
-      project_create_max_timers: getEntitlements().maxSnapshotTimers,
+      project_create_max_spaces: entitlements.maxSpaces,
+      project_create_max_timers: entitlements.maxSnapshotTimers,
       page_size_max: 100,
     },
   })
@@ -1010,7 +1018,7 @@ function projectCreatePlanInput(input: z.infer<typeof projectCreateSchema>) {
 }
 
 function projectCreatePlanHash(input: z.infer<typeof projectCreateSchema>) {
-  return `sha256:${sha256Hex(stableJson(projectCreatePlanInput(input)))}`
+  return `sha256:${stablePublicApiFingerprintHex(stableJson(projectCreatePlanInput(input)))}`
 }
 
 function duplicateValue(values: string[]) {
@@ -1022,22 +1030,22 @@ function duplicateValue(values: string[]) {
   return null
 }
 
-function projectSnapshotConsistency(snapshot: ProjectSnapshotV2): Response | null {
+function projectSnapshotConsistency(snapshot: ProjectSnapshotV2, entitlements: Entitlements): Response | null {
   const duplicateSpace = duplicateValue(snapshot.spaces.map((space) => space.id))
   if (duplicateSpace) return apiError("validation_error", `Duplicate space id: ${duplicateSpace}.`, { status: 400 })
 
   const duplicateTimer = duplicateValue(snapshot.timers.map((timer) => timer.id))
   if (duplicateTimer) return apiError("validation_error", `Duplicate timer id: ${duplicateTimer}.`, { status: 400 })
 
-  const missingSpace = snapshot.timers.find(
+  const hasMissingSpace = snapshot.timers.some(
     (timer) => timer.spaceId && !snapshot.spaces.some((space) => space.id === timer.spaceId),
   )
-  if (missingSpace) return apiError("validation_error", "space_id does not exist in this project.", { status: 400 })
+  if (hasMissingSpace) return apiError("validation_error", "space_id does not exist in this project.", { status: 400 })
 
-  return assertProjectLimits(snapshot)
+  return assertProjectLimits(snapshot, entitlements)
 }
 
-function projectFromCreate(input: z.infer<typeof projectCreateSchema>) {
+function projectFromCreate(input: z.infer<typeof projectCreateSchema>, entitlements: Entitlements) {
   const spaces: Space[] = []
   const timers: Timer[] = []
 
@@ -1060,7 +1068,7 @@ function projectFromCreate(input: z.infer<typeof projectCreateSchema>) {
     timers,
     updatedAt: nowIso(),
   })
-  const invalid = projectSnapshotConsistency(snapshot)
+  const invalid = projectSnapshotConsistency(snapshot, entitlements)
   return invalid ?? { snapshot, spaces, timers }
 }
 
@@ -1161,11 +1169,29 @@ function assertTimerCanUseSpace(snapshot: ProjectSnapshotV2, timer: Timer): Resp
   return apiError("validation_error", "space_id does not exist in this project.", { status: 400 })
 }
 
-function assertProjectLimits(snapshot: ProjectSnapshotV2): Response | null {
-  const entitlements = getEntitlements()
+function assertProjectLimits(snapshot: ProjectSnapshotV2, entitlements: Entitlements): Response | null {
   if (snapshot.timers.length > entitlements.maxSnapshotTimers) {
     return apiError("validation_error", `Maximum ${entitlements.maxSnapshotTimers} timers allowed.`, { status: 400 })
   }
+  if (snapshot.timers.length > entitlements.maxTimers) {
+    return apiError("validation_error", `Maximum ${entitlements.maxTimers} timers allowed.`, { status: 400 })
+  }
+
+  const activeTimersBySpace = new Map<string | undefined, number>()
+  for (const timer of snapshot.timers) {
+    if (timer.archivedAt) continue
+    const targetSpaceId = timerTargetSpaceId(timer.spaceId)
+    const count = (activeTimersBySpace.get(targetSpaceId) ?? 0) + 1
+    if (count > entitlements.maxTimersPerSpace) {
+      return apiError(
+        "validation_error",
+        `Maximum ${entitlements.maxTimersPerSpace} active timers allowed per space.`,
+        { status: 400 },
+      )
+    }
+    activeTimersBySpace.set(targetSpaceId, count)
+  }
+
   if (snapshot.spaces.length > entitlements.maxSpaces) {
     return apiError("validation_error", `Maximum ${entitlements.maxSpaces} spaces allowed.`, { status: 400 })
   }
@@ -1197,7 +1223,8 @@ async function assertProjectNotOverLimitReadOnly(
     claimedAt: r.claimedAt?.toISOString() ?? null,
     createdAt: r.createdAt.toISOString(),
   }))
-  if (isProjectReadOnly(memberships, projectId, getEntitlements().maxProjects)) {
+  const entitlements = await getEntitlementsForActor({ kind: "user", user })
+  if (isProjectReadOnly(memberships, projectId, entitlements.maxProjects)) {
     return apiError("limit_exceeded", "This project is read-only because the account is over the project limit.", {
       status: 409,
     })
@@ -1316,7 +1343,7 @@ function syncCollections(rows: ProjectRow[]): SyncPayload | Response {
 }
 
 function syncEtag(payload: SyncPayload) {
-  return `"sha256:${sha256Hex(stableJson(payload))}"`
+  return `"sha256:${stablePublicApiFingerprintHex(stableJson(payload))}"`
 }
 
 function requestMatchesEtag(req: Request, etag: string) {
@@ -1389,7 +1416,8 @@ async function createProject(ctx: PublicApiContext, req: Request) {
     return apiError("plan_hash_mismatch", "expected_plan_hash does not match the request body.", { status: 409 })
   }
 
-  const planned = projectFromCreate(parsed.data)
+  const entitlements = await getEntitlementsForActor({ kind: "user", user: ctx.apiKey.user })
+  const planned = projectFromCreate(parsed.data, entitlements)
   if (isResponse(planned)) return planned
 
   const prisma = requirePrismaClient()
@@ -1400,7 +1428,7 @@ async function createProject(ctx: PublicApiContext, req: Request) {
     if (typeof (prisma.project as { count?: unknown }).count === "function") {
       const scopedProjects = tenantDb(ctx.apiKey.user).project
       const existingCount = await scopedProjects.count()
-      if (existingCount >= getEntitlements().maxProjects) {
+      if (existingCount >= entitlements.maxProjects) {
         return apiError("limit_exceeded", "Project limit reached for this account.", { status: 409 })
       }
     }
@@ -1423,7 +1451,7 @@ async function createProject(ctx: PublicApiContext, req: Request) {
       if (typeof (tx.project as { count?: unknown }).count === "function") {
         const scopedProjects = tenantDb(ctx.apiKey.user).project
         const existingCount = await scopedProjects.count()
-        if (existingCount >= getEntitlements().maxProjects) {
+        if (existingCount >= entitlements.maxProjects) {
           return apiError("limit_exceeded", "Project limit reached for this account.", { status: 409 })
         }
       }
@@ -1478,14 +1506,15 @@ async function createProject(ctx: PublicApiContext, req: Request) {
   return isResponse(row) ? row : apiJson(projectCreateResult(row, planned.spaces, planned.timers), { status: 201 })
 }
 
-async function previewProjectCreate(req: Request) {
+async function previewProjectCreate(ctx: PublicApiContext, req: Request) {
   const body = await readJson(req)
   if (isResponse(body)) return body
 
   const parsed = projectCreateSchema.safeParse(body)
   if (!parsed.success) return validationResponse(parsed.error)
 
-  const planned = projectFromCreate(parsed.data)
+  const entitlements = await getEntitlementsForActor({ kind: "user", user: ctx.apiKey.user })
+  const planned = projectFromCreate(parsed.data, entitlements)
   if (isResponse(planned)) return planned
 
   return apiJson(projectCreatePreview(parsed.data))
@@ -1629,6 +1658,7 @@ async function createTimer(ctx: PublicApiContext, projectId: string, req: Reques
   const parsed = timerCreateSchema.safeParse(body)
   if (!parsed.success) return validationResponse(parsed.error)
 
+  const entitlements = await getEntitlementsForActor({ kind: "user", user: ctx.apiKey.user })
   const prisma = requirePrismaClient()
   const result = await prisma
     .$transaction(async (tx) => {
@@ -1648,7 +1678,7 @@ async function createTimer(ctx: PublicApiContext, projectId: string, req: Reques
       if (invalidSpace) return invalidSpace
 
       const next = changedSnapshot(snapshot, { timers: [...snapshot.timers, timer] })
-      const limits = assertProjectLimits(next)
+      const limits = assertProjectLimits(next, entitlements)
       if (limits) return limits
 
       await tx.timer.create({ data: timerRowData(projectId, row.ownerId, timer) })
@@ -1841,6 +1871,7 @@ async function createSpace(ctx: PublicApiContext, projectId: string, req: Reques
   const parsed = spaceCreateSchema.safeParse(body)
   if (!parsed.success) return validationResponse(parsed.error)
 
+  const entitlements = await getEntitlementsForActor({ kind: "user", user: ctx.apiKey.user })
   const prisma = requirePrismaClient()
   const result = await prisma
     .$transaction(async (tx) => {
@@ -1858,7 +1889,7 @@ async function createSpace(ctx: PublicApiContext, projectId: string, req: Reques
       }
 
       const next = changedSnapshot(snapshot, { spaces: [...snapshot.spaces, space] })
-      const limits = assertProjectLimits(next)
+      const limits = assertProjectLimits(next, entitlements)
       if (limits) return limits
 
       await tx.space.create({ data: spaceRowData(projectId, row.ownerId, space) })
@@ -2422,8 +2453,8 @@ function methodNotAllowed() {
   return apiError("method_not_allowed", "Method is not allowed for the requested path.", { status: 405 })
 }
 
-function routeProjectPreview(method: string, req: Request) {
-  if (method === "POST") return previewProjectCreate(req)
+function routeProjectPreview(method: string, ctx: PublicApiContext, req: Request) {
+  if (method === "POST") return previewProjectCreate(ctx, req)
   return methodNotAllowed()
 }
 
@@ -2528,22 +2559,24 @@ function routeProjectChildResource(
   return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
 }
 
-function routePublicApi(method: string, ctx: PublicApiContext, req: Request, path: string[]) {
-  const [resource, projectId, child, childId] = path
-  if (resource === "sync") {
-    if (path.length === 1 && method === "GET") return syncPublicApi(ctx, req)
-    if (path.length === 1) return methodNotAllowed()
-    return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
-  }
-  if (resource === "webhooks") {
-    if (path.length === 1) return routeWebhooksCollection(method, ctx, req)
-    if (!projectId) return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
-    if (path.length === 2) return routeWebhookResource(method, ctx, projectId, req)
-    if (path.length === 3 && child) return routeWebhookChild(method, ctx, projectId, child, req)
-    return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
-  }
-  if (resource !== "projects") return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
-  if (projectId === "preview" && path.length === 2) return routeProjectPreview(method, req)
+function routeSyncApi(method: string, ctx: PublicApiContext, req: Request, path: string[]) {
+  if (path.length === 1 && method === "GET") return syncPublicApi(ctx, req)
+  if (path.length === 1) return methodNotAllowed()
+  return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+}
+
+function routeWebhooksApi(method: string, ctx: PublicApiContext, req: Request, path: string[]) {
+  const [, webhookId, child] = path
+  if (path.length === 1) return routeWebhooksCollection(method, ctx, req)
+  if (!webhookId) return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+  if (path.length === 2) return routeWebhookResource(method, ctx, webhookId, req)
+  if (path.length === 3 && child) return routeWebhookChild(method, ctx, webhookId, child, req)
+  return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+}
+
+function routeProjectsApi(method: string, ctx: PublicApiContext, req: Request, path: string[]) {
+  const [, projectId, child, childId] = path
+  if (projectId === "preview" && path.length === 2) return routeProjectPreview(method, ctx, req)
   if (path.length === 1) return routeProjectsCollection(method, ctx, req)
   if (!projectId) return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
   if (path.length === 2) return routeProjectResource(method, ctx, projectId, req)
@@ -2551,6 +2584,14 @@ function routePublicApi(method: string, ctx: PublicApiContext, req: Request, pat
   if (path.length === 3) return routeProjectChildCollection(method, ctx, projectId, child, req)
   if (path.length === 4 && childId) return routeProjectChildResource(method, ctx, projectId, child, childId, req)
   return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+}
+
+function routePublicApi(method: string, ctx: PublicApiContext, req: Request, path: string[]) {
+  const [resource] = path
+  if (resource === "sync") return routeSyncApi(method, ctx, req, path)
+  if (resource === "webhooks") return routeWebhooksApi(method, ctx, req, path)
+  if (resource !== "projects") return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })
+  return routeProjectsApi(method, ctx, req, path)
 }
 
 async function routePublicApiWithIdempotency(method: string, ctx: PublicApiContext, req: Request, path: string[]) {
@@ -2579,7 +2620,7 @@ async function routePublicApiWithIdempotency(method: string, ctx: PublicApiConte
 export async function handlePublicApiV1Request(method: string, req: Request, path: string[] = []) {
   const meta = publicApiRequestMetadata(req)
   if (method === "GET" && path.length === 1 && path[0] === "capabilities") {
-    return withPublicApiMetadata(publicApiCapabilities(), meta)
+    return withPublicApiMetadata(await publicApiCapabilities(), meta)
   }
 
   const auth = await authenticate(req)

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { authClient } from "@/lib/auth/auth-client"
+import { runInBackground } from "@/lib/background-task"
 import { readApiJson } from "@/lib/client-api"
 
 export type InboxItem = {
@@ -36,6 +37,11 @@ async function readInboxResponse(res: Response): Promise<InboxResponse | null> {
 export function useInbox() {
   const session = authClient.useSession()
   const signedIn = Boolean(session.data?.user)
+  // refresh() must reach the latest refetch without depending on the session
+  // object identity (that would re-create the callback and reset the polling
+  // interval on every render).
+  const sessionRefetchRef = useRef(session.refetch)
+  sessionRefetchRef.current = session.refetch
   const [items, setItems] = useState<InboxItem[]>([])
   const [loading, setLoading] = useState(false)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
@@ -63,6 +69,16 @@ export function useInbox() {
             cache: "no-store",
             signal: AbortSignal.timeout(15_000),
           })
+          if (res.status === 401) {
+            // The server no longer honors this tab's session (signed out in
+            // another tab or expired). Reconcile the client session instead of
+            // re-polling with a dead cookie; once it flips to signed-out the
+            // effect cleanup stops the interval. Drop any refresh queued while
+            // this request was in flight — it would hit the same dead session.
+            refreshQueued.current = false
+            runInBackground("inbox.sessionRefetch", sessionRefetchRef.current?.())
+            break
+          }
           const data = await readInboxResponse(res)
           if (data) {
             setItems(data.items)
@@ -125,7 +141,7 @@ export function useInbox() {
       return
     }
 
-    void refresh()
+    runInBackground("inbox.refresh", refresh())
     const onFocus = () => void refresh()
     globalThis.addEventListener("focus", onFocus)
     const id = globalThis.setInterval(() => void refresh(), 90_000)

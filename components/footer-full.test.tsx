@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import type { AnchorHTMLAttributes, ReactNode } from "react"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { FooterFull } from "@/components/footer-full"
 
@@ -47,15 +48,43 @@ vi.mock("@/lib/app-extensions", () => ({
 }))
 
 describe("FooterFull", () => {
-  it("renders the inactivity policy as plain text", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("renders the data policy as plain text when no retention window is configured", () => {
     render(<FooterFull docsHref="/docs" releaseTag="v-test" />)
 
-    expect(screen.getByText("Cloud data stays until you delete it.")).toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", {
-        name: "Cloud data stays until you delete it.",
-      }),
-    ).not.toBeInTheDocument()
+    expect(screen.getByText("Projects on your account stay until you delete them.")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Data retention details" })).not.toBeInTheDocument()
+  })
+
+  it("lists configured retention windows in the data policy tooltip", async () => {
+    vi.stubEnv("TICKWARD_OWNERLESS_PROJECT_RETENTION_DAYS", "30")
+    vi.stubEnv("TICKWARD_OVER_LIMIT_PROJECT_RETENTION_DAYS", "14")
+    const user = userEvent.setup()
+
+    render(<FooterFull docsHref="/docs" releaseTag="v-test" />)
+
+    expect(screen.getByText("Projects on your account stay until you delete them.")).toBeInTheDocument()
+    await user.hover(screen.getByRole("button", { name: "Data retention details" }))
+
+    const tooltip = await screen.findByRole("tooltip")
+    expect(tooltip).toHaveTextContent("Projects not claimed by an account are deleted after 30 days of inactivity.")
+    expect(tooltip).toHaveTextContent("Projects over the plan limit are deleted after 14 days — we email you first.")
+  })
+
+  it("skips unconfigured retention windows in the data policy tooltip", async () => {
+    vi.stubEnv("TICKWARD_OWNERLESS_PROJECT_RETENTION_DAYS", "30")
+    const user = userEvent.setup()
+
+    render(<FooterFull docsHref="/docs" releaseTag="v-test" />)
+
+    await user.hover(screen.getByRole("button", { name: "Data retention details" }))
+
+    const tooltip = await screen.findByRole("tooltip")
+    expect(tooltip).toHaveTextContent("Projects not claimed by an account are deleted after 30 days of inactivity.")
+    expect(tooltip).not.toHaveTextContent("plan limit")
   })
 
   it("renders durable links without sitemap or robots entries", () => {
@@ -85,6 +114,9 @@ describe("FooterFull", () => {
     )
     expect(screen.getByRole("link", { name: "Press kit" })).toHaveAttribute("href", "/en/press")
     expect(screen.getByRole("link", { name: "Press kit" })).toHaveAttribute("data-next-link", "true")
+    expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/en/legal/privacy")
+    expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/en/legal/terms")
+    expect(screen.getByRole("link", { name: "Subprocessors" })).toHaveAttribute("href", "/en/legal/subprocessors")
     expect(screen.getByRole("link", { name: "Contact" })).toHaveAttribute("href", "mailto:contact@tickward.com")
     expect(screen.getByRole("link", { name: "Contact" })).not.toHaveAttribute("data-next-link")
     expect(screen.getByRole("link", { name: "Status" })).toHaveAttribute("href", "https://status.tickward.com")

@@ -1,3 +1,4 @@
+import type { EntitlementsTable, PlanId } from "@/lib/entitlements"
 import type { ProjectMeta, ProjectRestoreResponse, ProjectSnapshotV2 } from "@/lib/project-model"
 import type { Space, Timer, TimerFilterKey, TimerFilterType, TimerFilters, TimerSortMode } from "@/lib/types"
 
@@ -96,4 +97,7 @@ export type TimerStore = TimerState &
 
 export type TimerStoreInit = Partial<
   Pick<TimerState, "timers" | "spaces" | "activeSpaceId" | "sortMode" | "timerFilters" | "restoreKey">
->
+> & {
+  activePlan?: PlanId
+  entitlementsTable?: EntitlementsTable
+}

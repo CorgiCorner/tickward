@@ -28,12 +28,11 @@ export async function downloadRdsCaBundle({
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  downloadRdsCaBundle()
-    .then((outputPath) => {
-      console.log(`Downloaded AWS RDS CA bundle to ${outputPath}.`)
-    })
-    .catch((error) => {
-      console.error(error instanceof Error ? error.message : String(error))
-      process.exit(1)
-    })
+  try {
+    const outputPath = await downloadRdsCaBundle()
+    console.log(`Downloaded AWS RDS CA bundle to ${outputPath}.`)
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
 }

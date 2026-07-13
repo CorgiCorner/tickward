@@ -1,19 +1,22 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process"
+import { randomBytes } from "node:crypto"
 import { once } from "node:events"
-import { mkdir } from "node:fs/promises"
 import { createServer } from "node:net"
 import path from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 import { chromium, webkit } from "playwright"
 
+import { prepareScreenshotDirectory } from "./smoke-visual-files.mjs"
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(__dirname, "..")
 const host = "127.0.0.1"
 const externalBaseUrl = process.env.SMOKE_BASE_URL?.replace(/\/$/, "")
 const timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS ?? 180_000)
-const screenshotDir = process.env.SMOKE_VISUAL_DIR ?? "/tmp/tickward-visual-smoke"
+const configuredScreenshotDir = process.env.SMOKE_VISUAL_DIR
+let screenshotDir
 // Docs stay locale-neutral at the bare /docs path (see lib/docs-config).
 const expectedDocsHref = process.env.SMOKE_EXPECT_DOCS_HREF ?? "/docs"
 const mobileViewport = { width: 390, height: 844 }
@@ -60,7 +63,7 @@ async function waitForHttp(url, timeout) {
 
 function existingDevServerUrl(output, attemptedBaseUrl) {
   const matches = [...output.matchAll(/\bLocal:\s+(https?:\/\/[^\s]+)/g)].map((match) => match[1])
-  return matches.reverse().find((url) => url !== attemptedBaseUrl) ?? null
+  return matches.toReversed().find((url) => url !== attemptedBaseUrl) ?? null
 }
 
 async function startDevServer() {
@@ -124,8 +127,8 @@ async function startDevServer() {
 
 function makeProjectSeed(projectName, payloadOverrides = {}) {
   const now = new Date().toISOString()
-  const projectId = `visual_${Math.random().toString(36).slice(2, 10)}`
-  const restoreKey = `visual_${Math.random().toString(36).slice(2, 18)}`
+  const projectId = `visual_${randomBytes(8).toString("hex")}`
+  const restoreKey = `visual_${randomBytes(16).toString("hex")}`
   const timers = payloadOverrides.timers ?? []
   const spaces = payloadOverrides.spaces ?? []
   const project = {
@@ -286,7 +289,8 @@ function isIgnorableRequestFailure(request) {
 
 async function assertNoBrowserErrors(browserErrors) {
   if (browserErrors.length === 0) return
-  fail(`Browser errors:\n${browserErrors.map((error) => `- ${error}`).join("\n")}`)
+  const details = browserErrors.map((error) => `- ${error}`).join("\n")
+  fail(`Browser errors:\n${details}`)
 }
 
 async function assertNoHorizontalOverflow(page, label) {
@@ -501,7 +505,7 @@ async function runUnsplashSpacingSmoke(baseUrl) {
   await installRoutes(page)
   try {
     await page.goto("/", { waitUntil: "domcontentloaded" })
-    const desktopCard = page.locator(".hidden.md\\:block", { hasText: "Visual smoke timer" }).first()
+    const desktopCard = page.locator(String.raw`.hidden.md\:block`, { hasText: "Visual smoke timer" }).first()
     await desktopCard.waitFor({ state: "visible", timeout: 10_000 })
     await desktopCard.hover()
     // Edit now lives in the card's overflow menu; open it, then pick Edit.
@@ -612,7 +616,7 @@ async function runEditTimezoneSmoke(baseUrl) {
 
   try {
     await page.goto("/", { waitUntil: "domcontentloaded" })
-    const desktopCard = page.locator(".hidden.md\\:block", { hasText: "Timezone smoke" }).first()
+    const desktopCard = page.locator(String.raw`.hidden.md\:block`, { hasText: "Timezone smoke" }).first()
     await desktopCard.waitFor({ state: "visible", timeout: 10_000 })
     await desktopCard.hover()
     // Edit now lives in the card's overflow menu; open it, then pick Edit.
@@ -653,8 +657,10 @@ async function runEditTimezoneSmoke(baseUrl) {
 
 let devServer
 let exitCode = 0
+let screenshotOutput
 try {
-  await mkdir(screenshotDir, { recursive: true })
+  screenshotOutput = await prepareScreenshotDirectory(configuredScreenshotDir)
+  screenshotDir = screenshotOutput.path
   devServer = externalBaseUrl ? null : await startDevServer()
   const baseUrl = externalBaseUrl ?? devServer.baseUrl
   log(`running against ${baseUrl}`)
@@ -682,5 +688,6 @@ try {
   console.error(error)
 } finally {
   await devServer?.stop()
+  await screenshotOutput?.cleanup()
   process.exit(exitCode)
 }

@@ -64,7 +64,7 @@ function installAudioContextMock(initialState: AudioContextState = "suspended") 
       return { numChannels, length, sampleRate } as unknown as AudioBuffer
     }
 
-    decodeAudioData(_arrayBuffer: ArrayBuffer): Promise<AudioBuffer> {
+    decodeAudioData(): Promise<AudioBuffer> {
       return Promise.resolve({ duration: 1 } as unknown as AudioBuffer)
     }
   }
@@ -128,28 +128,34 @@ describe("notification audio", () => {
   })
 
   describe("scheduleNotificationSound", () => {
-    it("returns null when the context is not running", async () => {
-      installAudioContextMock("suspended")
-      const { scheduleNotificationSound } = await import("@/lib/notification-audio.client")
-
-      const result = scheduleNotificationSound("polite", Date.now() + 5000)
-      expect(result).toBeNull()
-    })
-
-    it("returns null when sound is 'none'", async () => {
-      installAudioContextMock("running")
-      const { scheduleNotificationSound } = await import("@/lib/notification-audio.client")
-
-      const result = scheduleNotificationSound("none", Date.now() + 5000)
-      expect(result).toBeNull()
-    })
-
-    it("returns null when the target is in the past", async () => {
-      installAudioContextMock("running")
+    it.each([
+      {
+        reason: "the context is not running",
+        state: "suspended" as const,
+        sound: "polite" as const,
+        targetOffsetMs: 5000,
+        prepare: false,
+      },
+      {
+        reason: "sound is 'none'",
+        state: "running" as const,
+        sound: "none" as const,
+        targetOffsetMs: 5000,
+        prepare: false,
+      },
+      {
+        reason: "the target is in the past",
+        state: "running" as const,
+        sound: "polite" as const,
+        targetOffsetMs: -1000,
+        prepare: true,
+      },
+    ])("returns null when $reason", async ({ state, sound, targetOffsetMs, prepare }) => {
+      installAudioContextMock(state)
       const { prepareNotificationSound, scheduleNotificationSound } = await import("@/lib/notification-audio.client")
-      await prepareNotificationSound("polite")
+      if (prepare) await prepareNotificationSound(sound)
 
-      const result = scheduleNotificationSound("polite", Date.now() - 1000)
+      const result = scheduleNotificationSound(sound, Date.now() + targetOffsetMs)
       expect(result).toBeNull()
     })
 
@@ -175,9 +181,7 @@ describe("notification audio", () => {
       // start() should have been called with ctx.currentTime + secondsUntil
       const ctx = contexts[0]!
       const secondsUntil = (targetEpochMs - Date.now()) / 1000
-      expect(bufferSourceStart).toHaveBeenCalledWith(
-        expect.closeTo(ctx.currentTime + secondsUntil, 0 /* within 1s */),
-      )
+      expect(bufferSourceStart).toHaveBeenCalledWith(expect.closeTo(ctx.currentTime + secondsUntil, 0 /* within 1s */))
 
       // cancel() calls stop()
       handle!.cancel()

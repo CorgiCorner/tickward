@@ -98,20 +98,59 @@ function redirectToPath(request: NextRequest, pathname: string): NextResponse {
   return applySecurityHeaders(NextResponse.redirect(redirectUrl, 301))
 }
 
+// Returns the 403 response for a mutating request whose Origin header does not
+// match any allowed host; null when the request may proceed.
+function rejectedCrossOriginMutation(request: NextRequest): NextResponse | null {
+  const method = request.method
+  if (method !== "POST" && method !== "DELETE") return null
+  const origin = request.headers.get("Origin")
+  if (!origin || isAllowedRequestOrigin(request, origin)) return null
+  const response = NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  return applySecurityHeaders(response)
+}
+
+function isEmbedPath(pathname: string): boolean {
+  return pathname === "/embed" || pathname.startsWith("/embed/")
+}
+
+// Some paths stay locale-neutral at their bare URL and must not be redirected
+// onto /<locale>: embeds (iframed into external sites from a copy/paste
+// snippet, where a 301 would add a hop or break under strict iframe/CSP
+// rules) and docs (served bare via the external docs origin or the catch-all
+// docs route, never under the /<locale> app tree).
+function isLocaleNeutralPath(pathname: string): boolean {
+  return isEmbedPath(pathname) || pathname === "/docs" || pathname.startsWith("/docs/")
+}
+
+function handleShareRoute(
+  request: NextRequest,
+  shareId: string,
+  prefixed: boolean,
+  internalPathname: string,
+): NextResponse {
+  if (!isRoutableShareId(shareId)) {
+    const response = new NextResponse("Not found", {
+      status: 404,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    })
+    return applySecurityHeaders(response)
+  }
+
+  const rejected = rejectedCrossOriginMutation(request)
+  if (rejected) return rejected
+
+  const shareRewriteUrl = request.nextUrl.clone()
+  shareRewriteUrl.pathname = internalPathname
+  const response = prefixed ? NextResponse.next() : NextResponse.rewrite(shareRewriteUrl)
+  return applySecurityHeaders(response)
+}
+
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
   // API routes are locale-neutral: origin-check mutations, add headers.
   if (pathname === "/api" || pathname.startsWith("/api/")) {
-    const method = request.method
-    if (method === "POST" || method === "DELETE") {
-      const origin = request.headers.get("Origin")
-      if (origin && !isAllowedRequestOrigin(request, origin)) {
-        const response = NextResponse.json({ error: "Forbidden" }, { status: 403 })
-        return applySecurityHeaders(response)
-      }
-    }
-    return applySecurityHeaders(NextResponse.next())
+    return rejectedCrossOriginMutation(request) ?? applySecurityHeaders(NextResponse.next())
   }
 
   if (
@@ -123,49 +162,23 @@ export async function proxy(request: NextRequest) {
 
   const prefixed = splitLocalePrefix(pathname)
 
-  // Some paths stay locale-neutral at their bare URL and must not be redirected
-  // onto /<locale>: embeds (iframed into external sites from a copy/paste
-  // snippet, where a 301 would add a hop or break under strict iframe/CSP
-  // rules) and docs (served bare via the external docs origin or the catch-all
-  // docs route, never under the /<locale> app tree).
-  const isLocaleNeutralPath =
-    pathname === "/embed" || pathname.startsWith("/embed/") || pathname === "/docs" || pathname.startsWith("/docs/")
-
-  if (!prefixed && pathname !== "/" && !isLocaleNeutralPath) {
+  if (!prefixed && pathname !== "/" && !isLocaleNeutralPath(pathname)) {
     return redirectToPath(request, `/${DEFAULT_LOCALE}${pathname}`)
   }
 
   // The public path the visitor sees, independent of the locale prefix, and
   // the internal path inside the app/[locale] tree.
   const publicPath = prefixed ? prefixed.rest : pathname
-  const internalPathname = prefixed ? pathname : `/${DEFAULT_LOCALE}${pathname === "/" ? "" : pathname}`
+  const barePathSuffix = pathname === "/" ? "" : pathname
+  const internalPathname = prefixed ? pathname : `/${DEFAULT_LOCALE}${barePathSuffix}`
 
   if (publicPath === "/") {
     return handleHomepage(request, internalPathname)
   }
 
   const shareId = shareIdFromPathname(publicPath)
-  if (shareId !== null && !isRoutableShareId(shareId)) {
-    const response = new NextResponse("Not found", {
-      status: 404,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    })
-    return applySecurityHeaders(response)
-  }
-
   if (shareId !== null) {
-    const method = request.method
-    if (method === "POST" || method === "DELETE") {
-      const origin = request.headers.get("Origin")
-      if (origin && !isAllowedRequestOrigin(request, origin)) {
-        const response = NextResponse.json({ error: "Forbidden" }, { status: 403 })
-        return applySecurityHeaders(response)
-      }
-    }
-    const shareRewriteUrl = request.nextUrl.clone()
-    shareRewriteUrl.pathname = internalPathname
-    const response = prefixed ? NextResponse.next() : NextResponse.rewrite(shareRewriteUrl)
-    return applySecurityHeaders(response)
+    return handleShareRoute(request, shareId, prefixed !== null, internalPathname)
   }
 
   // Every other page route only needs the locale rewrite; response headers
@@ -181,7 +194,7 @@ export async function proxy(request: NextRequest) {
   // mirrors the embed state API (app/api/embed/[token]/route.ts). Set here in
   // the proxy because a dynamic page's Cache-Control set via next.config
   // headers() is overwritten by the framework, whereas proxy headers win.
-  if (publicPath === "/embed" || publicPath.startsWith("/embed/")) {
+  if (isEmbedPath(publicPath)) {
     response.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
   }
 

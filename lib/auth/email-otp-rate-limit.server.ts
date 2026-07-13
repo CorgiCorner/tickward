@@ -27,7 +27,7 @@ function firstForwardedValue(value: string | null) {
 
 function forwardedHeaderIp(value: string | null) {
   const first = firstForwardedValue(value)
-  const match = first?.match(/(?:^|;)for=(?:"?)([^";,]+)(?:"?)/i)
+  const match = first === null ? null : /(?:^|;)for=(?:"?)([^";,]+)(?:"?)/i.exec(first)
   const ip = match?.[1]?.trim()
   if (!ip) return null
   return ip

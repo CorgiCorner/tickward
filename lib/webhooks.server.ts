@@ -8,6 +8,7 @@ import { z } from "zod"
 
 import { recordAuditEvent } from "@/lib/audit-log.server"
 import type { UserRef } from "@/lib/contracts"
+import { jsonInput } from "@/lib/db/prisma-json.server"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { optionalServerEnv, type ServerEnvVar } from "@/lib/env.server"
@@ -208,7 +209,7 @@ function normalizeHostname(value: string) {
 }
 
 function ipv4Parts(address: string) {
-  return address.split(".").map((part) => Number(part))
+  return address.split(".").map(Number)
 }
 
 function isUnsafeIpv4Address(address: string): boolean {
@@ -280,10 +281,6 @@ export async function assertWebhookUrlIsDeliverable(value: string) {
   if (!allowPrivateTargets && resolvedAddresses.some((record) => isUnsafeWebhookAddress(record.address))) {
     throw new WebhookUrlSecurityError("Webhook URL cannot target a private network.")
   }
-}
-
-function jsonInput(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
 }
 
 function createWebhookSecret() {

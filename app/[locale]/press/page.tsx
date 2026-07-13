@@ -3,6 +3,7 @@ import Image from "next/image"
 
 import { MarketingPageShell } from "@/components/marketing-page-shell"
 import { getDocsHref, getDocsPageHref } from "@/lib/docs-config"
+import { getActivePlanForCurrentRequest, getEntitlementsTable } from "@/lib/entitlements.server"
 import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
 import { getSiteOrigin } from "@/lib/site-config"
 import { TimerStoreProvider } from "@/lib/store"
@@ -139,9 +140,10 @@ export default async function PressPage(props: Readonly<{ params: Promise<{ loca
     { href: docsHref, label: t("press.links.docs") },
     { href: getDocsPageHref("/guides/self-hosting"), label: t("press.links.selfHosting") },
   ]
+  const [entitlementsTable, activePlan] = await Promise.all([getEntitlementsTable(), getActivePlanForCurrentRequest()])
 
   return (
-    <TimerStoreProvider>
+    <TimerStoreProvider initialState={{ entitlementsTable, activePlan }}>
       <script
         type="application/ld+json"
         // Static, trusted payload: built from i18n constants and SITE_URL only.

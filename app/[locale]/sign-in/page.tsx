@@ -4,6 +4,7 @@ import { Header } from "@/components/header"
 import { SignInPageClient } from "@/components/sign-in-auth"
 import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/cookies.server"
 import { getDocsHref } from "@/lib/docs-config"
+import { getActivePlanForCurrentRequest, getEntitlementsTable } from "@/lib/entitlements.server"
 import { formatMessage } from "@/lib/i18n/messages"
 import { getPublicReleaseTag } from "@/lib/release.server"
 import { noIndexRobots } from "@/lib/seo-metadata"
@@ -28,9 +29,10 @@ export default async function SignInPage(props: Readonly<{ searchParams: Promise
   const rawSpaces = await readSpacesCookie<unknown>()
   const spaces: Space[] = isSpaceArray(rawSpaces) ? rawSpaces : []
   const restoreKey = await readRestoreKeyCookie()
+  const [entitlementsTable, activePlan] = await Promise.all([getEntitlementsTable(), getActivePlanForCurrentRequest()])
 
   return (
-    <TimerStoreProvider initialState={{ timers, spaces, restoreKey }}>
+    <TimerStoreProvider initialState={{ timers, spaces, restoreKey, entitlementsTable, activePlan }}>
       <div className="flex min-h-dvh flex-col bg-background text-foreground">
         <Header />
         <SignInPageClient nextPath={searchParams.next} />

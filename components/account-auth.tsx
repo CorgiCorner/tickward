@@ -6,6 +6,7 @@ import { lazy, Suspense, useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { AccountAvatar, cleanUserName, type AccountUser, useAccountSignOut } from "@/components/account-button"
+import { AccountMigrationSettings } from "@/components/account-migration-settings"
 import { AccountPreferencesProvider, useAccountPreferences } from "@/components/account-preferences-provider"
 import type { ApiKeyRecord } from "@/components/api-keys-settings"
 import { DefaultTimezoneSettingsRow } from "@/components/timer-defaults-settings"
@@ -218,6 +219,7 @@ const SETTINGS_SECTION_IDS = new Set([
   "account",
   "profile",
   "defaults",
+  "migration",
   "notifications",
   "alerts",
   "developer",
@@ -281,13 +283,13 @@ const SETTINGS_NAV_ITEMS = [
 function parentSectionForHash(id: string | null) {
   if (id === "alerts") return "notifications"
   if (id === "api-keys" || id === "webhooks" || id === "mcp") return "developer"
-  if (id === "profile" || id === "defaults") return "account"
+  if (id === "profile" || id === "defaults" || id === "migration") return "account"
   return id === "notifications" || id === "developer" ? id : "account"
 }
 
 function SettingsAnchorNav() {
   const [activeId, setActiveId] = useState(() =>
-    typeof globalThis.location === "undefined" ? "account" : parentSectionForHash(normalizedSettingsHashId()),
+    globalThis.location === undefined ? "account" : parentSectionForHash(normalizedSettingsHashId()),
   )
 
   useEffect(() => {
@@ -402,6 +404,7 @@ export function AccountPageClient(props: Readonly<AccountPageInitialData> = {}) 
             onNameCommit={() => void updateProfileName()}
             onSignOut={() => void signOutAction.signOut()}
           />
+          <AccountMigrationSettings />
         </section>
         <AccountPreferencesSections
           apiKeys={props.apiKeys}

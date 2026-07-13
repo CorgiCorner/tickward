@@ -6,9 +6,9 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { createDemoProject, DEMO_PROJECT_ID } from "@/lib/demo-project"
+import { getEntitlements } from "@/lib/entitlements"
 import { formatMessage } from "@/lib/i18n/messages"
 import { setLocalFullPageAlarmEnabled, setLocalNotificationSound } from "@/lib/local-notification-preferences.client"
-import { MAX_PROJECTS } from "@/lib/project-model"
 import {
   readProjectRegistry,
   writeActiveProjectId,
@@ -20,11 +20,15 @@ function loadDemoProject() {
   const demo = createDemoProject()
   const existingProjects = readProjectRegistry().filter((project) => project.id !== DEMO_PROJECT_ID)
 
-  writeProjectRegistry([demo.project, ...existingProjects].slice(0, MAX_PROJECTS))
+  writeProjectRegistry([demo.project, ...existingProjects].slice(0, getEntitlements().maxProjects))
   writeActiveProjectId(demo.project.id)
   writeProjectPayload(demo.project.id, demo.payload)
   setLocalFullPageAlarmEnabled(true)
   setLocalNotificationSound("glass")
+}
+
+function openProject() {
+  globalThis.location.assign("/")
 }
 
 export function DemoProjectLoader() {
@@ -34,10 +38,6 @@ export function DemoProjectLoader() {
     loadDemoProject()
     setLoaded(true)
     toast.success(formatMessage("demo.loaded"))
-  }
-
-  function openProject() {
-    globalThis.location.assign("/")
   }
 
   return (

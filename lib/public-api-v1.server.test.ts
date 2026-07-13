@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { makeProjectSnapshot, makeSpace, makeTimer } from "@/test/factories"
+import { syntheticSecret } from "@/test/security-fixtures"
 
 const mocks = vi.hoisted(() => ({
   authenticateApiKey: vi.fn(),
@@ -22,6 +23,11 @@ vi.mock("@/lib/rate-limit.server", () => ({
 vi.mock("@/lib/db/prisma.server", () => ({
   requirePrismaClient: mocks.requirePrismaClient,
 }))
+
+vi.mock("@/lib/entitlements.server", async () => {
+  const { defaultEntitlementsTable } = await import("@/lib/entitlements")
+  return { getEntitlementsForActor: async () => defaultEntitlementsTable().free }
+})
 
 vi.mock("@/lib/audit-log.server", () => ({
   auditRequestContext: (input: Request | Headers) => {
@@ -56,7 +62,7 @@ function webhookEndpointRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "wh_123",
     name: "Production",
-    secret: "whsec_test",
+    secret: syntheticSecret("public-api-webhook", "whsec"),
     url: "https://example.com/tickward",
     eventTypes: ["timer.ended"],
     status: "active",
@@ -196,6 +202,7 @@ describe("public API v1", () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.unstubAllEnvs()
   })
 
   it("requires bearer API keys", async () => {
@@ -1217,6 +1224,32 @@ describe("public API v1", () => {
     })
   })
 
+  it("rejects nested project creates over the total timer limit", async () => {
+    vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_TIMERS", "1")
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const timer = (id: string) => ({
+      id,
+      label: id,
+      target_date: "2026-08-01T18:00:00.000Z",
+      timezone: "Europe/Warsaw",
+    })
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/projects", {
+        name: "Subscriptions",
+        spaces: [{ id: "space-a", name: "Work", timers: [timer("timer-a"), timer("timer-b")] }],
+        timers: [timer("timer-c")],
+      }),
+      ["projects"],
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.text()).resolves.toContain("Maximum 2 timers allowed.")
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
   it("rejects project creates when expected plan hash does not match", async () => {
     const { handlePublicApiV1Request } = await import("./public-api-v1.server")
     mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
@@ -1327,6 +1360,10 @@ describe("public API v1", () => {
     await expect(first.json()).resolves.toMatchObject({ object: "project", id: "project_123", name: "Agent Import" })
     await expect(second.json()).resolves.toMatchObject({ object: "project", id: "project_123", name: "Agent Import" })
     expect(idempotency.create.mock.calls[0][0].data).toEqual(expect.objectContaining({ keyHash: expect.any(String) }))
+    expect(idempotency.create.mock.calls[0][0].data).toMatchObject({
+      keyHash: "b18f0602767ea1b3ea79761f330e38a86c83dc8c62f7282481e9f551fe4f2cf7",
+      requestHash: "67aaa78f984d9ac317d30abaeb3902117757368681893fb7fff932e4e540cc00",
+    })
     expect(idempotency.create.mock.calls[0][0].data.keyHash).not.toContain(idempotencyKey)
     expect(idempotency.create.mock.calls[0][0].data.key).toBeUndefined()
     expect(create).toHaveBeenCalledTimes(1)
@@ -1928,6 +1965,74 @@ describe("public API v1", () => {
         where: { id: "project_123" },
       }),
     )
+  })
+
+  it("rejects timer creates over the total limit even when existing timers are archived", async () => {
+    vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_TIMERS", "1")
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({
+      timers: [
+        makeTimer({ id: "timer-a", archivedAt: "2026-06-01T00:00:00.000Z" }),
+        makeTimer({ id: "timer-b", archivedAt: "2026-06-02T00:00:00.000Z" }),
+      ],
+    })
+    const row = projectRow(snapshot)
+    const tx = {
+      $queryRaw: lockedProjectQuery(row),
+      project: { update: vi.fn().mockResolvedValue({}) },
+      timer: { create: vi.fn().mockResolvedValue({}) },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/projects/project_123/timers", {
+        label: "Overflow",
+        target_date: "2026-12-01T10:00:00.000Z",
+        timezone: "UTC",
+      }),
+      ["projects", "project_123", "timers"],
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.text()).resolves.toContain("Maximum 2 timers allowed.")
+    expect(tx.timer.create).not.toHaveBeenCalled()
+    expect(tx.project.update).not.toHaveBeenCalled()
+  })
+
+  it("rejects timer creates over the active per-space limit", async () => {
+    vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_TIMERS", "10")
+    vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_TIMERS_PER_SPACE", "1")
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({
+      spaces: [makeSpace({ id: "space-a" })],
+      timers: [makeTimer({ id: "timer-a", spaceId: "space-a" }), makeTimer({ id: "timer-b", spaceId: "space-a" })],
+    })
+    const row = projectRow(snapshot)
+    const tx = {
+      $queryRaw: lockedProjectQuery(row),
+      project: { update: vi.fn().mockResolvedValue({}) },
+      timer: { create: vi.fn().mockResolvedValue({}) },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/projects/project_123/timers", {
+        label: "Overflow",
+        space_id: "space-a",
+        target_date: "2026-12-01T10:00:00.000Z",
+        timezone: "UTC",
+      }),
+      ["projects", "project_123", "timers"],
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.text()).resolves.toContain("Maximum 2 active timers allowed per space.")
+    expect(tx.timer.create).not.toHaveBeenCalled()
+    expect(tx.project.update).not.toHaveBeenCalled()
   })
 
   it("maps a cross-project timer id collision to the duplicate-id error", async () => {
@@ -3120,7 +3225,7 @@ describe("public API v1", () => {
   describe("over-limit read-only enforcement in public API", () => {
     // Helper: builds a Prisma tx mock that returns owner memberships for the
     // read-only predicate. We use claimedAt ordering so project_older is
-    // editable (within limit=1) and project_newer is over-limit (read-only).
+    // editable (within the free limit=2) and project_newer is over-limit.
     function overLimitTx(projectId: string, snapshot = makeProjectSnapshot()) {
       const olderRow = projectRow(makeProjectSnapshot({ name: "Older" }), {
         id: "project_older",
@@ -3134,6 +3239,12 @@ describe("public API v1", () => {
         claimedAt: new Date("2026-06-01T00:00:00.000Z"),
         createdAt: new Date("2026-06-01T00:00:00.000Z"),
       })
+      const middleRow = projectRow(makeProjectSnapshot({ name: "Middle" }), {
+        id: "project_middle",
+        ownerId: "user_123",
+        claimedAt: new Date("2026-03-01T00:00:00.000Z"),
+        createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      })
 
       return {
         $queryRaw: vi.fn((strings: TemplateStringsArray) => {
@@ -3142,7 +3253,7 @@ describe("public API v1", () => {
           return query.includes("FOR UPDATE") ? [targetRow] : []
         }),
         project: {
-          findMany: vi.fn().mockResolvedValue([olderRow, targetRow]),
+          findMany: vi.fn().mockResolvedValue([olderRow, middleRow, targetRow]),
           update: vi.fn().mockResolvedValue(targetRow),
           delete: vi.fn().mockResolvedValue({}),
         },
@@ -3187,8 +3298,8 @@ describe("public API v1", () => {
       const { handlePublicApiV1Request } = await import("./public-api-v1.server")
       mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
 
-      // count returns 1 (already at limit)
-      const count = vi.fn().mockResolvedValue(1)
+      // Anonymous env limit 1 doubles to the free/API-key limit 2.
+      const count = vi.fn().mockResolvedValue(2)
       mocks.requirePrismaClient.mockReturnValue({ project: { count } })
 
       const res = await handlePublicApiV1Request(

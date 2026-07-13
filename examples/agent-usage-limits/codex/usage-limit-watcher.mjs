@@ -3,6 +3,9 @@
 // Run it from cron or launchd every ~5 minutes; reruns dedupe by timer id.
 
 import { spawn } from "node:child_process"
+import { accessSync, constants, realpathSync, statSync } from "node:fs"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 
 const BASE_URL = process.env.TICKWARD_BASE_URL ?? ""
 const API_KEY = process.env.TICKWARD_API_KEY ?? ""
@@ -14,12 +17,64 @@ const APP_SERVER_TIMEOUT_MS = 10_000
 const FETCH_TIMEOUT_MS = 10_000
 const WEEK_MINUTES = 7 * 24 * 60
 
+function trustedDirectory(directory) {
+  const uid = typeof process.getuid === "function" ? process.getuid() : null
+  try {
+    let current = realpathSync(directory)
+    while (true) {
+      const stats = statSync(current)
+      if (!stats.isDirectory()) return false
+      if (uid !== null && stats.uid !== 0 && stats.uid !== uid) return false
+      if ((stats.mode & 0o022) !== 0) return false
+      const parent = path.dirname(current)
+      if (parent === current) return true
+      current = parent
+    }
+  } catch {
+    return false
+  }
+}
+
+function trustedExecutable(candidate) {
+  if (!path.isAbsolute(candidate)) return null
+  try {
+    accessSync(candidate, constants.X_OK)
+    const resolved = realpathSync(candidate)
+    if (!statSync(resolved).isFile()) return null
+    return trustedDirectory(path.dirname(candidate)) && trustedDirectory(path.dirname(resolved)) ? resolved : null
+  } catch {
+    return null
+  }
+}
+
+export function resolveCodexExecutable({
+  configuredExecutable = process.env.CODEX_EXECUTABLE ?? "",
+  pathValue = process.env.PATH ?? "",
+} = {}) {
+  const configured = configuredExecutable ? trustedExecutable(configuredExecutable) : null
+  if (configured) return configured
+  if (configuredExecutable) {
+    throw new Error("CODEX_EXECUTABLE must be an executable absolute path in a trusted directory")
+  }
+
+  const candidates = pathValue
+    .split(path.delimiter)
+    .filter((directory) => path.isAbsolute(directory) && trustedDirectory(directory))
+    .map((directory) => path.join(directory, process.platform === "win32" ? "codex.exe" : "codex"))
+  for (const candidate of candidates) {
+    const resolved = trustedExecutable(candidate)
+    if (resolved) return resolved
+  }
+  throw new Error("codex was not found in a trusted executable directory; set CODEX_EXECUTABLE")
+}
+
 // Spawns `codex app-server`, speaks JSON-RPC 2.0 over its stdio
 // (initialize -> account/rateLimits/read), and kills the child as soon as
 // the rate-limit response arrives or the timeout fires.
 function readRateLimits() {
   return new Promise((resolve, reject) => {
-    const child = spawn("codex", ["app-server"], { stdio: ["pipe", "pipe", "ignore"] })
+    const codexExecutable = resolveCodexExecutable()
+    const child = spawn(codexExecutable, ["app-server"], { stdio: ["pipe", "pipe", "ignore"] })
     let settled = false
     const finish = (settle, value) => {
       if (settled) return
@@ -257,7 +312,12 @@ async function main() {
   process.exitCode = failures > 0 ? 1 : 0
 }
 
-main().catch((error) => {
-  process.stderr.write(`[tickward] ${error?.message ?? error}\n`)
-  process.exitCode = 1
-})
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+if (isMain) {
+  try {
+    await main()
+  } catch (error) {
+    process.stderr.write(`[tickward] ${error?.message ?? error}\n`)
+    process.exitCode = 1
+  }
+}

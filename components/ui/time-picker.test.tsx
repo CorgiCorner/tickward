@@ -1,7 +1,14 @@
 import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { DurationPicker, TimePicker, formatDurationCompact, valueFromTotalSeconds } from "@/components/ui/time-picker"
+import {
+  DurationPicker,
+  ScheduleModeToggle,
+  TimePicker,
+  formatDurationCompact,
+  valueFromTotalSeconds,
+} from "@/components/ui/time-picker"
 import { setActiveLocale } from "@/lib/i18n/active-locale"
 
 vi.mock("@/components/use-now", () => ({
@@ -100,6 +107,29 @@ describe("DurationPicker", () => {
     )
 
     expect(screen.getByText(/Ends at Jun 12,/)).toBeVisible()
+  })
+})
+
+describe("ScheduleModeToggle", () => {
+  beforeEach(() => {
+    setActiveLocale("en")
+  })
+
+  it("exposes the mode toggle as a native group with pressable buttons", async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+
+    render(<ScheduleModeToggle value="at" onChange={onChange} />)
+
+    const group = screen.getByRole("group", { name: "Schedule" })
+    expect(group.tagName).toBe("FIELDSET")
+    expect(screen.getByRole("button", { name: "Date & time" })).toHaveAttribute("aria-pressed", "true")
+
+    const durationButton = screen.getByRole("button", { name: "Duration" })
+    expect(durationButton).toHaveAttribute("aria-pressed", "false")
+
+    await user.click(durationButton)
+    expect(onChange).toHaveBeenCalledWith("in")
   })
 })
 

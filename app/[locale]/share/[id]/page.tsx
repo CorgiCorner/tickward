@@ -6,6 +6,7 @@ import { FooterFull } from "@/components/footer-full"
 import { Header } from "@/components/header"
 import { SharedTimerClient } from "@/components/shared-timer-client"
 import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/cookies.server"
+import { getActivePlanForCurrentRequest, getEntitlementsTable } from "@/lib/entitlements.server"
 import { getDocsHref } from "@/lib/docs-config"
 import { formatMessage } from "@/lib/i18n/messages"
 import { getPublicReleaseTag } from "@/lib/release.server"
@@ -51,9 +52,10 @@ export default async function Page(props: Readonly<{ params: Promise<{ id: strin
   const rawSpaces = await readSpacesCookie<unknown>()
   const spaces: Space[] = isSpaceArray(rawSpaces) ? rawSpaces : []
   const restoreKey = await readRestoreKeyCookie()
+  const [entitlementsTable, activePlan] = await Promise.all([getEntitlementsTable(), getActivePlanForCurrentRequest()])
 
   return (
-    <TimerStoreProvider initialState={{ timers, spaces, restoreKey }}>
+    <TimerStoreProvider initialState={{ timers, spaces, restoreKey, entitlementsTable, activePlan }}>
       <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-black">
         <Header />
         <main className="mx-auto w-full max-w-[640px] flex-1 px-4 py-6">

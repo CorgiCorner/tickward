@@ -77,6 +77,18 @@ model AuditLog {
   @@map("audit_log")
 }
 
+model PlanEntitlements {
+  plan              String   @id
+  maxTimers         Int
+  maxTimersPerSpace Int
+  maxProjects       Int
+  maxSpaces         Int
+  maxSnapshotTimers Int
+  updatedAt         DateTime @updatedAt
+
+  @@map("plan_entitlements")
+}
+
 model ApiKey {
   id         String    @id @default(cuid())
   userId     String

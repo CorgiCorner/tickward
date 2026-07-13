@@ -3,6 +3,7 @@ import { Header } from "@/components/header"
 import { OtpSignInPageClient } from "@/components/sign-in-auth"
 import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/cookies.server"
 import { formatMessage } from "@/lib/i18n/messages"
+import { getActivePlanForCurrentRequest, getEntitlementsTable } from "@/lib/entitlements.server"
 import { noIndexRobots } from "@/lib/seo-metadata"
 import { TimerStoreProvider } from "@/lib/store"
 import type { Space, Timer } from "@/lib/types"
@@ -27,9 +28,10 @@ export default async function SignInOtpPage(
   const rawSpaces = await readSpacesCookie<unknown>()
   const spaces: Space[] = isSpaceArray(rawSpaces) ? rawSpaces : []
   const restoreKey = await readRestoreKeyCookie()
+  const [entitlementsTable, activePlan] = await Promise.all([getEntitlementsTable(), getActivePlanForCurrentRequest()])
 
   return (
-    <TimerStoreProvider initialState={{ timers, spaces, restoreKey }}>
+    <TimerStoreProvider initialState={{ timers, spaces, restoreKey, entitlementsTable, activePlan }}>
       <div className="flex min-h-dvh flex-col bg-background text-foreground">
         <Header />
         <OtpSignInPageClient email={searchParams.email ?? ""} nextPath={searchParams.next} />

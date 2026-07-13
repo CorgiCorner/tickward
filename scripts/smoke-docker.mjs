@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process"
+import { randomBytes } from "node:crypto"
 import { once } from "node:events"
 import { createServer } from "node:net"
 import path from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(__dirname, "..")
@@ -18,6 +19,16 @@ function log(message) {
 
 function fail(message) {
   throw new Error(message)
+}
+
+export function smokeDockerDatabaseEnv() {
+  const password = randomBytes(24).toString("hex")
+  const databaseUrl = `postgresql://tickward:${password}@postgres:5432/tickward`
+  return {
+    DATABASE_URL: databaseUrl,
+    DIRECT_URL: databaseUrl,
+    POSTGRES_PASSWORD: password,
+  }
 }
 
 async function findFreePort() {
@@ -154,6 +165,7 @@ async function main() {
   const port = process.env.SMOKE_DOCKER_PORT ?? String(await findFreePort())
   const baseUrl = `http://${host}:${port}`
   const env = {
+    ...smokeDockerDatabaseEnv(),
     APP_PORT: port,
     NEXT_TELEMETRY_DISABLED: "1",
   }
@@ -184,4 +196,6 @@ async function main() {
   if (failed) process.exitCode = 1
 }
 
-await main()
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main()
+}

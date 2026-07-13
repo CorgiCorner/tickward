@@ -47,7 +47,10 @@ const CHUNK_ERROR_PATTERNS = [
 function readField(error: unknown, key: "name" | "message" | "stack"): string | undefined {
   if (error && typeof error === "object" && key in error) {
     const value = (error as Record<string, unknown>)[key]
-    return value === undefined ? undefined : String(value)
+    if (typeof value === "string") return value
+    // Other primitives still have a meaningful string form; objects would
+    // stringify as "[object Object]", so they are treated as absent.
+    if (typeof value === "number" || typeof value === "boolean") return String(value)
   }
   return undefined
 }
@@ -55,7 +58,12 @@ function readField(error: unknown, key: "name" | "message" | "stack"): string | 
 function errorMessage(error: unknown): string {
   if (typeof error === "string") return error
   if (error instanceof Error) return error.message
-  return readField(error, "message") ?? String(error ?? "")
+  const message = readField(error, "message")
+  if (message !== undefined) return message
+  if (typeof error === "number" || typeof error === "boolean") return String(error)
+  // Objects without a usable message (and null/undefined) yield "" so callers
+  // fall back to their own placeholder instead of "[object Object]".
+  return ""
 }
 
 function errorStack(error: unknown): string | undefined {

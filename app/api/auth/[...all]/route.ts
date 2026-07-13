@@ -4,6 +4,7 @@ import { NextResponse } from "next/server"
 import { apiErrorResponse } from "@/lib/api-error-response"
 import { auditRequestContext, recordAuditEvent } from "@/lib/audit-log.server"
 import { enforceEmailOtpSendRateLimit, isEmailOtpSendRequest } from "@/lib/auth/email-otp-rate-limit.server"
+import { runInBackground } from "@/lib/background-task"
 import { getTickwardAuth } from "@/lib/auth/auth.server"
 import { PUBLIC_ERROR_CODES } from "@/lib/public-errors"
 
@@ -185,9 +186,7 @@ export async function POST(req: Request) {
   }
   const auditBody = readAuditJson(req)
   const res = await handler(req)
-  void recordAuthPostAuditEvent(req, res, auditBody).catch((err: unknown) => {
-    console.error("[tickward] audit.write", err)
-  })
+  runInBackground("audit.write", recordAuthPostAuditEvent(req, res, auditBody))
   return res
 }
 

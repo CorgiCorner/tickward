@@ -61,15 +61,13 @@ export function GitHubStarCta() {
               {formatMessage("home.starCta.description", {}, locale)}
             </p>
             <div className="mx-auto mt-6 w-full max-w-[420px]">
-              <div
-                className="h-2 w-full overflow-hidden rounded-full bg-muted"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={GITHUB_STAR_GOAL}
-                aria-valuenow={stars ?? 0}
-                aria-label={progressLabel}
-              >
+              {/* Native progress element carries the semantics; the visual track below
+                  stays a styled div so the minimum-visible fill and width transition
+                  keep working across browsers. */}
+              <progress className="sr-only" value={stars ?? 0} max={GITHUB_STAR_GOAL} aria-label={progressLabel} />
+              <div aria-hidden="true" className="h-2 w-full overflow-hidden rounded-full bg-muted">
                 <div
+                  data-slot="star-progress-fill"
                   className="h-full rounded-full bg-primary transition-[width] duration-700 ease-out"
                   style={{ width: progressWidth }}
                 />

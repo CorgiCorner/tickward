@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og"
 import { notFound } from "next/navigation"
 
-import { socialImageContentType, socialImageSize } from "@/app/social-image"
+import { socialImageSize } from "@/app/social-image"
 import { formatMessage, isSupportedLocale } from "@/lib/i18n/messages"
 import { formatOgDateLabel, ogCountdownSnapshot, ogProgressFraction } from "@/lib/og/data"
 import { loadOgFonts } from "@/lib/og/fonts"
@@ -13,7 +13,7 @@ export const runtime = "nodejs"
 export const revalidate = 15
 export const alt = "tickward shared timer preview"
 export const size = socialImageSize
-export const contentType = socialImageContentType
+export { socialImageContentType as contentType } from "@/app/social-image"
 
 export default async function OpenGraphImage(props: Readonly<{ params: Promise<{ id: string; locale: string }> }>) {
   const { id, locale } = await props.params

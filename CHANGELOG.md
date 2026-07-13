@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.0 - 2026-07-12
+
+### Added
+
+- Added runtime plan limits, self-hosted admin onboarding, and an editor for plan limits.
+- Added account project import and deployment-safe migration support within cloud limits.
+- Added privacy, terms, cookies, subprocessors, and desktop download pages.
+
+### Changed
+
+- Updated vulnerable transitive dependencies used by runtime integrations, browser tests, builds, and release tooling.
+- Improved accessibility semantics and modernized maintainability-sensitive UI, API, and script code.
+
+### Fixed
+
+- Reconciled signed-out inbox sessions, excluded embeds from analytics, and improved calendar, marketing, toast, and retention UI behavior.
+- Hardened API, webhook, service worker, snapshot, executable-path, credential, stored-hash, CI, and test boundaries.
+
 ## 0.10.0 - 2026-07-09
 
 ### Added

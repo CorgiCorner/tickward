@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { existsSync, readFileSync } from "node:fs"
+
+import { describe, expect, it, vi } from "vitest"
 
 import {
   buildRuntimePrivilegeStatements,
   grantRuntimeDatabasePrivileges,
+  runRuntimeGrantCli,
   runtimeGrantConfigFromEnv,
 } from "./grant-runtime-db-privileges.mjs"
 
@@ -60,5 +63,50 @@ describe("runtime database privilege grants", () => {
     })
 
     expect(queries).toEqual(buildRuntimePrivilegeStatements(config))
+  })
+
+  it("does not print privileged context on success or failure", async () => {
+    const log = vi.fn()
+    const logError = vi.fn()
+
+    await expect(
+      runRuntimeGrantCli({
+        grant: async () => ({
+          connectionString: "postgresql://owner:secret@db.example.test/tickward",
+          runtimeRole: "private_runtime_role",
+          schema: "private_schema",
+          statements: ['GRANT ALL ON SCHEMA "private_schema" TO "private_runtime_role"'],
+        }),
+        log,
+        logError,
+      }),
+    ).resolves.toBe(true)
+    await expect(
+      runRuntimeGrantCli({
+        grant: async () => {
+          throw new Error(
+            "connection to postgresql://owner:secret@db.example.test/tickward failed while running GRANT ALL",
+          )
+        },
+        log,
+        logError,
+      }),
+    ).resolves.toBe(false)
+
+    const output = [...log.mock.calls, ...logError.mock.calls].flat().join("\n")
+    expect(output).toBe("Runtime database privileges granted.\nRuntime database privilege grant failed.")
+    expect(output).not.toMatch(/postgresql:|secret|private_|GRANT ALL/i)
+  })
+
+  it("keeps public database configuration free of committed passwords", () => {
+    const optionalAdapterEnv = ["scripts", ["public", "overrides"].join("-"), ".env.example"].join("/")
+    const sources = ["docker-compose.yml", ".env.example", optionalAdapterEnv, "prisma.config.ts"]
+      .filter((file) => existsSync(file))
+      .map((file) => readFileSync(file, "utf8"))
+
+    for (const source of sources) {
+      expect(source).not.toMatch(/postgres(?:ql)?:\/\/[^\s:@/]+:[^\s@/]+@/i)
+      expect(source).not.toMatch(/POSTGRES_PASSWORD:\s*\$\{[^}]+:-[^}]+\}/)
+    }
   })
 })

@@ -2,7 +2,6 @@
 
 import {
   type LocalProjectPayload,
-  MAX_PROJECTS,
   type ProjectMeta,
   isValidRestoreKey,
   normalizeProjectName,
@@ -93,8 +92,8 @@ export function readProjectRegistry(): ProjectMeta[] {
     }
   }
   // Account projects are kept in full (the server list is authoritative for the cap).
-  // Local projects are capped at MAX_PROJECTS as a guard against corrupted storage.
-  return [...accountProjects, ...localProjects.slice(0, MAX_PROJECTS)]
+  // Local projects are capped as a guard against corrupted storage.
+  return [...accountProjects, ...localProjects.slice(0, getEntitlements().maxProjects)]
 }
 
 export function writeProjectRegistry(projects: ProjectMeta[]) {

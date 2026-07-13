@@ -1,6 +1,6 @@
 import { BellOffIcon, EllipsisVerticalIcon, ExternalLinkIcon, PinIcon, PinOffIcon, RepeatIcon } from "lucide-react"
 import Image from "next/image"
-import type { MouseEvent, ReactNode } from "react"
+import type { ReactNode } from "react"
 
 import { TimerFocusAction } from "@/components/timer-focus-action"
 import { useNow } from "@/components/use-now"
@@ -247,12 +247,6 @@ export function TimerCardContent(
     onMobileCardTap?: () => void
   }>,
 ) {
-  function handleRootClick(event: MouseEvent<HTMLElement>) {
-    if (!props.onMobileCardTap) return
-    if (event.target instanceof Element && event.target.closest("[data-timer-card-action]")) return
-    props.onMobileCardTap()
-  }
-
   return (
     <article
       className={cn(
@@ -261,8 +255,18 @@ export function TimerCardContent(
         "group relative min-w-0 w-full overflow-hidden rounded-[12px] border border-border bg-card px-4 pb-6 pt-4 transition-colors",
         props.isArchived ? "bg-card/70 text-muted-foreground" : "",
       )}
-      onClick={handleRootClick}
     >
+      {props.onMobileCardTap ? (
+        // Mobile-only card tap target as a real button so it is keyboard- and
+        // screen-reader-accessible. Positioned card overlays (mobile actions,
+        // drag handle, link, progress strip) stack above it and stay clickable.
+        <button
+          type="button"
+          className="absolute inset-0 rounded-[12px] md:hidden"
+          aria-label={formatMessage("common.edit")}
+          onClick={props.onMobileCardTap}
+        />
+      ) : null}
       {props.mobileActions}
 
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -335,7 +339,7 @@ function TimerCardTitleBlock(
               rel="noopener noreferrer nofollow"
               aria-label={formatMessage("timer.openLink")}
               title={props.timer.url}
-              className="shrink-0 text-muted-foreground/60 transition hover:text-foreground"
+              className="relative shrink-0 text-muted-foreground/60 transition hover:text-foreground"
               onClick={(event) => event.stopPropagation()}
             >
               <ExternalLinkIcon className="size-3.5" />
@@ -485,19 +489,19 @@ function TimerOverflowActions(
 ) {
   return (
     <DropdownMenu>
-      <span className="inline-flex" onPointerDown={props.onTriggerPointerDown} onClick={props.onTriggerClick}>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className={props.triggerClassName ?? timerActionClassName}
-            aria-label={formatMessage("timer.actions.openMenu")}
-          >
-            <EllipsisVerticalIcon className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-      </span>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className={props.triggerClassName ?? timerActionClassName}
+          aria-label={formatMessage("timer.actions.openMenu")}
+          onPointerDown={props.onTriggerPointerDown}
+          onClick={props.onTriggerClick}
+        >
+          <EllipsisVerticalIcon className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
         sideOffset={6}

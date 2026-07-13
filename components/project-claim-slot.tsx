@@ -209,35 +209,34 @@ export function ProjectClaimToast(
 
     const eligibleProjectId = projectId
     const eligibleRestoreKey = restoreKey
+    // The toast is created with this deterministic id, so the dismiss helpers
+    // can close it without waiting for the render callback's toastId argument.
+    const claimToastId = projectClaimToastId(eligibleProjectId)
+
+    function dismissAfterClaim() {
+      toast.dismiss(claimToastId)
+      toastIdRef.current = null
+      shownProjectIdRef.current = null
+    }
+
+    function dismissToastForSession() {
+      dismissProjectClaim(eligibleProjectId)
+      dismissAfterClaim()
+    }
 
     const timeoutId = globalThis.setTimeout(() => {
       const id = toast.custom(
-        (toastId) => {
-          function dismissToastForSession() {
-            dismissProjectClaim(eligibleProjectId)
-            toast.dismiss(toastId)
-            toastIdRef.current = null
-            shownProjectIdRef.current = null
-          }
-
-          function dismissAfterClaim() {
-            toast.dismiss(toastId)
-            toastIdRef.current = null
-            shownProjectIdRef.current = null
-          }
-
-          return (
-            <ProjectClaimToastContent
-              claimActiveProject={claimActiveProject}
-              restoreKey={eligibleRestoreKey}
-              projectName={props.projectName}
-              onDismiss={dismissToastForSession}
-              onClaimed={dismissAfterClaim}
-            />
-          )
-        },
+        () => (
+          <ProjectClaimToastContent
+            claimActiveProject={claimActiveProject}
+            restoreKey={eligibleRestoreKey}
+            projectName={props.projectName}
+            onDismiss={dismissToastForSession}
+            onClaimed={dismissAfterClaim}
+          />
+        ),
         {
-          id: projectClaimToastId(eligibleProjectId),
+          id: claimToastId,
           duration: Infinity,
           dismissible: false,
           position: "bottom-right",

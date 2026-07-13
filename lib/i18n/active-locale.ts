@@ -33,8 +33,10 @@ export function getActiveLocale(): Locale {
     // When cache() memoizes (Server Components), the store is request-scoped:
     // never fall back to the module value there, because another request may
     // have written it. An unseeded request renders the default locale.
-    if (requestLocaleStore() === requestLocaleStore()) {
-      return requestLocaleStore().locale ?? DEFAULT_LOCALE
+    const currentStore = requestLocaleStore()
+    const repeatedStore = requestLocaleStore()
+    if (currentStore === repeatedStore) {
+      return currentStore.locale ?? DEFAULT_LOCALE
     }
   } catch {
     // Outside a React render fall through to the module value.
