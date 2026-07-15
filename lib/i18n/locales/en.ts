@@ -61,6 +61,11 @@ export const enMessages = {
   "auth.error.rateLimited": "Wait {seconds}s before requesting another code.",
   "auth.error.tooManyAttempts": "Too many attempts. Request a new code.",
   "auth.error.unavailable": "Account sign-in is not configured.",
+  "auth.legal.between": "and acknowledge our",
+  "auth.legal.prefix": "By continuing, you agree to our",
+  "auth.legal.privacy": "Privacy Policy",
+  "auth.legal.suffix": ".",
+  "auth.legal.terms": "Terms of Service",
   "auth.loading": "Checking account...",
   "auth.loading.title": "Loading sign-in",
   "auth.name": "Name",
@@ -378,9 +383,9 @@ export const enMessages = {
   "errors.rateLimitUnavailable": "Rate limit unavailable.",
   "errors.rateLimited": "Too many requests.",
   "errors.requiredEnvMissing": "Missing required environment variable: {name}",
-  "errors.webhookSecretEncryptionKeyInvalid":
+  "errors.webhookEncryptionKeyInvalid":
     "TICKWARD_ENCRYPTION_KEY must be a base64-encoded 32-byte key. Generate one with: openssl rand -base64 32",
-  "errors.webhookSecretEncryptionKeyRequired":
+  "errors.webhookEncryptionKeyRequired":
     "TICKWARD_ENCRYPTION_KEY is required to decrypt encrypted webhook signing secrets.",
   "errors.webhookSecretMalformed": "Encrypted webhook signing secret is malformed.",
   "errors.webhookSecretMissing": "Webhook endpoint signing secret is missing.",

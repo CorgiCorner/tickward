@@ -18,6 +18,7 @@ import { useLocale } from "@/components/locale-provider"
 import type { AccountPreferencesRecord } from "@/lib/account-preferences"
 import { authClient } from "@/lib/auth/auth-client"
 import { authErrorMessage } from "@/lib/auth/auth-client-errors"
+import { runInBackground } from "@/lib/background-task"
 import { formatMessage, localeHref } from "@/lib/i18n/messages"
 import type { McpConnectionPublicRecord } from "@/lib/mcp-oauth"
 import type { WebhookEndpointPublicRecord } from "@/lib/webhook-events"
@@ -173,7 +174,7 @@ function AccountPreferencesSections(
               variant="outline"
               size="sm"
               disabled={loading}
-              onClick={() => void refreshPreferences()}
+              onClick={() => runInBackground("accountPreferences.refresh", refreshPreferences())}
             >
               {formatMessage("apiKeys.retry")}
             </Button>
@@ -401,8 +402,8 @@ export function AccountPageClient(props: Readonly<AccountPageInitialData> = {}) 
               setNameDraft(value)
               setNameTouched(true)
             }}
-            onNameCommit={() => void updateProfileName()}
-            onSignOut={() => void signOutAction.signOut()}
+            onNameCommit={() => runInBackground("account.updateProfileName", updateProfileName())}
+            onSignOut={() => runInBackground("account.signOut", signOutAction.signOut())}
           />
           <AccountMigrationSettings />
         </section>

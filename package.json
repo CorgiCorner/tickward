@@ -1,10 +1,39 @@
 {
   "name": "tickward",
-  "version": "0.11.0",
+  "version": "0.12.0",
+  "description": "Open-source countdown timers with projects, sharing, account sync, and a versioned API.",
   "private": true,
   "license": "AGPL-3.0-only",
+  "homepage": "https://tickward.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CorgiCorner/tickward.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CorgiCorner/tickward/issues"
+  },
+  "keywords": [
+    "countdown",
+    "timer",
+    "self-hosted",
+    "nextjs",
+    "productivity"
+  ],
+  "packageManager": "npm@10.9.3",
   "engines": {
-    "node": ">=22 <23"
+    "node": ">=22.23.1 <23"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "22.23.1",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": ">=10.9.3 <11",
+      "onFail": "error"
+    }
   },
   "overrides": {
     "@hono/node-server": "1.19.14",
@@ -33,7 +62,8 @@
     "press:screenshots": "node scripts/press-screenshots.mjs",
     "press:kit": "node scripts/build-press-kit.mjs",
     "security:dependencies": "npm audit --audit-level=high",
-    "release:check": "npm run check:node && npm run security:dependencies && npm run lint && npx tsc --noEmit && npm run test:unit && npm run test:storybook && npm run smoke:app && npm run smoke:visual && npm run smoke:email-otp && npm run build && npm run build-storybook && npm run smoke:docker",
+    "release:check:ci": "npm run check:node && npm run security:dependencies && npm run lint && npx tsc --noEmit && npm run test:unit",
+    "release:check": "npm run release:check:ci && npm run test:storybook && npm run smoke:app && npm run smoke:visual && npm run smoke:email-otp && npm run build && npm run build-storybook && npm run smoke:docker",
     "test:watch": "vitest --project unit",
     "test:coverage": "vitest run --project unit --coverage",
     "db:download-rds-ca": "node scripts/download-rds-ca.mjs",
@@ -62,8 +92,8 @@
     "date-fns": "^4.4.0",
     "date-fns-tz": "^3.2.0",
     "immer": "^11.1.11",
-    "lucide-react": "^1.23.0",
-    "nanoid": "^5.1.16",
+    "lucide-react": "^1.24.0",
+    "nanoid": "^6.0.0",
     "next": "^16.2.10",
     "next-themes": "^0.4.6",
     "pg": "^8.22.0",
@@ -74,7 +104,7 @@
     "react-dom": "19.2.7",
     "react-hook-form": "^7.81.0",
     "react-swipeable-list": "^1.10.0",
-    "resend": "^6.17.1",
+    "resend": "^6.17.2",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
     "web-push": "^3.6.7",
@@ -82,15 +112,15 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.2",
-    "@storybook/addon-docs": "^10.4.6",
-    "@storybook/addon-vitest": "^10.4.6",
-    "@storybook/nextjs-vite": "^10.4.6",
+    "@biomejs/biome": "^2.5.3",
+    "@storybook/addon-docs": "^10.5.0",
+    "@storybook/addon-vitest": "^10.5.0",
+    "@storybook/nextjs-vite": "^10.5.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^22.20.0",
+    "@types/node": "^22.20.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/web-push": "^3.6.4",

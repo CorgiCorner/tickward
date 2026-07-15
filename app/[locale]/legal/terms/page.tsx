@@ -65,7 +65,7 @@ export default async function TermsPage(props: Readonly<{ params: Promise<{ loca
             <a className="underline underline-offset-4 hover:text-foreground" href="mailto:contact@tickward.com">
               contact@tickward.com
             </a>
-            .
+            {"."}
           </p>
         </section>
 
@@ -130,7 +130,7 @@ export default async function TermsPage(props: Readonly<{ params: Promise<{ loca
             >
               GitHub
             </a>
-            .
+            {"."}
           </p>
         </section>
 

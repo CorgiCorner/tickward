@@ -63,6 +63,11 @@ export const deMessages = {
   "auth.error.rateLimited": "Warten Sie {seconds}s, bevor Sie einen weiteren Code anfordern.",
   "auth.error.tooManyAttempts": "Zu viele Versuche. Fordern Sie einen neuen Code an.",
   "auth.error.unavailable": "Die Kontoanmeldung ist nicht konfiguriert.",
+  "auth.legal.between": "zu und bestätigen, dass Sie unsere",
+  "auth.legal.prefix": "Wenn Sie fortfahren, stimmen Sie unseren",
+  "auth.legal.privacy": "Datenschutzerklärung",
+  "auth.legal.suffix": " gelesen haben.",
+  "auth.legal.terms": "Nutzungsbedingungen",
   "auth.loading": "Konto wird geprüft...",
   "auth.loading.title": "Anmeldung wird geladen",
   "auth.name": "Name",
@@ -392,9 +397,9 @@ export const deMessages = {
   "errors.rateLimitUnavailable": "Ratenlimit nicht verfügbar.",
   "errors.rateLimited": "Zu viele Anfragen.",
   "errors.requiredEnvMissing": "Erforderliche Umgebungsvariable fehlt: {name}",
-  "errors.webhookSecretEncryptionKeyInvalid":
+  "errors.webhookEncryptionKeyInvalid":
     "TICKWARD_ENCRYPTION_KEY muss ein base64-codierter 32-Byte-Schlüssel sein. Erstellen Sie einen mit: openssl rand -base64 32",
-  "errors.webhookSecretEncryptionKeyRequired":
+  "errors.webhookEncryptionKeyRequired":
     "TICKWARD_ENCRYPTION_KEY ist erforderlich, um verschlüsselte Webhook-Signaturgeheimnisse zu entschlüsseln.",
   "errors.webhookSecretMalformed": "Das verschlüsselte Webhook-Signaturgeheimnis ist fehlerhaft.",
   "errors.webhookSecretMissing": "Das Signaturgeheimnis des Webhook-Endpunkts fehlt.",

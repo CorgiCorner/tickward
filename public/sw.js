@@ -31,10 +31,9 @@ function notificationPayload(data) {
 async function showOwnedClientNotification(event) {
   const sourceId = event.source?.id
   if (typeof sourceId !== "string" || !sourceId) return
-  if (event.origin && event.origin !== globalThis.location.origin) return
 
   const source = await globalThis.clients.get(sourceId)
-  if (!source || source.type !== "window") return
+  if (source?.type !== "window") return
 
   let sourceOrigin
   try {
@@ -52,6 +51,7 @@ async function showOwnedClientNotification(event) {
 
 globalThis.addEventListener("message", (event) => {
   if (event.data?.type !== "SHOW_NOTIFICATION") return
+  if (event.origin !== globalThis.location.origin || !event.source) return
   event.waitUntil(showOwnedClientNotification(event))
 })
 

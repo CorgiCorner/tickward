@@ -7,7 +7,7 @@ import { readOnlyProjectIds, type ProjectMembership } from "@/lib/project-lock"
 export const ACCOUNT_EXPORT_FORMAT = "tickward-account"
 export const ACCOUNT_EXPORT_VERSION = 1
 
-const isoDateSchema = z.string().datetime({ offset: true })
+const isoDateSchema = z.iso.datetime({ offset: true })
 const projectSnapshotSchema = z.custom<ProjectSnapshotV2>(isProjectSnapshot, "Invalid project snapshot.")
 
 export const accountMigrationProjectSchema = z.object({
@@ -31,13 +31,13 @@ export const accountMigrationNotificationPreferenceSchema = z.object({
 
 export const accountMigrationUserSchema = z.object({
   id: z.string().min(1),
-  email: z.string().email(),
+  email: z.email(),
   name: z.string().max(255),
   createdAt: isoDateSchema,
 })
 
 export const accountExportSchema = z
-  .object({
+  .looseObject({
     format: z.literal(ACCOUNT_EXPORT_FORMAT),
     version: z.literal(ACCOUNT_EXPORT_VERSION),
     exportedAt: isoDateSchema,
@@ -46,7 +46,6 @@ export const accountExportSchema = z
     notificationPreferences: z.array(accountMigrationNotificationPreferenceSchema).max(10_000).optional(),
     user: accountMigrationUserSchema.optional(),
   })
-  .passthrough()
   .superRefine((value, context) => {
     const seen = new Set<string>()
     for (const [index, project] of value.projects.entries()) {

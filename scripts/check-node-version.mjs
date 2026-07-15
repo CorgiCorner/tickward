@@ -1,9 +1,12 @@
 #!/usr/bin/env node
-const major = Number(process.versions.node.split(".")[0])
+import { readFileSync } from "node:fs"
 
-if (major === 22) {
+const required = readFileSync(new URL("../.nvmrc", import.meta.url), "utf8").trim()
+const current = process.versions.node
+
+if (current === required) {
   process.exit(0)
 }
 
-console.error(`Tickward release checks require Node 22.x. Current Node version: ${process.version}`)
+console.error(`Repository development requires Node ${required}. Current: ${current}. Run: nvm install && nvm use`)
 process.exit(1)

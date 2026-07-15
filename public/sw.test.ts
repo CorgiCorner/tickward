@@ -57,6 +57,10 @@ describe("service worker notification messages", () => {
     const missingSource = loadWorker()
     await missingSource.dispatchMessage({ source: null })
     expect(missingSource.showNotification).not.toHaveBeenCalled()
+
+    const missingOrigin = loadWorker()
+    await missingOrigin.dispatchMessage({ origin: "" })
+    expect(missingOrigin.showNotification).not.toHaveBeenCalled()
   })
 
   it("rejects non-window and unowned clients", async () => {

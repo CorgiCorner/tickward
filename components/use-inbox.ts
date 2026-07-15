@@ -142,9 +142,9 @@ export function useInbox() {
     }
 
     runInBackground("inbox.refresh", refresh())
-    const onFocus = () => void refresh()
+    const onFocus = () => runInBackground("inbox.refresh", refresh())
     globalThis.addEventListener("focus", onFocus)
-    const id = globalThis.setInterval(() => void refresh(), 90_000)
+    const id = globalThis.setInterval(() => runInBackground("inbox.refresh", refresh()), 90_000)
     return () => {
       globalThis.removeEventListener("focus", onFocus)
       globalThis.clearInterval(id)

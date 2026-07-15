@@ -163,6 +163,25 @@ function AuthBrand() {
   )
 }
 
+function AuthLegalNotice() {
+  const locale = useLocale()
+  const linkClass = "font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+
+  return (
+    <p className="text-[11px] leading-4 text-muted-foreground">
+      {formatMessage("auth.legal.prefix")}{" "}
+      <Link className={linkClass} href={localeHref(locale, "/legal/terms")}>
+        {formatMessage("auth.legal.terms")}
+      </Link>{" "}
+      {formatMessage("auth.legal.between")}{" "}
+      <Link className={linkClass} href={localeHref(locale, "/legal/privacy")}>
+        {formatMessage("auth.legal.privacy")}
+      </Link>
+      {formatMessage("auth.legal.suffix")}
+    </p>
+  )
+}
+
 function EmailCodeForm(
   props: Readonly<{
     className?: string
@@ -201,6 +220,7 @@ function EmailCodeForm(
           onChange={(event) => props.onEmailChange(event.target.value)}
           placeholder={formatMessage("auth.email.placeholder")}
         />
+        <AuthLegalNotice />
       </div>
 
       <AuthError id={errorId} message={props.error} />

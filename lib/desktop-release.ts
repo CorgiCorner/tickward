@@ -13,14 +13,30 @@ function encodeFeedPath(fileName: string): string {
   return fileName.split("/").map(encodeURIComponent).join("/")
 }
 
+function feedValue(line: string, key: string): string | null {
+  const trimmed = line.trimStart()
+  const normalized = trimmed.startsWith("-") ? trimmed.slice(1).trimStart() : trimmed
+  const prefix = `${key}:`
+  if (!normalized.startsWith(prefix)) return null
+  const value = normalized.slice(prefix.length).trim()
+  return value || null
+}
+
 // latest-mac.yml is a small flat YAML document; a full parser would be
-// overkill for the two fields we need.
+// overkill for the two fields we need. Parsing it line by line also keeps the
+// runtime linear for malformed or unexpectedly large feed content.
 export function parseDesktopFeed(feed: string): DesktopRelease | null {
-  const version = /^version:\s*(\S+)\s*$/m.exec(feed)?.[1]
-  const dmgFile = /^\s*-?\s*url:\s*(.+\.dmg)\s*$/m.exec(feed)?.[1]
+  let version: string | null = null
+  let dmgFile: string | null = null
+  for (const line of feed.split("\n")) {
+    version ??= feedValue(line, "version")
+    const url = feedValue(line, "url")
+    if (url?.endsWith(".dmg")) dmgFile = url
+    if (version && dmgFile) break
+  }
   if (!version || !dmgFile) return null
   return {
-    dmgUrl: `${DESKTOP_FEED_BASE_URL}/${encodeFeedPath(dmgFile.trim())}`,
+    dmgUrl: `${DESKTOP_FEED_BASE_URL}/${encodeFeedPath(dmgFile)}`,
     version,
   }
 }

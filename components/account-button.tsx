@@ -14,6 +14,7 @@ import { useLocale } from "@/components/locale-provider"
 import type { AccountMenuLink, AccountMenuLinkIcon } from "@/lib/app-extension-points"
 import { authClient } from "@/lib/auth/auth-client"
 import { authErrorMessage } from "@/lib/auth/auth-client-errors"
+import { runInBackground } from "@/lib/background-task"
 import { formatMessage, localeHref } from "@/lib/i18n/messages"
 import { setLocalInAppNotificationsEnabled } from "@/lib/local-notification-preferences.client"
 import { useTimerStore } from "@/lib/store"
@@ -111,7 +112,7 @@ export function AccountButton() {
   const signOutAction = useAccountSignOut(session)
 
   if (!user) {
-    return <SignInDialog onCompleted={() => void session.refetch?.()} />
+    return <SignInDialog onCompleted={() => runInBackground("account.sessionRefetch", session.refetch?.())} />
   }
 
   const visibleAccountMenuLinks = accountMenuLinks.filter(
@@ -169,7 +170,7 @@ export function AccountButton() {
           size="sm"
           className="w-full justify-start"
           loading={signOutAction.loading}
-          onClick={() => void signOutAction.signOut()}
+          onClick={() => runInBackground("account.signOut", signOutAction.signOut())}
         >
           {!signOutAction.loading && <LogOutIcon className="size-4" />}
           {formatMessage("auth.signOut")}

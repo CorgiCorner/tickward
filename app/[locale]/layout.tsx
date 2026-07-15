@@ -13,8 +13,8 @@ import { webMcpInlineScript } from "@/components/webmcp-inline-script"
 import { appExtensions } from "@/lib/app-extensions"
 import { setActiveLocale } from "@/lib/i18n/active-locale"
 import { ogLocale } from "@/lib/i18n/config"
-import { formatMessage, isSupportedLocale, SUPPORTED_LOCALES, type Locale } from "@/lib/i18n/messages"
-import { getSiteOrigin, getSiteUrl } from "@/lib/site-config"
+import { formatMessage, isSupportedLocale, localeHref, SUPPORTED_LOCALES, type Locale } from "@/lib/i18n/messages"
+import { getSiteUrl } from "@/lib/site-config"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -66,7 +66,7 @@ export async function generateMetadata(props: Readonly<{ params: Promise<{ local
     openGraph: {
       title: formatMessage("app.title.default", {}, locale),
       description: formatMessage("app.description", {}, locale),
-      url: getSiteOrigin(),
+      url: localeHref(locale, "/"),
       siteName: "tickward",
       type: "website",
       locale: ogLocale(locale),

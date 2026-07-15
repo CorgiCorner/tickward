@@ -56,7 +56,7 @@ export default async function PrivacyPage(props: Readonly<{ params: Promise<{ lo
             <a className="underline underline-offset-4 hover:text-foreground" href="mailto:contact@tickward.com">
               contact@tickward.com
             </a>
-            . There is no other operating entity.
+            {". There is no other operating entity."}
           </p>
         </section>
 
@@ -67,15 +67,16 @@ export default async function PrivacyPage(props: Readonly<{ params: Promise<{ lo
             <a className="underline underline-offset-4 hover:text-foreground" href="https://tickward.com">
               tickward.com
             </a>
-            . It works without an account. You can optionally create an account using an email one-time code or Sign in
-            with Google. The source code is available under AGPL-3.0 on{" "}
+            {
+              ". It works without an account. You can optionally create an account using an email one-time code or Sign in with Google. The source code is available under AGPL-3.0 on "
+            }
             <a
               className="underline underline-offset-4 hover:text-foreground"
               href="https://github.com/CorgiCorner/tickward"
             >
               GitHub
             </a>
-            .
+            {"."}
           </p>
         </section>
 
@@ -118,7 +119,7 @@ export default async function PrivacyPage(props: Readonly<{ params: Promise<{ lo
             >
               subprocessor list
             </a>
-            .
+            {"."}
           </p>
         </section>
 

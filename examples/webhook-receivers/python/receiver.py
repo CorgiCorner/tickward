@@ -17,12 +17,12 @@ LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 
 def verify_signature(header: str, raw_body: bytes) -> bool:
-    parts = {
-        key: value
-        for key, value in (
-            part.split("=", 1) for part in header.split(",") if "=" in part
-        )
-    }
+    parts: dict[str, str] = {}
+    for part in header.split(","):
+        if "=" not in part:
+            continue
+        name, value = part.split("=", 1)
+        parts[name] = value
     timestamp = parts.get("t", "")
     expected = parts.get("v1", "")
     if not timestamp or not expected:
@@ -67,4 +67,6 @@ if __name__ == "__main__":
             "Refusing a non-loopback HTTP listener. Terminate TLS at a trusted "
             "reverse proxy and set TICKWARD_TLS_TERMINATED=true."
         )
-    HTTPServer((HOST, PORT), Handler).serve_forever()
+    # This standard-library server is intentionally restricted to loopback or
+    # a TLS-terminating reverse proxy by the guard above.
+    HTTPServer((HOST, PORT), Handler).serve_forever()  # NOSONAR

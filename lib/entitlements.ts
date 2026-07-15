@@ -92,6 +92,10 @@ export function defaultEntitlementsTable(): EntitlementsTable {
 
 let activeTable: EntitlementsTable | null = null
 let activePlan: PlanId = "anonymous"
+const AUTHENTICATED_PLAN_BY_ROLE: Readonly<Record<NonNullable<UserRef["role"]>, PlanId>> = {
+  admin: "free",
+  user: "free",
+}
 
 export function setEntitlementsTable(table: EntitlementsTable) {
   if (typeof window === "undefined") return
@@ -107,8 +111,7 @@ export function setActiveClientPlan(plan: PlanId) {
 }
 
 export function planForUser(user: UserRef): PlanId {
-  void user
-  return "free"
+  return AUTHENTICATED_PLAN_BY_ROLE[user.role ?? "user"]
 }
 
 /** Resolve limits from an explicit actor or the active client plan. */

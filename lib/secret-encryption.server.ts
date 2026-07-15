@@ -14,7 +14,7 @@ const SECRET_ENCRYPTION_TAG_BYTES = 16
 const STANDARD_BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 
 function encryptionKeyError() {
-  return new Error(formatMessage("errors.webhookSecretEncryptionKeyInvalid"))
+  return new Error(formatMessage("errors.webhookEncryptionKeyInvalid"))
 }
 
 function encryptedSecretFormatError() {
@@ -59,7 +59,7 @@ export function decryptSecret(value: string): string {
 
   const key = readEncryptionKey()
   if (!key) {
-    throw new Error(formatMessage("errors.webhookSecretEncryptionKeyRequired"))
+    throw new Error(formatMessage("errors.webhookEncryptionKeyRequired"))
   }
 
   const parts = value.split(":")

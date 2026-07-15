@@ -145,7 +145,10 @@ function ProjectConflictBanner() {
             <Button size="sm" variant="outline" onClick={useCloudProjectVersion}>
               {formatMessage("home.conflict.useCloud")}
             </Button>
-            <Button size="sm" onClick={() => void overwriteCloudProjectVersion()}>
+            <Button
+              size="sm"
+              onClick={() => runInBackground("home.overwriteCloudProjectVersion", overwriteCloudProjectVersion())}
+            >
               {formatMessage("home.conflict.overwriteCloud")}
             </Button>
           </div>
@@ -619,14 +622,6 @@ export function HomeClient() {
 
   useEffect(() => {
     if (!hasHydrated) return
-    const url = new URL(globalThis.location.href)
-    if (!url.searchParams.has("space")) return
-    url.searchParams.delete("space")
-    globalThis.history.replaceState(null, "", url.toString())
-  }, [hasHydrated])
-
-  useEffect(() => {
-    if (!hasHydrated) return
     runInBackground("home.refreshFollowedTimers", refreshFollowedTimers())
     const id = globalThis.setInterval(() => {
       runInBackground("home.refreshFollowedTimers", refreshFollowedTimers())
@@ -636,9 +631,12 @@ export function HomeClient() {
 
   useEffect(() => {
     if (!hasHydrated) return
-    const onFocus = () => void refreshActiveProjectFromCloud()
+    const onFocus = () => runInBackground("home.refreshActiveProjectFromCloud", refreshActiveProjectFromCloud())
     globalThis.addEventListener("focus", onFocus)
-    const id = globalThis.setInterval(() => void refreshActiveProjectFromCloud(), 300_000)
+    const id = globalThis.setInterval(
+      () => runInBackground("home.refreshActiveProjectFromCloud", refreshActiveProjectFromCloud()),
+      300_000,
+    )
     return () => {
       globalThis.removeEventListener("focus", onFocus)
       globalThis.clearInterval(id)

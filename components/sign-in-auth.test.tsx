@@ -101,6 +101,13 @@ describe("SignInPageClient", () => {
     expect(emailInput).toHaveAttribute("data-np-ignore", "true")
   })
 
+  it("shows the legal terms below the email field", () => {
+    render(<SignInPageClient />)
+
+    expect(screen.getByRole("link", { name: "Terms of Service" })).toHaveAttribute("href", "/en/legal/terms")
+    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/en/legal/privacy")
+  })
+
   it("centers the signed-in state", () => {
     mocks.useSession.mockReturnValue({ data: { user: { email: "ada@example.com" } }, refetch: mocks.refetch })
 
@@ -151,6 +158,8 @@ describe("SignInDialog", () => {
 
     await user.click(screen.getByRole("button", { name: "Sign in" }))
     expect(screen.getByRole("dialog")).toBeVisible()
+    expect(screen.getByRole("link", { name: "Terms of Service" })).toHaveAttribute("href", "/en/legal/terms")
+    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/en/legal/privacy")
 
     await user.type(screen.getByLabelText("Email"), "Ada@Example.com")
     await user.click(screen.getByRole("button", { name: "Send code" }))

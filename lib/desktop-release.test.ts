@@ -32,4 +32,8 @@ describe("parseDesktopFeed", () => {
   it("returns null for malformed content", () => {
     expect(parseDesktopFeed("<html>not a feed</html>")).toBeNull()
   })
+
+  it("handles a large malformed line without regex backtracking", () => {
+    expect(parseDesktopFeed(`url: ${"x".repeat(100_000)}`)).toBeNull()
+  })
 })

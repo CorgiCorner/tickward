@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.12.0 - 2026-07-15
+
+### Added
+
+- Added a homepage section for discovering and downloading the native macOS app.
+- Added configurable PostgreSQL pool limits, timeouts, and application naming for self-hosted deployments.
+- Added privacy and terms links to the sign-in flow.
+
+### Changed
+
+- Pinned the supported Node 22 development runtime and refreshed supported application and CI dependencies.
+
+### Fixed
+
+- Kept the active space in the URL, restored it on page load, and removed invalid or cleared space parameters.
+
 ## 0.11.0 - 2026-07-12
 
 ### Added

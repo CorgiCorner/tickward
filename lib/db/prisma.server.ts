@@ -2,6 +2,7 @@ import "server-only"
 
 import { PrismaPg } from "@prisma/adapter-pg"
 
+import { databasePoolConfig } from "@/lib/db/pool-config"
 import { PrismaClient } from "@/lib/generated/prisma/client"
 import { formatMessage } from "@/lib/i18n/messages"
 import { getDatabaseSchema, getDatabaseUrl } from "@/lib/private-config.server"
@@ -27,7 +28,10 @@ export function getPrismaClient(): PrismaClient | null {
 
   const globalForPrisma = globalThis as TickwardPrismaGlobal
   globalForPrisma.tickwardPrisma ??= new PrismaClient({
-    adapter: new PrismaPg({ connectionString: databaseUrl }, { schema: getDatabaseSchema() }),
+    adapter: new PrismaPg(
+      { connectionString: databaseUrl, ...databasePoolConfig() },
+      { schema: getDatabaseSchema() },
+    ),
   })
 
   return globalForPrisma.tickwardPrisma

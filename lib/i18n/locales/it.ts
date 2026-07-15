@@ -64,6 +64,11 @@ export const itMessages = {
   "auth.error.rateLimited": "Attendi {seconds}s prima di richiedere un altro codice.",
   "auth.error.tooManyAttempts": "Troppi tentativi. Richiedi un nuovo codice.",
   "auth.error.unavailable": "L'accesso all'account non è configurato.",
+  "auth.legal.between": "e confermi di aver letto la nostra",
+  "auth.legal.prefix": "Continuando, accetti i nostri",
+  "auth.legal.privacy": "Informativa sulla privacy",
+  "auth.legal.suffix": ".",
+  "auth.legal.terms": "Termini di servizio",
   "auth.loading": "Verifica dell'account...",
   "auth.loading.title": "Caricamento accesso",
   "auth.name": "Nome",
@@ -390,9 +395,9 @@ export const itMessages = {
   "errors.rateLimitUnavailable": "Limite di richieste non disponibile.",
   "errors.rateLimited": "Troppe richieste.",
   "errors.requiredEnvMissing": "Variabile d'ambiente richiesta mancante: {name}",
-  "errors.webhookSecretEncryptionKeyInvalid":
+  "errors.webhookEncryptionKeyInvalid":
     "TICKWARD_ENCRYPTION_KEY deve essere una chiave di 32 byte codificata in base64. Generane una con: openssl rand -base64 32",
-  "errors.webhookSecretEncryptionKeyRequired":
+  "errors.webhookEncryptionKeyRequired":
     "TICKWARD_ENCRYPTION_KEY è necessaria per decifrare i segreti di firma dei webhook cifrati.",
   "errors.webhookSecretMalformed": "Il segreto di firma del webhook cifrato è malformato.",
   "errors.webhookSecretMissing": "Manca il segreto di firma dell'endpoint webhook.",

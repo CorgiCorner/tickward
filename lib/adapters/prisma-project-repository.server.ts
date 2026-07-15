@@ -1,7 +1,11 @@
 import "server-only"
 
 import type { UserRef } from "@/lib/contracts"
-import { planAccountProjectImport, type AccountMigrationProject } from "@/lib/account-migration"
+import {
+  planAccountProjectImport,
+  type AccountImportAction,
+  type AccountMigrationProject,
+} from "@/lib/account-migration"
 import { hashRestoreKeyToken, type RestoreKeyTokenHash } from "@/lib/auth/restore-key-token.server"
 import { jsonInput } from "@/lib/db/prisma-json.server"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
@@ -290,6 +294,149 @@ async function deleteProjectGraph(
     await tx.projectAccessToken.deleteMany({ where: { projectId: args.projectId } })
     await tx.project.delete({ where: { id: args.projectId } })
   })
+}
+
+type ImportUserProjectsArgs = Parameters<NonNullable<ProjectRepository["importUserProjects"]>>[0]
+
+async function importUserMetadata(tx: Prisma.TransactionClient, args: ImportUserProjectsArgs) {
+  if (args.profileName !== undefined) {
+    await tx.user.update({ where: { id: args.user.id }, data: { name: args.profileName } })
+  }
+
+  if (!args.accountPreferences) return
+  const preferences = args.accountPreferences
+  const data = {
+    defaultTimezone: preferences.default_timezone,
+    emailReminders: preferences.email_reminders,
+    fullPageAlarm: preferences.full_page_alarm,
+    inAppNotifications: preferences.in_app_notifications,
+    notificationSound: preferences.notification_sound,
+  }
+  await tx.userPreference.upsert({
+    where: { userId: args.user.id },
+    create: { userId: args.user.id, ...data },
+    update: data,
+  })
+}
+
+async function importNotificationPreferences(tx: Prisma.TransactionClient, args: ImportUserProjectsArgs) {
+  for (const preference of args.notificationPreferences ?? []) {
+    const identity = {
+      userId: args.user.id,
+      targetType: preference.targetType,
+      targetId: preference.targetId,
+    }
+    const data = {
+      channels: jsonInput(preference.channels),
+      presentation: jsonInput(preference.presentation),
+      updatedAt: new Date(preference.updatedAt),
+    }
+    await tx.notificationPreference.upsert({
+      where: { userId_targetType_targetId: identity },
+      create: { ...identity, ...data, createdAt: new Date(preference.createdAt) },
+      update: data,
+    })
+  }
+}
+
+async function createImportedProject(
+  tx: Prisma.TransactionClient,
+  action: AccountImportAction,
+  ownerId: string,
+  importedAt: string,
+  snapshot: ProjectSnapshotV2,
+) {
+  const fallbackDate = dateFromIso(snapshot.updatedAt, new Date(importedAt))
+  await tx.project.create({
+    data: {
+      id: action.project.id,
+      ownerId,
+      claimedAt: new Date(action.claimedAt),
+      createdAt: dateFromIso(action.project.createdAt, fallbackDate),
+      ...prismaProjectFields(snapshot),
+      ...(snapshot.timers.length > 0
+        ? {
+            timers: {
+              create: snapshot.timers.map((timer) => ({
+                ...timerCreateData(timer, fallbackDate),
+                ownerId,
+              })),
+            },
+          }
+        : {}),
+      ...(snapshot.spaces.length > 0
+        ? {
+            spaces: {
+              create: snapshot.spaces.map((space) => ({
+                ...spaceCreateData(space, fallbackDate),
+                ownerId,
+              })),
+            },
+          }
+        : {}),
+    },
+  })
+}
+
+async function replaceImportedProject(
+  tx: Prisma.TransactionClient,
+  action: AccountImportAction,
+  ownerId: string,
+  snapshot: ProjectSnapshotV2,
+) {
+  const previousTimerIds = (
+    await tx.timer.findMany({ where: { projectId: action.project.id }, select: { id: true } })
+  ).map((timer) => timer.id)
+  await cancelScheduledTimerReminderIntentsForTimers(tx, {
+    projectId: action.project.id,
+    timerIds: previousTimerIds,
+  })
+  for (const timerId of previousTimerIds) {
+    await cancelPendingTimerEndedEvents(tx, { projectId: action.project.id, timerId, userId: ownerId })
+  }
+
+  const timerRows = timerCreateManyData(action.project.id, ownerId, snapshot)
+  const spaceRows = spaceCreateManyData(action.project.id, ownerId, snapshot)
+  await tx.project.update({
+    where: { id: action.project.id, ownerId },
+    data: prismaProjectFields(snapshot),
+  })
+  await tx.timer.deleteMany({ where: { projectId: action.project.id } })
+  await tx.space.deleteMany({ where: { projectId: action.project.id } })
+  if (timerRows.length > 0) await tx.timer.createMany({ data: timerRows })
+  if (spaceRows.length > 0) await tx.space.createMany({ data: spaceRows })
+}
+
+async function importPlannedProject(
+  tx: Prisma.TransactionClient,
+  action: AccountImportAction,
+  args: Pick<ImportUserProjectsArgs, "importedAt" | "user">,
+) {
+  const snapshot = importedProjectSnapshot(action.project)
+  const ownerId = args.user.id
+  if (action.kind === "create") {
+    await createImportedProject(tx, action, ownerId, args.importedAt, snapshot)
+  } else {
+    await replaceImportedProject(tx, action, ownerId, snapshot)
+  }
+
+  for (const timer of snapshot.timers) {
+    await reconcileTimerReminders(tx, { project: { id: action.project.id, ownerId }, timer })
+    await scheduleTimerEndedEvent(tx, {
+      project: { id: action.project.id, name: snapshot.name, ownerId },
+      timer,
+    })
+  }
+}
+
+async function executeProjectImport(
+  tx: Prisma.TransactionClient,
+  args: ImportUserProjectsArgs,
+  actions: AccountImportAction[],
+) {
+  await importUserMetadata(tx, args)
+  await importNotificationPreferences(tx, args)
+  for (const action of actions) await importPlannedProject(tx, action, args)
 }
 
 export const prismaProjectRepository: ProjectRepository = {
@@ -599,121 +746,7 @@ export const prismaProjectRepository: ProjectRepository = {
       userId: args.user.id,
     })
 
-    await prisma.$transaction(async (tx) => {
-      if (args.profileName !== undefined) {
-        await tx.user.update({ where: { id: args.user.id }, data: { name: args.profileName } })
-      }
-
-      if (args.accountPreferences) {
-        const preferences = args.accountPreferences
-        await tx.userPreference.upsert({
-          where: { userId: args.user.id },
-          create: {
-            userId: args.user.id,
-            defaultTimezone: preferences.default_timezone,
-            emailReminders: preferences.email_reminders,
-            fullPageAlarm: preferences.full_page_alarm,
-            inAppNotifications: preferences.in_app_notifications,
-            notificationSound: preferences.notification_sound,
-          },
-          update: {
-            defaultTimezone: preferences.default_timezone,
-            emailReminders: preferences.email_reminders,
-            fullPageAlarm: preferences.full_page_alarm,
-            inAppNotifications: preferences.in_app_notifications,
-            notificationSound: preferences.notification_sound,
-          },
-        })
-      }
-
-      for (const preference of args.notificationPreferences ?? []) {
-        const identity = {
-          userId: args.user.id,
-          targetType: preference.targetType,
-          targetId: preference.targetId,
-        }
-        const data = {
-          channels: jsonInput(preference.channels),
-          presentation: jsonInput(preference.presentation),
-          updatedAt: new Date(preference.updatedAt),
-        }
-        await tx.notificationPreference.upsert({
-          where: { userId_targetType_targetId: identity },
-          create: {
-            ...identity,
-            ...data,
-            createdAt: new Date(preference.createdAt),
-          },
-          update: data,
-        })
-      }
-
-      for (const action of plan.actions) {
-        const snapshot = importedProjectSnapshot(action.project)
-        const ownerId = args.user.id
-        if (action.kind === "create") {
-          const fallbackDate = dateFromIso(snapshot.updatedAt, new Date(args.importedAt))
-          await tx.project.create({
-            data: {
-              id: action.project.id,
-              ownerId,
-              claimedAt: new Date(action.claimedAt),
-              createdAt: dateFromIso(action.project.createdAt, fallbackDate),
-              ...prismaProjectFields(snapshot),
-              ...(snapshot.timers.length > 0
-                ? {
-                    timers: {
-                      create: snapshot.timers.map((timer) => ({
-                        ...timerCreateData(timer, fallbackDate),
-                        ownerId,
-                      })),
-                    },
-                  }
-                : {}),
-              ...(snapshot.spaces.length > 0
-                ? {
-                    spaces: {
-                      create: snapshot.spaces.map((space) => ({
-                        ...spaceCreateData(space, fallbackDate),
-                        ownerId,
-                      })),
-                    },
-                  }
-                : {}),
-            },
-          })
-        } else {
-          const previousTimerIds = (
-            await tx.timer.findMany({ where: { projectId: action.project.id }, select: { id: true } })
-          ).map((timer) => timer.id)
-          await cancelScheduledTimerReminderIntentsForTimers(tx, {
-            projectId: action.project.id,
-            timerIds: previousTimerIds,
-          })
-          for (const timerId of previousTimerIds) {
-            await cancelPendingTimerEndedEvents(tx, { projectId: action.project.id, timerId, userId: ownerId })
-          }
-          const timerRows = timerCreateManyData(action.project.id, ownerId, snapshot)
-          const spaceRows = spaceCreateManyData(action.project.id, ownerId, snapshot)
-          await tx.project.update({
-            where: { id: action.project.id, ownerId },
-            data: prismaProjectFields(snapshot),
-          })
-          await tx.timer.deleteMany({ where: { projectId: action.project.id } })
-          await tx.space.deleteMany({ where: { projectId: action.project.id } })
-          if (timerRows.length > 0) await tx.timer.createMany({ data: timerRows })
-          if (spaceRows.length > 0) await tx.space.createMany({ data: spaceRows })
-        }
-
-        for (const timer of snapshot.timers) {
-          await reconcileTimerReminders(tx, { project: { id: action.project.id, ownerId }, timer })
-          await scheduleTimerEndedEvent(tx, {
-            project: { id: action.project.id, name: snapshot.name, ownerId },
-            timer,
-          })
-        }
-      }
-    })
+    await prisma.$transaction((tx) => executeProjectImport(tx, args, plan.actions))
 
     return {
       accountPreferencesImported: Boolean(args.accountPreferences),

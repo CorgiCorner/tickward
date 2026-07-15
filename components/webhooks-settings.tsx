@@ -476,7 +476,7 @@ function WebhookEndpointRow(
                   type="button"
                   loading={eventEditBusy}
                   disabled={selectedEvents.length === 0}
-                  onClick={() => void submitEventsUpdate()}
+                  onClick={() => runInBackground("webhooks.eventsUpdate", submitEventsUpdate())}
                 >
                   {formatMessage("common.save")}
                 </Button>
@@ -744,11 +744,11 @@ export function WebhooksSettingsPanel(
             removeLoading={removeLoading}
             reenableLoading={reenableLoading}
             testLoading={testLoading}
-            onSendTest={(id, eventType) => void submitTest(id, eventType)}
-            onDisable={(id) => void submitDisable(id)}
+            onSendTest={(id, eventType) => runInBackground("webhooks.test", submitTest(id, eventType))}
+            onDisable={(id) => runInBackground("webhooks.disable", submitDisable(id))}
             onEventsUpdate={submitEventsUpdate}
-            onRemove={(id) => void submitRemove(id)}
-            onReenable={(id) => void submitReenable(id)}
+            onRemove={(id) => runInBackground("webhooks.remove", submitRemove(id))}
+            onReenable={(id) => runInBackground("webhooks.reenable", submitReenable(id))}
           />
         ))}
       </div>
@@ -789,7 +789,7 @@ export function WebhooksSettingsPanel(
               <form
                 id="webhook-create-form"
                 className="grid gap-4"
-                onSubmit={(event) => void form.handleSubmit(submitCreate)(event)}
+                onSubmit={(event) => runInBackground("webhooks.create", form.handleSubmit(submitCreate)(event))}
               >
                 {created ? <CreatedWebhookPanel created={created} /> : null}
                 <div className="grid gap-2">

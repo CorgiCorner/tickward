@@ -64,6 +64,11 @@ export const plMessages = {
   "auth.error.rateLimited": "Poczekaj {seconds}s, zanim poprosisz o kolejny kod.",
   "auth.error.tooManyAttempts": "Za dużo prób. Poproś o nowy kod.",
   "auth.error.unavailable": "Logowanie do konta nie jest skonfigurowane.",
+  "auth.legal.between": "i potwierdzasz zapoznanie się z",
+  "auth.legal.prefix": "Kontynuując, akceptujesz nasz",
+  "auth.legal.privacy": "Polityką prywatności",
+  "auth.legal.suffix": ".",
+  "auth.legal.terms": "Regulamin",
   "auth.loading": "Sprawdzanie konta...",
   "auth.loading.title": "Ładowanie logowania",
   "auth.name": "Imię",
@@ -385,9 +390,9 @@ export const plMessages = {
   "errors.rateLimitUnavailable": "Limit żądań jest niedostępny.",
   "errors.rateLimited": "Za dużo żądań.",
   "errors.requiredEnvMissing": "Brakuje wymaganej zmiennej środowiskowej: {name}",
-  "errors.webhookSecretEncryptionKeyInvalid":
+  "errors.webhookEncryptionKeyInvalid":
     "TICKWARD_ENCRYPTION_KEY musi być kluczem 32-bajtowym zakodowanym w base64. Wygeneruj go poleceniem: openssl rand -base64 32",
-  "errors.webhookSecretEncryptionKeyRequired":
+  "errors.webhookEncryptionKeyRequired":
     "TICKWARD_ENCRYPTION_KEY jest wymagany do odszyfrowania zaszyfrowanych sekretów podpisywania webhooków.",
   "errors.webhookSecretMalformed": "Zaszyfrowany sekret podpisywania webhooka ma nieprawidłowy format.",
   "errors.webhookSecretMissing": "Brakuje sekretu podpisywania punktu końcowego webhooka.",

@@ -204,5 +204,6 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // Match every page path (no dots, not _next) so the default locale can be
   // rewritten into the app/[locale] tree, plus the API for origin checks.
-  matcher: ["/((?!api|_next|.*\\..*).*)", "/", "/api/:path*"],
+  // Next.js statically analyzes matcher values and rejects String.raw here.
+  matcher: ["/((?!api|_next|.*\\..*).*)", "/", "/api/:path*"], // NOSONAR typescript:S7780
 }

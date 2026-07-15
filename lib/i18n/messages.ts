@@ -33,7 +33,8 @@ function escapeRegex(value: string) {
 
 function messageTemplateRegex(template: string) {
   const token = "{n}"
-  return new RegExp(`^${template.split(token).map(escapeRegex).join(String.raw`(\d+)`)}$`)
+  const pattern = template.split(token).map(escapeRegex).join(String.raw`(\d+)`)
+  return new RegExp(`^${pattern}$`)
 }
 
 const defaultTimerLabelRegexes = Array.from(

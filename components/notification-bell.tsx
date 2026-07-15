@@ -8,6 +8,7 @@ import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { getActiveLocale } from "@/lib/i18n/active-locale"
 import { formatMessage } from "@/lib/i18n/messages"
+import { runInBackground } from "@/lib/background-task"
 import { formatTimerReminderOffset } from "@/lib/timer-reminder-offset"
 import { cn } from "@/lib/utils"
 
@@ -94,7 +95,7 @@ export function NotificationBell() {
               <button
                 type="button"
                 className="text-xs font-medium text-primary outline-none hover:underline focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-                onClick={() => void inbox.markAllRead()}
+                onClick={() => runInBackground("inbox.markAllRead", inbox.markAllRead())}
               >
                 {formatMessage("notifications.inbox.markAllRead")}
               </button>
@@ -119,7 +120,7 @@ export function NotificationBell() {
                     "flex w-full items-start gap-2 rounded-md px-2 py-2 text-left outline-none transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:ring-ring/50 focus-visible:ring-[3px]",
                     unread && "bg-primary/[0.025]",
                   )}
-                  onClick={() => void inbox.markRead([item.id])}
+                  onClick={() => runInBackground("inbox.markRead", inbox.markRead([item.id]))}
                 >
                   <span
                     aria-hidden
