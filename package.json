@@ -1,6 +1,6 @@
 {
   "name": "tickward",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "Open-source countdown timers with projects, sharing, account sync, and a versioned API.",
   "private": true,
   "license": "AGPL-3.0-only",

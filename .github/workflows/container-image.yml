@@ -36,8 +36,6 @@ jobs:
     outputs:
       dockerhub_enabled: ${{ steps.dockerhub.outputs.enabled }}
       ghcr_enabled: ${{ steps.ghcr.outputs.enabled }}
-      dockerhub_tags: ${{ steps.dockerhub-meta.outputs.tags }}
-      ghcr_tags: ${{ steps.ghcr-meta.outputs.tags }}
       labels: ${{ steps.ghcr-meta.outputs.labels }}
 
     steps:
@@ -168,9 +166,8 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          tags: ${{ needs.prepare.outputs.ghcr_tags }}
           labels: ${{ needs.prepare.outputs.labels }}
-          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.GHCR_IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=build-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=build-${{ matrix.arch }}
 
@@ -227,9 +224,8 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          tags: ${{ needs.prepare.outputs.dockerhub_tags }}
           labels: ${{ needs.prepare.outputs.labels }}
-          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.DOCKERHUB_IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=build-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=build-${{ matrix.arch }}
 
@@ -280,14 +276,21 @@ jobs:
         working-directory: ${{ runner.temp }}/digests
         env:
           IMAGE_NAME: ${{ env.GHCR_IMAGE }}
-          IMAGE_TAGS: ${{ needs.prepare.outputs.ghcr_tags }}
+          RELEASE_VERSION: ${{ github.event.client_payload.version }}
+          RELEASE_MINOR: ${{ github.event.client_payload.minor }}
+          RELEASE_MAJOR: ${{ github.event.client_payload.major }}
         run: |
           tag_args=()
-          while IFS= read -r tag; do
-            if [ -n "${tag}" ] && [ "${tag#"${IMAGE_NAME}:"}" != "${tag}" ]; then
-              tag_args+=("-t" "${tag}")
-            fi
-          done <<< "${IMAGE_TAGS}"
+          tag_names=()
+          if [ "${GITHUB_EVENT_NAME}" = "repository_dispatch" ]; then
+            tag_names+=("${RELEASE_VERSION}" "${RELEASE_MINOR}" "${RELEASE_MAJOR}" "latest" "edge")
+          elif [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            tag_names+=("edge")
+          fi
+          tag_names+=("sha-${GITHUB_SHA::7}")
+          for tag in "${tag_names[@]}"; do
+            tag_args+=("-t" "${IMAGE_NAME}:${tag}")
+          done
 
           source_args=()
           for digest in *; do
@@ -328,14 +331,21 @@ jobs:
         working-directory: ${{ runner.temp }}/digests
         env:
           IMAGE_NAME: ${{ env.DOCKERHUB_IMAGE }}
-          IMAGE_TAGS: ${{ needs.prepare.outputs.dockerhub_tags }}
+          RELEASE_VERSION: ${{ github.event.client_payload.version }}
+          RELEASE_MINOR: ${{ github.event.client_payload.minor }}
+          RELEASE_MAJOR: ${{ github.event.client_payload.major }}
         run: |
           tag_args=()
-          while IFS= read -r tag; do
-            if [ -n "${tag}" ] && [ "${tag#"${IMAGE_NAME}:"}" != "${tag}" ]; then
-              tag_args+=("-t" "${tag}")
-            fi
-          done <<< "${IMAGE_TAGS}"
+          tag_names=()
+          if [ "${GITHUB_EVENT_NAME}" = "repository_dispatch" ]; then
+            tag_names+=("${RELEASE_VERSION}" "${RELEASE_MINOR}" "${RELEASE_MAJOR}" "latest" "edge")
+          elif [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            tag_names+=("edge")
+          fi
+          tag_names+=("sha-${GITHUB_SHA::7}")
+          for tag in "${tag_names[@]}"; do
+            tag_args+=("-t" "${IMAGE_NAME}:${tag}")
+          done
 
           source_args=()
           for digest in *; do

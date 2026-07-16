@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.13.1 - 2026-07-16
+
+### Fixed
+
+- Fixed multi-architecture container publishing for Docker Hub and GHCR.
+
 ## 0.13.0 - 2026-07-16
 
 ### Added
