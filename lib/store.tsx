@@ -5,6 +5,8 @@ import { useStore } from "zustand"
 import { immer } from "zustand/middleware/immer"
 import { type StoreApi, createStore } from "zustand/vanilla"
 
+import { trackCountUpAnalyticsEvent } from "@/components/plausible-analytics"
+
 import {
   canCreateTimerInSpace,
   defaultEntitlementsTable,
@@ -17,6 +19,7 @@ import { accountProjectMemberships, isProjectReadOnly } from "./project-lock"
 import { runInBackground } from "./background-task"
 import { logClientError, safeClientErrorMessage } from "./client-errors"
 import { formatMessage } from "./i18n/messages"
+import { readLocalCountUpPolicy, subscribeLocalCountUpPolicy } from "./local-count-up-policy.client"
 import { isProjectClaimDismissed } from "./project-claim-dismissal.client"
 import { projectCloudClient, type RestoreProjectResult } from "./project-client"
 import { type ProjectMeta, type UserProjectSummary, isValidRestoreKey, normalizeProjectName } from "./project-model"
@@ -50,6 +53,20 @@ import {
 } from "./stores/timer-store-domain"
 import { applyFollowedTimerResults, fetchFollowedTimerResults, followedShareIds } from "./stores/timer-store-followed"
 import {
+  countUpOccurrenceToWire,
+  fetchCountUpOccurrences,
+  getCountUpOccurrenceKey,
+  mergeCountUpOccurrences,
+  postCountUpAction,
+  readCountUpState,
+  removeCountUpState,
+  countUpStorageProjectIds,
+  writeCountUpState,
+  type CountUpObservation,
+  type CountUpOccurrence,
+} from "./stores/count-up-store"
+import { getCountUpExpiresAt, reconcileCountUpOccurrences } from "./stores/count-up-tracker"
+import {
   payloadForProject,
   readActiveProjectId,
   readProjectRegistry,
@@ -73,6 +90,8 @@ export type {
   TimerStore,
   TimerStoreInit,
 } from "./stores/timer-store-types"
+
+const INITIAL_COUNT_UP_PROJECT_ID = "__initial_count_up_project__"
 
 function canAddTimerToSpace(timers: Timer[], spaceId: string | null | undefined, { archived = false } = {}) {
   const entitlements = getEntitlements()
@@ -238,6 +257,12 @@ export function createTimerStore(init?: TimerStoreInit) {
   // removeAccountProjectsFromDevice and must keep applying their refreshes.
   let accountEpoch = 0
   let autoClaimInFlight: ReturnType<TimerStore["maybeAutoClaimActiveProject"]> | null = null
+  const countUpObservationsByProject = new Map<string, CountUpObservation[]>()
+  let countUpCloudEnabled = false
+  let countUpMutationQueue = Promise.resolve()
+  let countUpExpiryTimer: ReturnType<typeof setTimeout> | null = null
+  let countUpPolicy = init?.countUpPolicy ?? readLocalCountUpPolicy()
+  const suppressedCountUpKeys = new Set<string>()
   // Restore keys the server answered not_found for in this page session.
   // Focus- and interval-driven refreshes skip them until a successful save
   // revives the key: re-checking a dead key cannot succeed and spams the API.
@@ -256,6 +281,7 @@ export function createTimerStore(init?: TimerStoreInit) {
   const initialSortMode = safeSortMode(init?.sortMode)
   const initialTimerFilters = safeTimerFilters(init?.timerFilters)
   const initialRestoreKey = init?.restoreKey && isValidRestoreKey(init.restoreKey) ? init.restoreKey : null
+  const initialCountUpOccurrences = init?.countUpOccurrences ?? []
 
   const store = createStore<TimerStore>()(
     immer((set, get) => {
@@ -268,6 +294,277 @@ export function createTimerStore(init?: TimerStoreInit) {
         const memberships = accountProjectMemberships(state.projects)
         const max = getEntitlements().maxProjects
         return !isProjectReadOnly(memberships, active.cloudProjectId, max)
+      }
+
+      function countUpIdentity(project: ProjectMeta) {
+        return project.cloudProjectId ?? project.id
+      }
+
+      function countUpProjectContext(project = activeProject(get())) {
+        if (!project) {
+          if (get().hasHydrated) return null
+          return { identity: INITIAL_COUNT_UP_PROJECT_ID, name: undefined, storageId: null }
+        }
+        return {
+          identity: countUpIdentity(project),
+          name: project.name,
+          storageId: project.id,
+        }
+      }
+
+      function occurrencesForProject(occurrences: CountUpOccurrence[], projectId: string) {
+        return occurrences.filter((occurrence) => occurrence.projectId === projectId)
+      }
+
+      function replaceProjectOccurrences(
+        occurrences: CountUpOccurrence[],
+        projectId: string,
+        replacement: CountUpOccurrence[],
+      ) {
+        return [...occurrences.filter((occurrence) => occurrence.projectId !== projectId), ...replacement]
+      }
+
+      function replaceCloudCountUpOccurrences(occurrences: CountUpOccurrence[], replacement: CountUpOccurrence[]) {
+        const cloudProjectIds = new Set(
+          get().projects.flatMap((project) => (project.cloudProjectId ? [project.cloudProjectId] : [])),
+        )
+        for (const occurrence of replacement) {
+          if (occurrence.projectId) cloudProjectIds.add(occurrence.projectId)
+        }
+        return [
+          ...occurrences.filter((occurrence) => !occurrence.projectId || !cloudProjectIds.has(occurrence.projectId)),
+          ...replacement,
+        ]
+      }
+
+      function persistCountUpProject(project: ProjectMeta) {
+        if (countUpCloudEnabled) return
+        const identity = countUpIdentity(project)
+        writeCountUpState(project.id, {
+          occurrences: occurrencesForProject(get().countUpOccurrences, identity),
+          observations: countUpObservationsByProject.get(identity) ?? [],
+        })
+      }
+
+      function persistCountUpState() {
+        const project = activeProject(get())
+        if (project) persistCountUpProject(project)
+      }
+
+      function persistCountUpIdentity(projectId: string) {
+        const project = get().projects.find((candidate) => countUpIdentity(candidate) === projectId)
+        if (project) persistCountUpProject(project)
+      }
+
+      function countUpSectionSize() {
+        const context = countUpProjectContext()
+        if (!context) return 0
+        const timersById = new Map(get().timers.map((timer) => [timer.id, timer]))
+        const timerIds = new Set(
+          get()
+            .countUpOccurrences.filter((occurrence) => {
+              if (occurrence.projectId !== context.identity) return false
+              const timer = timersById.get(occurrence.timerId)
+              return (
+                occurrence.acknowledgedAt === null && timer !== undefined && !timer.archivedAt && timer.pinned !== true
+              )
+            })
+            .map((occurrence) => occurrence.timerId),
+        )
+        return timerIds.size
+      }
+
+      function analyticsForOccurrence(occurrence: CountUpOccurrence) {
+        return {
+          policy: occurrence.policy?.mode,
+          secondsFromCrossedAtToFirstSeen:
+            occurrence.firstSeenAt === null
+              ? undefined
+              : Math.max(0, (occurrence.firstSeenAt - occurrence.crossedAt) / 1_000),
+          sectionSize: countUpSectionSize(),
+        }
+      }
+
+      function scheduleCountUpExpiry() {
+        if (globalThis.window === undefined) return
+        if (countUpExpiryTimer) globalThis.clearTimeout(countUpExpiryTimer)
+        countUpExpiryTimer = null
+        const nowMs = Date.now()
+        const nextExpiry = get()
+          .countUpOccurrences.map((occurrence) => getCountUpExpiresAt(occurrence))
+          .filter((value): value is number => value !== null)
+          .sort((left, right) => left - right)[0]
+        if (nextExpiry === undefined) return
+        countUpExpiryTimer = globalThis.setTimeout(
+          () => expireGlobalCountUps(Date.now()),
+          Math.max(0, Math.min(nextExpiry - nowMs + 1, 2_147_483_647)),
+        )
+      }
+
+      function expireGlobalCountUps(nowMs: number) {
+        const expired: CountUpOccurrence[] = []
+        set((s) => {
+          for (const occurrence of s.countUpOccurrences) {
+            const expiresAt = getCountUpExpiresAt(occurrence)
+            if (occurrence.acknowledgedAt !== null || expiresAt === null || expiresAt > nowMs) continue
+            occurrence.acknowledgedAt = nowMs
+            expired.push({ ...occurrence, policy: occurrence.policy ? { ...occurrence.policy } : undefined })
+          }
+        })
+        if (expired.length === 0) {
+          scheduleCountUpExpiry()
+          return
+        }
+        const identities = new Set(
+          expired.flatMap((occurrence) => (occurrence.projectId ? [occurrence.projectId] : [])),
+        )
+        for (const project of get().projects) {
+          if (identities.has(countUpIdentity(project))) persistCountUpProject(project)
+        }
+        for (const occurrence of expired) {
+          trackCountUpAnalyticsEvent("transition_auto_expired", analyticsForOccurrence(occurrence))
+        }
+        for (const projectId of identities) {
+          sendCountUpAction(
+            {
+              action: "acknowledge",
+              keys: expired
+                .filter((occurrence) => occurrence.projectId === projectId)
+                .map((occurrence) => occurrence.key),
+              projectId,
+            },
+            "store.countUp.autoAcknowledge",
+          )
+        }
+        scheduleCountUpExpiry()
+      }
+
+      function sendCountUpAction(body: Parameters<typeof postCountUpAction>[0], operation: string) {
+        if (!countUpCloudEnabled) return
+        const startedEpoch = accountEpoch
+        const mutation = countUpMutationQueue.then(async () => {
+          if (!countUpCloudEnabled || startedEpoch !== accountEpoch) return
+          const remoteOccurrences = await postCountUpAction(body)
+          if (!countUpCloudEnabled || startedEpoch !== accountEpoch) return
+          set((s) => {
+            s.countUpOccurrences = replaceCloudCountUpOccurrences(s.countUpOccurrences, remoteOccurrences)
+          })
+          reconcileCountUps()
+        })
+        countUpMutationQueue = mutation.catch(() => undefined)
+        runInBackground(
+          operation,
+          mutation.catch((error) => logClientError(operation, error)),
+        )
+      }
+
+      function reconcileCountUps(nowMs = Date.now()) {
+        const project = activeProject(get())
+        const context = countUpProjectContext(project)
+        if (!context) return
+        const result = reconcileCountUpOccurrences({
+          timers: get().timers,
+          occurrences: occurrencesForProject(get().countUpOccurrences, context.identity),
+          observations: countUpObservationsByProject.get(context.identity) ?? [],
+          nowMs,
+          suppressedKeys: suppressedCountUpKeys,
+          policy: countUpPolicy,
+          projectId: context.identity,
+          projectName: context.name,
+        })
+        countUpObservationsByProject.set(context.identity, result.observations)
+        suppressedCountUpKeys.clear()
+        set((s) => {
+          s.countUpOccurrences = replaceProjectOccurrences(s.countUpOccurrences, context.identity, result.occurrences)
+        })
+        if (project) persistCountUpProject(project)
+        scheduleCountUpExpiry()
+        for (const occurrence of result.created) {
+          trackCountUpAnalyticsEvent("timer_crossed_zero", analyticsForOccurrence(occurrence))
+        }
+        for (const key of result.autoAcknowledgedKeys) {
+          const occurrence = result.occurrences.find((candidate) => candidate.key === key)
+          if (occurrence) trackCountUpAnalyticsEvent("transition_auto_expired", analyticsForOccurrence(occurrence))
+        }
+        if (result.created.length > 0) {
+          sendCountUpAction(
+            { action: "create", events: result.created.map(countUpOccurrenceToWire) },
+            "store.countUp.create",
+          )
+        }
+        if (result.closedKeys.length > 0) {
+          sendCountUpAction(
+            { action: "close", keys: result.closedKeys, projectId: context.identity },
+            "store.countUp.close",
+          )
+        }
+        if (result.autoAcknowledgedKeys.length > 0) {
+          sendCountUpAction(
+            { action: "acknowledge", keys: result.autoAcknowledgedKeys, projectId: context.identity },
+            "store.countUp.autoAcknowledge",
+          )
+        }
+      }
+
+      function hydrateAllLocalCountUps(projects: ProjectMeta[], nowMs = Date.now()) {
+        const projectsByStorageId = new Map(projects.map((project) => [project.id, project]))
+        const localIdentities = new Set(
+          projects.filter((project) => !project.cloudProjectId).map((project) => countUpIdentity(project)),
+        )
+        const storageIds = new Set([...countUpStorageProjectIds(), ...projects.map((project) => project.id)])
+        const hydrated: CountUpOccurrence[] = []
+
+        for (const storageId of storageIds) {
+          const project = projectsByStorageId.get(storageId)
+          const identity = project ? countUpIdentity(project) : storageId
+          const projectName = project?.name
+          const stored = readCountUpState(storageId, globalThis.localStorage, projectName)
+          const storedOccurrences = stored.occurrences.map((occurrence) => ({
+            ...occurrence,
+            projectId: identity,
+            ...(projectName ? { projectName } : {}),
+          }))
+          if (!project) continue
+          countUpObservationsByProject.set(identity, stored.observations)
+
+          const payload = payloadForProject(project)
+          const result = reconcileCountUpOccurrences({
+            timers: payload.timers,
+            occurrences: storedOccurrences,
+            observations: stored.observations,
+            nowMs,
+            policy: countUpPolicy,
+            projectId: identity,
+            projectName,
+          })
+          countUpObservationsByProject.set(identity, result.observations)
+          hydrated.push(...result.occurrences)
+          if (!countUpCloudEnabled) {
+            writeCountUpState(storageId, { occurrences: result.occurrences, observations: result.observations })
+          }
+        }
+
+        const activeProjectForMigration = projects.find((project) => project.id === get().activeProjectId)
+        set((s) => {
+          if (activeProjectForMigration) {
+            const identity = countUpIdentity(activeProjectForMigration)
+            s.countUpOccurrences = s.countUpOccurrences.map((occurrence) =>
+              occurrence.projectId === INITIAL_COUNT_UP_PROJECT_ID
+                ? { ...occurrence, projectId: identity, projectName: activeProjectForMigration.name }
+                : occurrence,
+            )
+          }
+          const preserved = s.countUpOccurrences.filter(
+            (occurrence) => !occurrence.projectId || !localIdentities.has(occurrence.projectId),
+          )
+          s.countUpOccurrences = mergeCountUpOccurrences(preserved, hydrated)
+        })
+        scheduleCountUpExpiry()
+      }
+
+      function loadCountUpForProject(_projectId: string | null, nowMs = Date.now()) {
+        hydrateAllLocalCountUps(get().projects, nowMs)
+        reconcileCountUps(nowMs)
       }
 
       async function refreshFollowedTimersOnce() {
@@ -283,6 +580,7 @@ export function createTimerStore(init?: TimerStoreInit) {
         })
 
         if (changed) persistAndSchedule()
+        if (changed) reconcileCountUps()
       }
 
       // A stale response can resolve while a newer check for another project
@@ -376,6 +674,7 @@ export function createTimerStore(init?: TimerStoreInit) {
 
           set((s) => applyRestoredProjectSnapshot(s, { access, data, remoteTimers, remoteSpaces, now }))
           writeBrowserState(get())
+          reconcileCountUps()
         } catch (err) {
           if (isStaleActiveProjectRefresh(access, startedEpoch, startedProjectId)) {
             clearCheckingIfCurrent(startedProjectId)
@@ -435,6 +734,9 @@ export function createTimerStore(init?: TimerStoreInit) {
         sortMode: initialSortMode,
         timerFilters: initialTimerFilters,
         restoreKey: initialRestoreKey,
+        countUpOccurrences: initialCountUpOccurrences.map((occurrence) =>
+          occurrence.projectId ? occurrence : { ...occurrence, projectId: INITIAL_COUNT_UP_PROJECT_ID },
+        ),
 
         projects: [],
         activeProjectId: null,
@@ -524,7 +826,275 @@ export function createTimerStore(init?: TimerStoreInit) {
           })
 
           writeBrowserState(get())
+          loadCountUpForProject(selectedProject?.id ?? null)
           runInBackground("store.refreshActiveProjectFromCloud", get().refreshActiveProjectFromCloud())
+        },
+
+        hydrateCountUpOccurrences: (nowMs) => {
+          loadCountUpForProject(get().activeProjectId, nowMs)
+        },
+
+        reconcileCountUpOccurrences: (nowMs) => {
+          reconcileCountUps(nowMs)
+        },
+
+        detectTimerZeroCross: (timerId, nowMs) => {
+          const timer = findTimerById(get().timers, timerId)
+          if (!timer || timer.archivedAt || timer.recurrence?.enabled === true) return false
+          reconcileCountUps(nowMs)
+          const targetAtMs = Date.parse(timer.targetDate)
+          const context = countUpProjectContext()
+          return get().countUpOccurrences.some(
+            (occurrence) =>
+              occurrence.projectId === context?.identity &&
+              occurrence.timerId === timerId &&
+              occurrence.targetAtMs === targetAtMs &&
+              occurrence.acknowledgedAt === null,
+          )
+        },
+
+        suppressNextCountUpOccurrence: (timerId, targetAtMs) => {
+          if (!Number.isFinite(targetAtMs)) return
+          suppressedCountUpKeys.add(getCountUpOccurrenceKey(timerId, targetAtMs))
+        },
+
+        markCountUpSeen: (keys, atMs = Date.now()) => {
+          const keySet = new Set(keys)
+          if (keySet.size === 0) return
+          const projectId = countUpProjectContext()?.identity
+          if (!projectId) return
+          const firstSeenTransitions: Array<{
+            crossedAt: number
+            policyMode: NonNullable<CountUpOccurrence["policy"]>["mode"] | undefined
+          }> = []
+          set((s) => {
+            for (const occurrence of s.countUpOccurrences) {
+              if (occurrence.projectId === projectId && keySet.has(occurrence.key) && occurrence.firstSeenAt === null) {
+                occurrence.firstSeenAt = atMs
+                firstSeenTransitions.push({
+                  crossedAt: occurrence.crossedAt,
+                  policyMode: occurrence.policy?.mode,
+                })
+              }
+            }
+          })
+          persistCountUpState()
+          scheduleCountUpExpiry()
+          for (const occurrence of firstSeenTransitions) {
+            trackCountUpAnalyticsEvent("transition_first_seen", {
+              policy: occurrence.policyMode,
+              secondsFromCrossedAtToFirstSeen: Math.max(0, (atMs - occurrence.crossedAt) / 1_000),
+              sectionSize: countUpSectionSize(),
+            })
+          }
+          sendCountUpAction({ action: "markSeen", keys: [...keySet], projectId }, "store.countUp.markSeen")
+        },
+
+        markCountUpSeenForProject: (projectId, keys, atMs = Date.now()) => {
+          const keySet = new Set(keys)
+          if (!projectId || keySet.size === 0) return
+          set((s) => {
+            for (const occurrence of s.countUpOccurrences) {
+              if (occurrence.projectId === projectId && keySet.has(occurrence.key) && occurrence.firstSeenAt === null) {
+                occurrence.firstSeenAt = atMs
+              }
+            }
+          })
+          persistCountUpIdentity(projectId)
+          scheduleCountUpExpiry()
+          sendCountUpAction({ action: "markSeen", keys: [...keySet], projectId }, "store.countUp.markSeenProject")
+        },
+
+        acknowledgeCountUps: (keys, atMs = Date.now()) => {
+          const keySet = new Set(keys)
+          if (keySet.size === 0) return
+          const projectId = countUpProjectContext()?.identity
+          if (!projectId) return
+          set((s) => {
+            for (const occurrence of s.countUpOccurrences) {
+              if (occurrence.projectId === projectId && keySet.has(occurrence.key)) {
+                occurrence.acknowledgedAt = atMs
+              }
+            }
+          })
+          persistCountUpState()
+          scheduleCountUpExpiry()
+          sendCountUpAction({ action: "acknowledge", keys: [...keySet], projectId }, "store.countUp.acknowledge")
+        },
+
+        acknowledgeCountUpsForProject: (projectId, keys, atMs = Date.now()) => {
+          const keySet = new Set(keys)
+          if (!projectId || keySet.size === 0) return
+          set((s) => {
+            for (const occurrence of s.countUpOccurrences) {
+              if (occurrence.projectId !== projectId || !keySet.has(occurrence.key)) continue
+              occurrence.acknowledgedAt = atMs
+            }
+          })
+          persistCountUpIdentity(projectId)
+          scheduleCountUpExpiry()
+          sendCountUpAction({ action: "acknowledge", keys: [...keySet], projectId }, "store.countUp.acknowledgeProject")
+        },
+
+        acknowledgeCountUpsGlobally: (keys, atMs = Date.now()) => {
+          const keySet = new Set(keys)
+          if (keySet.size === 0) return
+          const changedProjectIds = new Set<string>()
+          set((s) => {
+            for (const occurrence of s.countUpOccurrences) {
+              if (!keySet.has(occurrence.key)) continue
+              occurrence.acknowledgedAt = atMs
+              if (occurrence.projectId) changedProjectIds.add(occurrence.projectId)
+            }
+          })
+          for (const projectId of changedProjectIds) persistCountUpIdentity(projectId)
+          scheduleCountUpExpiry()
+          sendCountUpAction({ action: "acknowledge", keys: [...keySet] }, "store.countUp.acknowledgeGlobal")
+        },
+
+        pinCountUpForProject: async (projectId, timerId, occurrenceKey, atMs = Date.now()) => {
+          const project = get().projects.find(
+            (candidate) => candidate.id === projectId || countUpIdentity(candidate) === projectId,
+          )
+          if (!project) return false
+
+          if (get().activeProjectId !== project.id) get().switchProject(project.id)
+          await get().refreshActiveProjectFromCloud()
+
+          const timer = get().timers.find((candidate) => candidate.id === timerId && !candidate.archivedAt)
+          if (!timer) return false
+          if (!timer.pinned) get().setPinnedTimer(timerId)
+          get().acknowledgeCountUpsForProject(countUpIdentity(project), [occurrenceKey], atMs)
+          return true
+        },
+
+        undoPinCountUpForProject: async (projectId, timerId, occurrenceKey, unpin) => {
+          const project = get().projects.find(
+            (candidate) => candidate.id === projectId || countUpIdentity(candidate) === projectId,
+          )
+          if (!project) return false
+
+          if (get().activeProjectId !== project.id) get().switchProject(project.id)
+          await get().refreshActiveProjectFromCloud()
+
+          const timer = get().timers.find((candidate) => candidate.id === timerId && !candidate.archivedAt)
+          if (!timer) return false
+          if (unpin && timer.pinned) get().setPinnedTimer(timerId)
+          get().unacknowledgeCountUpsForProject(countUpIdentity(project), [occurrenceKey])
+          return true
+        },
+
+        unacknowledgeCountUps: (keys) => {
+          const keySet = new Set(keys)
+          if (keySet.size === 0) return
+          const projectId = countUpProjectContext()?.identity
+          if (!projectId) return
+          set((s) => {
+            for (const occurrence of s.countUpOccurrences) {
+              if (occurrence.projectId === projectId && keySet.has(occurrence.key)) occurrence.acknowledgedAt = null
+            }
+          })
+          persistCountUpState()
+          scheduleCountUpExpiry()
+          sendCountUpAction({ action: "unacknowledge", keys: [...keySet], projectId }, "store.countUp.unacknowledge")
+        },
+
+        unacknowledgeCountUpsForProject: (projectId, keys) => {
+          const keySet = new Set(keys)
+          if (!projectId || keySet.size === 0) return
+          set((s) => {
+            for (const occurrence of s.countUpOccurrences) {
+              if (occurrence.projectId === projectId && keySet.has(occurrence.key)) occurrence.acknowledgedAt = null
+            }
+          })
+          persistCountUpIdentity(projectId)
+          scheduleCountUpExpiry()
+          sendCountUpAction(
+            { action: "unacknowledge", keys: [...keySet], projectId },
+            "store.countUp.unacknowledgeProject",
+          )
+        },
+
+        deferCountUps: (keys, untilMs) => {
+          const keySet = new Set(keys)
+          if (keySet.size === 0 || (untilMs !== null && !Number.isFinite(untilMs))) return
+          const projectId = countUpProjectContext()?.identity
+          if (!projectId) return
+          set((s) => {
+            for (const occurrence of s.countUpOccurrences) {
+              if (occurrence.projectId === projectId && keySet.has(occurrence.key)) {
+                occurrence.deferredUntil = untilMs
+                if (untilMs === null) occurrence.policy = { mode: "until-i-move-it", minutes: null }
+              }
+            }
+          })
+          persistCountUpState()
+          scheduleCountUpExpiry()
+          sendCountUpAction({ action: "defer", keys: [...keySet], untilMs, projectId }, "store.countUp.defer")
+        },
+
+        deferCountUpsForProject: (projectId, keys, untilMs) => {
+          const keySet = new Set(keys)
+          if (!projectId || keySet.size === 0 || (untilMs !== null && !Number.isFinite(untilMs))) return
+          set((s) => {
+            for (const occurrence of s.countUpOccurrences) {
+              if (occurrence.projectId !== projectId || !keySet.has(occurrence.key)) continue
+              occurrence.deferredUntil = untilMs
+              if (untilMs === null) occurrence.policy = { mode: "until-i-move-it", minutes: null }
+            }
+          })
+          persistCountUpIdentity(projectId)
+          scheduleCountUpExpiry()
+          sendCountUpAction({ action: "defer", keys: [...keySet], untilMs, projectId }, "store.countUp.deferProject")
+        },
+
+        syncCountUpOccurrences: async () => {
+          const startedEpoch = accountEpoch
+          try {
+            const remoteOccurrences = await fetchCountUpOccurrences()
+            if (startedEpoch !== accountEpoch) return
+            countUpCloudEnabled = true
+            const projectsByEitherId = new Map(
+              get().projects.flatMap((project) => [
+                [project.id, project] as const,
+                ...(project.cloudProjectId ? ([[project.cloudProjectId, project]] as const) : []),
+              ]),
+            )
+            const localOccurrences = get().countUpOccurrences.map((occurrence) => {
+              const project = occurrence.projectId ? projectsByEitherId.get(occurrence.projectId) : undefined
+              if (!project?.cloudProjectId) return occurrence
+              return { ...occurrence, projectId: project.cloudProjectId, projectName: project.name }
+            })
+            const cloudOccurrences = localOccurrences.filter((occurrence) => {
+              const project = occurrence.projectId ? projectsByEitherId.get(occurrence.projectId) : undefined
+              return Boolean(project?.cloudProjectId)
+            })
+            const serverOccurrences = cloudOccurrences.length
+              ? await postCountUpAction({ action: "create", events: cloudOccurrences.map(countUpOccurrenceToWire) })
+              : remoteOccurrences
+            if (startedEpoch !== accountEpoch) return
+            set((s) => {
+              s.countUpOccurrences = replaceCloudCountUpOccurrences(
+                localOccurrences,
+                cloudOccurrences.length ? serverOccurrences : remoteOccurrences,
+              )
+            })
+            reconcileCountUps()
+          } catch (error) {
+            countUpCloudEnabled = false
+            logClientError("store.countUp.sync", error)
+          }
+        },
+
+        setCountUpPolicy: (policy) => {
+          countUpPolicy = policy
+        },
+
+        openCountUpProject: (projectId) => {
+          const project = get().projects.find(
+            (candidate) => candidate.id === projectId || countUpIdentity(candidate) === projectId,
+          )
+          if (project) get().switchProject(project.id)
         },
 
         addTimer: (timer) => {
@@ -578,6 +1148,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             added = true
           })
           if (added) persistAndSchedule()
+          if (added) reconcileCountUps()
           return added
         },
 
@@ -587,10 +1158,16 @@ export function createTimerStore(init?: TimerStoreInit) {
             markActiveProjectChanged(s)
           })
           persistAndSchedule()
+          reconcileCountUps()
         },
 
         updateTimer: (id, updates) => {
           if (!canEditActiveProject()) return
+          const previous = findTimerById(get().timers, id)
+          const nextTargetAtMs = "targetDate" in updates ? Date.parse(updates.targetDate ?? "") : Number.NaN
+          if (previous && Number.isFinite(nextTargetAtMs) && nextTargetAtMs < Date.now()) {
+            suppressedCountUpKeys.add(getCountUpOccurrenceKey(id, nextTargetAtMs))
+          }
           set((s) => {
             const t = findTimerById(s.timers, id)
             if (!t) return
@@ -606,6 +1183,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             markActiveProjectChanged(s)
           })
           persistAndSchedule()
+          reconcileCountUps()
         },
 
         archiveTimer: (id) => {
@@ -623,6 +1201,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             markActiveProjectChanged(s, now)
           })
           persistAndSchedule()
+          reconcileCountUps()
         },
 
         unarchiveTimer: (id) => {
@@ -732,6 +1311,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             markActiveProjectChanged(s)
           })
           persistAndSchedule()
+          reconcileCountUps()
         },
 
         followTimer: ({ shareId, timer }) => {
@@ -861,6 +1441,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             moved = true
           })
           if (moved) persistAndSchedule()
+          if (moved) reconcileCountUps()
           return moved
         },
 
@@ -960,6 +1541,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             syncReadOnlyState(s)
           })
           persistAndSchedule(true)
+          loadCountUpForProject(project.id)
         },
 
         switchProject: (projectId) => {
@@ -981,6 +1563,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             syncReadOnlyState(s)
           })
           writeBrowserState(get())
+          loadCountUpForProject(project.id)
           runInBackground("store.refreshActiveProjectFromCloud", get().refreshActiveProjectFromCloud())
         },
 
@@ -998,7 +1581,9 @@ export function createTimerStore(init?: TimerStoreInit) {
         removeActiveProjectFromDevice: () => {
           const current = activeProject(get())
           if (!current) return
+          const removedCountUpIdentity = countUpIdentity(current)
           removeProjectPayload(current.id)
+          removeCountUpState(current.id)
 
           const nextProjects = get().projects.filter((p) => p.id !== current.id)
           const nextProject = nextProjects[0]
@@ -1015,9 +1600,13 @@ export function createTimerStore(init?: TimerStoreInit) {
             s.lastSyncAt = nextProject?.lastSyncedAt ?? null
             s.lastSyncError = null
             s.projectConflict = null
+            s.countUpOccurrences = s.countUpOccurrences.filter(
+              (occurrence) => occurrence.projectId !== removedCountUpIdentity,
+            )
             syncReadOnlyState(s)
           })
           writeBrowserState(get())
+          loadCountUpForProject(nextProject?.id ?? null)
           if (nextProject?.cloudProjectId) {
             runInBackground("store.refreshActiveProjectFromCloud", get().refreshActiveProjectFromCloud())
           }
@@ -1028,15 +1617,16 @@ export function createTimerStore(init?: TimerStoreInit) {
           // locally: a refresh started before sign-out may still be in flight.
           accountEpoch += 1
           accountProjectsInFlight = null
+          countUpCloudEnabled = false
+          countUpMutationQueue = Promise.resolve()
 
           const accountProjectIds = get()
             .projects.filter((project) => project.cloudProjectId)
             .map((project) => project.id)
-          if (accountProjectIds.length === 0) return
-
-          syncScheduler.cancel()
+          if (accountProjectIds.length > 0) syncScheduler.cancel()
           const accountProjectIdSet = new Set(accountProjectIds)
           for (const projectId of accountProjectIds) removeProjectPayload(projectId)
+          for (const projectId of accountProjectIds) removeCountUpState(projectId)
 
           const nextProjects = get().projects.filter((project) => !accountProjectIdSet.has(project.id))
           const currentActiveProjectId = get().activeProjectId
@@ -1055,9 +1645,13 @@ export function createTimerStore(init?: TimerStoreInit) {
             s.lastSyncAt = nextProject?.lastSyncedAt ?? null
             s.lastSyncError = null
             s.projectConflict = null
+            s.countUpOccurrences = []
             syncReadOnlyState(s)
           })
           writeBrowserState(get())
+          countUpObservationsByProject.clear()
+          hydrateAllLocalCountUps(nextProjects)
+          reconcileCountUps()
         },
 
         restoreProjectFromCloud: async (key) => {
@@ -1135,6 +1729,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             s.projectConflict = null
           })
           writeBrowserState(get())
+          loadCountUpForProject(project.id)
         },
 
         refreshActiveProjectFromCloud: async () => {
@@ -1181,6 +1776,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             s.projectConflict = null
           })
           writeBrowserState(get())
+          reconcileCountUps()
         },
 
         overwriteCloudProjectVersion: async () => {
@@ -1423,6 +2019,13 @@ export function TimerStoreProvider(props: PropsWithChildren<{ initialState?: Tim
   useEffect(() => {
     store.getState().hydrateProjectsFromBrowser()
   }, [store])
+  useEffect(
+    () =>
+      subscribeLocalCountUpPolicy(() => {
+        store.getState().setCountUpPolicy(readLocalCountUpPolicy())
+      }),
+    [store],
+  )
   return <TimerStoreContext.Provider value={store}>{props.children}</TimerStoreContext.Provider>
 }
 

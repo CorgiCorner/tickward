@@ -40,6 +40,10 @@ const publicMirrorOptionalMessageKeys = new Set([
   "webPush.persistFailed",
 ])
 
+function isCountUpMessageKey(key: string) {
+  return key.startsWith("countUp.") || key.startsWith("settings.countUp.") || key.startsWith("validation.countUp")
+}
+
 function isPublicMirror() {
   const boundaryManifest = ["public", "allowlist"].join("-") + ".txt"
   return !existsSync(path.join(process.cwd(), "scripts", boundaryManifest))
@@ -73,10 +77,10 @@ function sourceFiles(dir: string): string[] {
   return files
 }
 
-function localeFiles() {
-  return readdirSync(localeDir)
+function localeFiles(dir = localeDir) {
+  return readdirSync(dir)
     .filter((entry) => entry.endsWith(".ts"))
-    .map((entry) => path.join(localeDir, entry))
+    .map((entry) => path.join(dir, entry))
 }
 
 function localeSourceKeys(filePath: string) {
@@ -116,6 +120,24 @@ function directFormatMessageKeys(filePath: string) {
   return keys
 }
 
+function countUpSourceMessages(filePath: string) {
+  const source = readFileSync(filePath, "utf8")
+  const sourceFile = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const messages: Array<{ key: string; value: string }> = []
+
+  function visit(node: ts.Node) {
+    if (ts.isPropertyAssignment(node)) {
+      const key = ts.isStringLiteral(node.name) ? node.name.text : null
+      const value = ts.isStringLiteralLike(node.initializer) ? node.initializer.text : null
+      if (key && value !== null && isCountUpMessageKey(key)) messages.push({ key, value })
+    }
+    ts.forEachChild(node, visit)
+  }
+
+  visit(sourceFile)
+  return messages
+}
+
 describe("i18n catalog", () => {
   it("does not duplicate message keys in locale source files", () => {
     const violations = localeFiles().flatMap((filePath) => {
@@ -153,6 +175,18 @@ describe("i18n catalog", () => {
     const violations = Object.entries(MESSAGES.en)
       .filter(([, value]) => value.trim().length === 0)
       .map(([key]) => `en: empty ${key}`)
+
+    expect(violations).toEqual([])
+  })
+
+  it("keeps Seen out of user-facing count-up messages", () => {
+    const adapterPath = path.join(process.cwd(), adapterLocaleDir)
+    const catalogs = [...localeFiles(), ...(existsSync(adapterPath) ? localeFiles(adapterPath) : [])]
+    const violations = catalogs.flatMap((filePath) =>
+      countUpSourceMessages(filePath)
+        .filter(({ value }) => /\bseen\b/i.test(value))
+        .map(({ key }) => `${relativePath(filePath)}: count-up message ${key} uses Seen`),
+    )
 
     expect(violations).toEqual([])
   })

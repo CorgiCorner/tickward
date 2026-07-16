@@ -12,6 +12,7 @@ import { runInBackground } from "@/lib/background-task"
 import { readApiJson } from "@/lib/client-api"
 import { resetDefaultTimeZonePreference, setDefaultTimeZonePreference } from "@/lib/default-timezone.client"
 import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
+import { setLocalCountUpPolicy } from "@/lib/local-count-up-policy.client"
 import {
   setLocalFullPageAlarmEnabled,
   setLocalInAppNotificationsEnabled,
@@ -40,6 +41,7 @@ export function applyAccountPreferencesToDevice(preferences: AccountPreferencesR
   setLocalFullPageAlarmEnabled(preferences.full_page_alarm)
   setLocalInAppNotificationsEnabled(preferences.in_app_notifications)
   setLocalNotificationSound(preferences.notification_sound)
+  setLocalCountUpPolicy(preferences.count_up_policy)
 }
 
 async function readAccountPreferencesResponse(

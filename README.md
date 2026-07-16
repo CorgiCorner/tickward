@@ -24,15 +24,16 @@ curl -fsS http://localhost:3000/api/health
 
 Open [http://localhost:3000](http://localhost:3000).
 
-The default Compose stack uses `docker.io/corgicorner/tickward:0.12.0` and
+The default Compose stack uses `docker.io/corgicorner/tickward:0.13.0` and
 starts the app, PostgreSQL, Redis, and a Redis REST proxy. To use the GHCR image
-instead, set `TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.12.0` in `.env`.
+instead, set `TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.13.0` in `.env`.
 To build from the checkout, run `docker compose --env-file .env up --build`.
 
 ## Features
 
-- Timezone-aware countdown and count-up timers with descriptions, images,
-  recurrence, archive/restore, and pinning.
+- Timezone-aware countdown timers with descriptions, images, recurrence,
+  archive/restore, and pinning. One-off timers can remain in Started counting
+  up for review; repeating timers advance to their next occurrence.
 - Projects and spaces for grouping personal dates, shared timers, and
   recurring deadlines.
 - Read-only public share links under `/share/...`.
@@ -64,6 +65,7 @@ reference for create, update, share, and webhook examples.
 - [Webhooks](docs/site/guides/webhooks.mdx)
 - [MCP setup](docs/site/guides/mcp.mdx)
 - [Recurrence concepts](docs/site/concepts/recurrence.mdx)
+- [Started counting up](docs/site/concepts/started-counting-up.mdx)
 - [Countdown accuracy](docs/site/concepts/countdown-accuracy.mdx)
 - [Retry-safe mutation recipe](docs/site/guides/recipes/retry-safe-mutation.mdx)
 

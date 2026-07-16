@@ -17,6 +17,11 @@ vi.mock("next-themes", () => ({
   }),
 }))
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/",
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
 vi.mock("@/components/project-switcher", () => ({
   ProjectSwitcher: () => <div data-testid="project-switcher" />,
 }))
@@ -75,6 +80,8 @@ describe("Header", () => {
         },
       ],
       activeProjectId: "project-a",
+      hasHydrated: true,
+      countUpOccurrences: [],
     }
   })
 
@@ -99,5 +106,27 @@ describe("Header", () => {
     expect(within(header).getByRole("button", { name: "Notifications" })).toBeVisible()
     expect(within(header).getByText("Sign in")).toBeVisible()
     expect(within(header).getByRole("button", { name: "Toggle theme" })).toBeVisible()
+  })
+
+  it("keeps the header sticky without rendering a global count-up summary", () => {
+    storeState.countUpOccurrences = [
+      {
+        key: "timer-a|1000",
+        projectId: "project-a",
+        projectName: "Main",
+        timerId: "timer-a",
+        timer: { label: "Launch", pinned: false },
+        targetAtMs: 1_000,
+        crossedAt: 1_000,
+        firstSeenAt: null,
+        acknowledgedAt: null,
+        deferredUntil: null,
+      },
+    ]
+
+    renderHeader()
+
+    expect(screen.getByRole("banner")).toHaveClass("sticky", "top-0")
+    expect(screen.queryByRole("button", { name: /new.*waiting.*View/ })).not.toBeInTheDocument()
   })
 })

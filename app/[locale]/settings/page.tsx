@@ -21,7 +21,6 @@ import type { Space, Timer } from "@/lib/types"
 import { isSpaceArray, isTimerArray } from "@/lib/validate"
 import { listWebhookEndpointsForUser } from "@/lib/webhooks.server"
 import { headers } from "next/headers"
-import { redirect } from "next/navigation"
 import { resolveRouteLocale } from "@/lib/i18n/route-locale"
 
 export async function generateMetadata(props: Readonly<{ params: Promise<{ locale: string }> }>): Promise<Metadata> {
@@ -33,7 +32,7 @@ export async function generateMetadata(props: Readonly<{ params: Promise<{ local
   }
 }
 
-async function requireSignedInSettingsUser(locale: Locale): Promise<UserActor> {
+async function readSettingsUser(locale: Locale): Promise<UserActor | null> {
   const incomingHeaders = await headers()
   const requestHeaders = new Headers(incomingHeaders)
   const protocol = incomingHeaders.get("x-forwarded-proto") ?? "https"
@@ -46,8 +45,7 @@ async function requireSignedInSettingsUser(locale: Locale): Promise<UserActor> {
     })
     if (actor.kind === "user") return actor
   } catch {}
-
-  redirect(`${localeHref(locale, "/sign-in")}?next=${encodeURIComponent(settingsPath)}`)
+  return null
 }
 
 export async function readInitialAccountData(user: UserActor["user"]): Promise<AccountPageInitialData> {
@@ -89,8 +87,8 @@ export async function readInitialAccountData(user: UserActor["user"]): Promise<A
 
 export default async function SettingsPage(props: Readonly<{ params: Promise<{ locale: string }> }>) {
   const locale = await resolveRouteLocale(props.params)
-  const actor = await requireSignedInSettingsUser(locale)
-  const initialAccountData = await readInitialAccountData(actor.user)
+  const actor = await readSettingsUser(locale)
+  const initialAccountData = actor ? await readInitialAccountData(actor.user) : undefined
   const rawTimers = await readTimersCookie<unknown>()
   const timers: Timer[] = isTimerArray(rawTimers) ? rawTimers : []
   const rawSpaces = await readSpacesCookie<unknown>()
@@ -100,7 +98,13 @@ export default async function SettingsPage(props: Readonly<{ params: Promise<{ l
 
   return (
     <TimerStoreProvider
-      initialState={{ timers, spaces, restoreKey, entitlementsTable, activePlan: planForUser(actor.user) }}
+      initialState={{
+        timers,
+        spaces,
+        restoreKey,
+        entitlementsTable,
+        activePlan: actor ? planForUser(actor.user) : "anonymous",
+      }}
     >
       <div className="flex min-h-dvh flex-col bg-background text-foreground">
         <Header />

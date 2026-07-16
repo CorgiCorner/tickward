@@ -6,9 +6,6 @@ description: "Run tickward locally or deploy it with PostgreSQL, Redis rate limi
 tickward runs as a Next.js app with PostgreSQL for durable data and a
 Redis-compatible REST endpoint for rate limiting.
 
-Moving an existing account? See [Account migration](/guides/account-migration)
-for Cloud-to-self-host and self-host-to-Cloud steps.
-
 ## Docker Compose
 
 ```bash
@@ -34,14 +31,14 @@ Published app images:
 
 | Registry   | Image                                      |
 | ---------- | ------------------------------------------ |
-| Docker Hub | `docker.io/corgicorner/tickward:0.12.0`    |
-| GHCR       | `ghcr.io/corgicorner/tickward:0.12.0`      |
+| Docker Hub | `docker.io/corgicorner/tickward:0.13.0`    |
+| GHCR       | `ghcr.io/corgicorner/tickward:0.13.0`      |
 
 Docker Compose reads `TICKWARD_IMAGE` from `.env`. The default example uses
 Docker Hub. To use GHCR instead:
 
 ```bash
-TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.12.0 docker compose up -d
+TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.13.0 docker compose up -d
 ```
 
 To build from a local checkout instead of using a published image:

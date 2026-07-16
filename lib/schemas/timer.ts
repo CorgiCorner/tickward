@@ -1,5 +1,11 @@
 import { z } from "zod"
 
+import {
+  COUNT_UP_POLICY_MAX_MINUTES,
+  COUNT_UP_POLICY_MIN_MINUTES,
+  timerAfterZeroSchema,
+  type TimerAfterZero,
+} from "@/lib/count-up-policy"
 import { formatMessage } from "@/lib/i18n/messages"
 import { NOTIFICATION_SOUNDS } from "@/lib/notification-preferences"
 
@@ -110,6 +116,7 @@ export const timerSchema = z
     notify: z.boolean().optional(),
     notification: timerNotificationSettingsSchema.optional(),
     pinned: z.boolean().optional(),
+    afterZero: timerAfterZeroSchema.optional(),
     recurrence: recurrenceSchema.optional(),
     reminders: z.array(timerReminderSchema).max(MAX_TIMER_REMINDERS).optional(),
     description: z.string().optional(),
@@ -284,6 +291,17 @@ const timerFormBaseSchema = z.object({
   lastDay: z.boolean(),
   spaceId: z.string(),
   image: unsplashImageSchema.nullable(),
+  afterZeroMode: z.enum([
+    "use-default",
+    "move-directly-to-past",
+    "keep-visible-5m",
+    "keep-visible-15m",
+    "keep-visible-1h",
+    "keep-visible-1d",
+    "keep-visible-custom",
+    "until-reviewed",
+  ]),
+  afterZeroMinutes: z.string().regex(/^\d{1,6}$/, { message: formatMessage("validation.afterZeroMinutes") }),
 })
 
 function addDuplicateReminderIssue(reminders: Array<{ offsetMinutes: number }> | undefined, ctx: z.RefinementCtx) {
@@ -299,6 +317,20 @@ function addDuplicateReminderIssue(reminders: Array<{ offsetMinutes: number }> |
 export const timerFormSchema = timerFormBaseSchema.superRefine((form, ctx) => {
   addScheduleModeIssues(form, ctx)
   addDuplicateReminderIssue(form.reminders, ctx)
+  if (form.afterZeroMode === "keep-visible-custom") {
+    const minutes = Number(form.afterZeroMinutes)
+    if (
+      !Number.isSafeInteger(minutes) ||
+      minutes < COUNT_UP_POLICY_MIN_MINUTES ||
+      minutes > COUNT_UP_POLICY_MAX_MINUTES
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: formatMessage("validation.afterZeroMinutes"),
+        path: ["afterZeroMinutes"],
+      })
+    }
+  }
 })
 
 export const timerFormStepFields = {
@@ -317,6 +349,8 @@ export const timerFormStepFields = {
     "repeatEnabled",
     "repeatType",
     "lastDay",
+    "afterZeroMode",
+    "afterZeroMinutes",
   ],
   3: ["image"],
 } as const
@@ -338,10 +372,26 @@ export const timerFormStepSchemas = {
       repeatEnabled: true,
       repeatType: true,
       lastDay: true,
+      afterZeroMode: true,
+      afterZeroMinutes: true,
     })
     .superRefine((form, ctx) => {
       addScheduleModeIssues(form, ctx)
       addDuplicateReminderIssue(form.reminders, ctx)
+      if (form.afterZeroMode === "keep-visible-custom") {
+        const minutes = Number(form.afterZeroMinutes)
+        if (
+          !Number.isSafeInteger(minutes) ||
+          minutes < COUNT_UP_POLICY_MIN_MINUTES ||
+          minutes > COUNT_UP_POLICY_MAX_MINUTES
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            message: formatMessage("validation.afterZeroMinutes"),
+            path: ["afterZeroMinutes"],
+          })
+        }
+      }
     }),
   3: timerFormBaseSchema.pick({ image: true }),
 } as const
@@ -362,6 +412,29 @@ export type TimerFormSubmitValue = {
   recurrence?: { type: TimerFormRecurrenceType; enabled: boolean; lastDay?: boolean }
   spaceId?: string
   image?: UnsplashImage
+  afterZero?: TimerAfterZero
+}
+
+export function timerAfterZeroFromForm(values: Pick<TimerFormValues, "afterZeroMode" | "afterZeroMinutes">) {
+  if (values.afterZeroMode === "use-default") return { mode: "use-default" } satisfies TimerAfterZero
+  if (values.afterZeroMode === "move-directly-to-past") {
+    return { mode: "move-directly-to-past" } satisfies TimerAfterZero
+  }
+  if (values.afterZeroMode === "until-reviewed") return { mode: "until-reviewed" } satisfies TimerAfterZero
+  const fixedMinutes =
+    values.afterZeroMode === "keep-visible-5m"
+      ? 5
+      : values.afterZeroMode === "keep-visible-15m"
+        ? 15
+        : values.afterZeroMode === "keep-visible-1h"
+          ? 60
+          : values.afterZeroMode === "keep-visible-1d"
+            ? 1_440
+            : null
+  return {
+    mode: "keep-visible",
+    minutes: fixedMinutes ?? Number(values.afterZeroMinutes),
+  } satisfies TimerAfterZero
 }
 
 export function isTimerFormStepValid(step: TimerFormStep, values: TimerFormValues) {

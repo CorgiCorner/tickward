@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+## 0.13.0 - 2026-07-16
+
+### Added
+
+- Added a per-user "Started counting up" review flow for one-off timers with project indicators, zero-cross notifications, and cross-device state.
+- Added one global acknowledgement policy while repeating timers continue directly to their next occurrence.
+
+### Changed
+
+- Renamed "Move to Past" to "Acknowledge" and placed acknowledgement and deferral in a compact menu beside the count-up badge.
+- Replaced visible expiry text with a scheduled-status icon and aligned the elapsed-timer section with desktop as "Counting up".
+- Increased the spacing below the Terms of Service and Privacy Policy notice in the sign-in form.
+- Container releases use one versioned dispatch, refresh `edge` for release and manual `main` builds, share architecture caches, and publish to Docker Hub independently from GHCR.
+
+### Removed
+
+- Removed the incomplete account migration interface and its import/export API.
+
 ## 0.12.0 - 2026-07-15
 
 ### Added

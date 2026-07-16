@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 
 import { apiErrorResponse } from "@/lib/api-error-response"
 import { auditRequestContext, recordAuditEvent } from "@/lib/audit-log.server"
+import { trackEmailOtpDelivery } from "@/lib/auth/email-otp-delivery-context.server"
 import { enforceEmailOtpSendRateLimit, isEmailOtpSendRequest } from "@/lib/auth/email-otp-rate-limit.server"
 import { runInBackground } from "@/lib/background-task"
 import { getTickwardAuth } from "@/lib/auth/auth.server"
@@ -12,6 +13,10 @@ export const runtime = "nodejs"
 
 function unavailable() {
   return apiErrorResponse(PUBLIC_ERROR_CODES.authNotConfigured, "errors.authNotConfigured", { status: 501 })
+}
+
+function emailOtpDeliveryFailed() {
+  return apiErrorResponse(PUBLIC_ERROR_CODES.authEmailDeliveryFailed, "auth.error.generic", { status: 502 })
 }
 
 function handlers() {
@@ -185,7 +190,8 @@ export async function POST(req: Request) {
     if (rateLimitResponse) return rateLimitResponse
   }
   const auditBody = readAuditJson(req)
-  const res = await handler(req)
+  const { deliveryFailed, value: res } = await trackEmailOtpDelivery(() => handler(req))
+  if (deliveryFailed) return emailOtpDeliveryFailed()
   runInBackground("audit.write", recordAuthPostAuditEvent(req, res, auditBody))
   return res
 }

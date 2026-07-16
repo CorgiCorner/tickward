@@ -10,8 +10,18 @@ import {
   readProjectPayload,
   writeProjectPayload,
 } from "@/lib/project-storage.client"
+import {
+  getCountUpOccurrenceKey,
+  readCountUpState,
+  writeCountUpState,
+  type CountUpOccurrence,
+} from "@/lib/stores/count-up-store"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
 import { FIXED_NOW, makeProjectSnapshot, makeSpace, makeTimer } from "@/test/factories"
+
+const analyticsTrack = vi.hoisted(() => vi.fn())
+
+vi.mock("@/components/plausible-analytics", () => ({ trackCountUpAnalyticsEvent: analyticsTrack }))
 
 function mockNotFoundFetch() {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("Not found.", { status: 404 })))
@@ -95,6 +105,7 @@ describe("timer store", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(FIXED_NOW))
     mockNotFoundFetch()
+    analyticsTrack.mockReset()
   })
 
   it("honors the active plan supplied in the initial state", () => {
@@ -1491,5 +1502,455 @@ describe("timer store", () => {
       expect(project?.ownerId).toBeUndefined()
       expect(project?.claimedAt).toBeUndefined()
     })
+  })
+})
+
+describe("attention policy initialization", () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(FIXED_NOW))
+    analyticsTrack.mockReset()
+  })
+
+  it("snapshots the server-provided policy before browser preference effects run", () => {
+    const targetAtMs = Date.parse("2026-06-05T07:00:00.000Z")
+    localStorage.setItem("tickward:attention-policy:v1", JSON.stringify({ mode: "until-i-move-it", minutes: null }))
+    const store = createTimerStore({
+      timers: [
+        makeTimer({
+          targetDate: new Date(targetAtMs).toISOString(),
+          createdAt: new Date(targetAtMs - 60_000).toISOString(),
+        }),
+      ],
+      countUpPolicy: { mode: "after-seen-15m", minutes: null },
+    })
+
+    store.getState().reconcileCountUpOccurrences(targetAtMs + 1)
+
+    expect(store.getState().countUpOccurrences[0]?.policy).toEqual({ mode: "after-seen-15m", minutes: null })
+  })
+
+  it("reports whether zero-cross detection produced an active occurrence", () => {
+    const targetAtMs = Date.parse("2026-06-05T07:00:00.000Z")
+    const timer = makeTimer({
+      targetDate: new Date(targetAtMs).toISOString(),
+      createdAt: new Date(targetAtMs - 60_000).toISOString(),
+    })
+    const directStore = createTimerStore({
+      timers: [timer],
+      countUpPolicy: { mode: "move-directly-to-past", minutes: null },
+    })
+    const countUpStore = createTimerStore({
+      timers: [timer],
+      countUpPolicy: { mode: "until-i-move-it", minutes: null },
+    })
+
+    analyticsTrack.mockClear()
+    expect(directStore.getState().detectTimerZeroCross(timer.id, targetAtMs + 1)).toBe(false)
+    expect(countUpStore.getState().detectTimerZeroCross(timer.id, targetAtMs + 1)).toBe(true)
+    expect(countUpStore.getState().detectTimerZeroCross(timer.id, targetAtMs + 2)).toBe(true)
+    expect(analyticsTrack).toHaveBeenCalledTimes(1)
+    expect(analyticsTrack).toHaveBeenCalledWith("timer_crossed_zero", {
+      policy: "until-i-move-it",
+      secondsFromCrossedAtToFirstSeen: undefined,
+      sectionSize: 1,
+    })
+  })
+
+  it("auto-acknowledges a seen occurrence when its policy timer elapses", () => {
+    const nowMs = Date.parse(FIXED_NOW)
+    const targetAtMs = nowMs - 60_000
+    const timer = makeTimer({
+      targetDate: new Date(targetAtMs).toISOString(),
+      createdAt: new Date(targetAtMs - 60_000).toISOString(),
+    })
+    const key = `${timer.id}|${targetAtMs}`
+    const store = createTimerStore({
+      timers: [timer],
+      countUpOccurrences: [
+        {
+          key,
+          timerId: timer.id,
+          targetAtMs,
+          crossedAt: targetAtMs,
+          firstSeenAt: null,
+          acknowledgedAt: null,
+          deferredUntil: null,
+          policy: { mode: "after-seen-5m", minutes: null },
+        },
+      ],
+    })
+
+    store.getState().markCountUpSeen([key], nowMs)
+    store.getState().markCountUpSeen([key], nowMs + 1_000)
+    expect(analyticsTrack).toHaveBeenCalledTimes(1)
+    expect(analyticsTrack).toHaveBeenCalledWith("transition_first_seen", {
+      policy: "after-seen-5m",
+      secondsFromCrossedAtToFirstSeen: 60,
+      sectionSize: 1,
+    })
+    vi.advanceTimersByTime(5 * 60_000 + 2)
+
+    expect(store.getState().countUpOccurrences[0]?.acknowledgedAt).toBe(nowMs + 5 * 60_000 + 1)
+    expect(analyticsTrack).toHaveBeenLastCalledWith("transition_auto_expired", {
+      policy: "after-seen-5m",
+      secondsFromCrossedAtToFirstSeen: 60,
+      sectionSize: 0,
+    })
+  })
+})
+
+describe("global count-up persistence", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(FIXED_NOW))
+    mockNotFoundFetch()
+    analyticsTrack.mockReset()
+  })
+
+  function countUpOccurrence(projectId: string, timerId: string, targetAtMs: number): CountUpOccurrence {
+    return {
+      key: getCountUpOccurrenceKey(timerId, targetAtMs),
+      projectId,
+      timerId,
+      targetAtMs,
+      crossedAt: targetAtMs,
+      firstSeenAt: null,
+      acknowledgedAt: null,
+      deferredUntil: null,
+      policy: { mode: "until-i-move-it", minutes: null },
+    }
+  }
+
+  function countUpResponse(events: CountUpOccurrence[]) {
+    return new Response(
+      JSON.stringify({
+        events: events.map((event) => ({
+          ...event,
+          targetAtMs: String(event.targetAtMs),
+          crossedAt: new Date(event.crossedAt).toISOString(),
+          firstSeenAt: event.firstSeenAt === null ? null : new Date(event.firstSeenAt).toISOString(),
+          acknowledgedAt: event.acknowledgedAt === null ? null : new Date(event.acknowledgedAt).toISOString(),
+          deferredUntil: event.deferredUntil === null ? null : new Date(event.deferredUntil).toISOString(),
+        })),
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+  }
+
+  async function settleCountUpTasks() {
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+  }
+
+  function seedProjects(
+    projects: ProjectMeta[],
+    activeProjectId: string,
+    timersByProject: Map<string, ReturnType<typeof makeTimer>[]>,
+  ) {
+    localStorage.setItem(TD_PROJECTS_STORAGE_KEY, JSON.stringify(projects))
+    localStorage.setItem(TD_ACTIVE_PROJECT_STORAGE_KEY, activeProjectId)
+    for (const project of projects) {
+      writeProjectPayload(project.id, {
+        timers: timersByProject.get(project.id) ?? [],
+        spaces: [],
+        activeSpaceId: null,
+        sortMode: "soonest",
+        timerFilters: { type: "all", pinned: false, muted: false, shared: false, recurring: false },
+        updatedAt: project.updatedAt,
+      })
+    }
+  }
+
+  it("discovers inactive offline crossings across all local projects", () => {
+    const nowMs = Date.parse(FIXED_NOW)
+    const first = makeLocalProjectMeta({ id: "project-a", name: "Alpha", restoreKey: "restoreKey_alpha" })
+    const second = makeLocalProjectMeta({ id: "project-b", name: "Beta", restoreKey: "restoreKey_beta" })
+    const inactiveTimer = makeTimer({
+      id: "timer-inactive",
+      targetDate: new Date(nowMs - 60_000).toISOString(),
+      createdAt: new Date(nowMs - 120_000).toISOString(),
+    })
+    seedProjects(
+      [first, second],
+      first.id,
+      new Map([
+        [first.id, [makeTimer({ id: "timer-future", targetDate: new Date(nowMs + 60_000).toISOString() })]],
+        [second.id, [inactiveTimer]],
+      ]),
+    )
+
+    const store = createHydratedStore()
+
+    expect(store.getState().countUpOccurrences).toEqual([
+      expect.objectContaining({ projectId: second.id, projectName: "Beta", timerId: inactiveTimer.id }),
+    ])
+    expect(store.getState().timers.map((timer) => timer.id)).toEqual(["timer-future"])
+  })
+
+  it("removes stale inactive-project occurrences during all-project hydration", () => {
+    const nowMs = Date.parse(FIXED_NOW)
+    const first = makeLocalProjectMeta({ id: "project-a", name: "Alpha", restoreKey: "restoreKey_alpha" })
+    const second = makeLocalProjectMeta({ id: "project-b", name: "Beta", restoreKey: "restoreKey_beta" })
+    const stale = countUpOccurrence(second.id, "timer-deleted", nowMs - 60_000)
+    seedProjects([first, second], first.id, new Map())
+    writeCountUpState(second.id, { occurrences: [stale], observations: [] })
+
+    const store = createHydratedStore()
+
+    expect(store.getState().countUpOccurrences).toEqual([])
+    expect(readCountUpState(second.id).occurrences).toEqual([])
+  })
+
+  it("isolates duplicate occurrence keys and inactive-project actions by project", () => {
+    const nowMs = Date.parse(FIXED_NOW)
+    const targetAtMs = nowMs - 60_000
+    const first = makeLocalProjectMeta({ id: "project-a", name: "Alpha", restoreKey: "restoreKey_alpha" })
+    const second = makeLocalProjectMeta({ id: "project-b", name: "Beta", restoreKey: "restoreKey_beta" })
+    const duplicateTimer = makeTimer({
+      id: "timer-duplicate",
+      targetDate: new Date(targetAtMs).toISOString(),
+      createdAt: new Date(targetAtMs - 60_000).toISOString(),
+    })
+    seedProjects(
+      [first, second],
+      first.id,
+      new Map([
+        [first.id, [duplicateTimer]],
+        [second.id, [duplicateTimer]],
+      ]),
+    )
+    const key = getCountUpOccurrenceKey(duplicateTimer.id, targetAtMs)
+    writeCountUpState(first.id, {
+      occurrences: [countUpOccurrence(first.id, duplicateTimer.id, targetAtMs)],
+      observations: [],
+    })
+    writeCountUpState(second.id, {
+      occurrences: [countUpOccurrence(second.id, duplicateTimer.id, targetAtMs)],
+      observations: [],
+    })
+    const store = createHydratedStore()
+
+    expect(store.getState().countUpOccurrences).toHaveLength(2)
+    store.getState().acknowledgeCountUps([key], nowMs)
+    expect(store.getState().countUpOccurrences.find((event) => event.projectId === first.id)).toMatchObject({
+      firstSeenAt: null,
+      acknowledgedAt: nowMs,
+    })
+    expect(
+      store.getState().countUpOccurrences.find((event) => event.projectId === second.id)?.acknowledgedAt,
+    ).toBeNull()
+
+    store.getState().deferCountUpsForProject(second.id, [key], nowMs + 60_000)
+    expect(store.getState().countUpOccurrences.find((event) => event.projectId === second.id)).toMatchObject({
+      firstSeenAt: null,
+      deferredUntil: nowMs + 60_000,
+      acknowledgedAt: null,
+    })
+    store.getState().markCountUpSeenForProject(second.id, [key], nowMs + 1)
+    expect(store.getState().countUpOccurrences.find((event) => event.projectId === second.id)?.firstSeenAt).toBe(
+      nowMs + 1,
+    )
+    expect(readCountUpState(second.id).occurrences[0]).toMatchObject({ deferredUntil: nowMs + 60_000 })
+  })
+
+  it("pins and acknowledges an inactive-project occurrence only after the timer is available", async () => {
+    const nowMs = Date.parse(FIXED_NOW)
+    const targetAtMs = nowMs - 60_000
+    const first = makeLocalProjectMeta({ id: "project-a", name: "Alpha", restoreKey: "restoreKey_alpha" })
+    const second = makeLocalProjectMeta({ id: "project-b", name: "Beta", restoreKey: "restoreKey_beta" })
+    const timer = makeTimer({
+      id: "timer-inactive",
+      pinned: false,
+      targetDate: new Date(targetAtMs).toISOString(),
+      createdAt: new Date(targetAtMs - 60_000).toISOString(),
+    })
+    seedProjects([first, second], first.id, new Map([[second.id, [timer]]]))
+    const occurrence = countUpOccurrence(second.id, timer.id, targetAtMs)
+    writeCountUpState(second.id, { occurrences: [occurrence], observations: [] })
+    const store = createHydratedStore()
+
+    await expect(store.getState().pinCountUpForProject(second.id, timer.id, occurrence.key, nowMs)).resolves.toBe(true)
+
+    expect(store.getState().activeProjectId).toBe(second.id)
+    expect(store.getState().timers.find((candidate) => candidate.id === timer.id)?.pinned).toBe(true)
+    expect(store.getState().countUpOccurrences.find((candidate) => candidate.projectId === second.id)).toMatchObject({
+      acknowledgedAt: nowMs,
+    })
+    expect(readCountUpState(second.id).occurrences[0]).toMatchObject({ acknowledgedAt: nowMs })
+  })
+
+  it("separates cloud memory from anonymous storage and restores local identity on sign-out", async () => {
+    const nowMs = Date.parse(FIXED_NOW)
+    const targetAtMs = nowMs - 60_000
+    const local = makeLocalProjectMeta({ id: "project-local", name: "Local", restoreKey: "restoreKey_local" })
+    const account = makeAccountProjectMeta()
+    const timer = makeTimer({
+      id: "timer-local",
+      targetDate: new Date(targetAtMs).toISOString(),
+      createdAt: new Date(targetAtMs - 60_000).toISOString(),
+    })
+    seedProjects([account, local], local.id, new Map([[local.id, [timer]]]))
+    const localOccurrence = countUpOccurrence(local.id, timer.id, targetAtMs)
+    writeCountUpState(local.id, { occurrences: [localOccurrence], observations: [] })
+    const store = createHydratedStore()
+    await settleInitialCloudCheck()
+    const remoteEvent = {
+      ...countUpOccurrence(account.cloudProjectId!, "timer-cloud", targetAtMs),
+      projectName: "Account project",
+      timer: { label: "Cloud launch", pinned: true },
+    }
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          events: [
+            {
+              ...remoteEvent,
+              targetAtMs: String(targetAtMs),
+              crossedAt: new Date(targetAtMs).toISOString(),
+              firstSeenAt: null,
+              acknowledgedAt: null,
+              deferredUntil: null,
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+
+    await store.getState().syncCountUpOccurrences()
+    expect(store.getState().countUpOccurrences.map((event) => event.projectId)).toEqual(
+      expect.arrayContaining([account.cloudProjectId, local.id]),
+    )
+    expect(
+      store.getState().countUpOccurrences.find((event) => event.projectId === account.cloudProjectId)?.timer,
+    ).toEqual({ label: "Cloud launch", pinned: true })
+    store.getState().acknowledgeCountUpsForProject(local.id, [localOccurrence.key], nowMs)
+    expect(readCountUpState(local.id).occurrences[0]?.acknowledgedAt).toBeNull()
+
+    store.getState().removeAccountProjectsFromDevice()
+    expect(store.getState().countUpOccurrences).toEqual([
+      expect.objectContaining({ projectId: local.id, acknowledgedAt: null }),
+    ])
+  })
+
+  it("discards late count-up GET and POST responses after sign-out", async () => {
+    const nowMs = Date.parse(FIXED_NOW)
+    const targetAtMs = nowMs - 60_000
+    const local = makeLocalProjectMeta({ id: "project-local", name: "Local", restoreKey: "restoreKey_local" })
+    const account = makeAccountProjectMeta()
+    const timer = makeTimer({
+      id: "timer-local",
+      targetDate: new Date(targetAtMs).toISOString(),
+      createdAt: new Date(targetAtMs - 60_000).toISOString(),
+    })
+    seedProjects([account, local], local.id, new Map([[local.id, [timer]]]))
+    const localOccurrence = countUpOccurrence(local.id, timer.id, targetAtMs)
+    writeCountUpState(local.id, { occurrences: [localOccurrence], observations: [] })
+
+    const staleGetStore = createHydratedStore()
+    await settleInitialCloudCheck()
+    const resolveGet = pendingFetchOnce()
+    const sync = staleGetStore.getState().syncCountUpOccurrences()
+    staleGetStore.getState().removeAccountProjectsFromDevice()
+    resolveGet(countUpResponse([countUpOccurrence(account.cloudProjectId!, "timer-cloud-get", targetAtMs)]))
+    await sync
+
+    expect(staleGetStore.getState().countUpOccurrences).toEqual([
+      expect.objectContaining({ projectId: local.id, timerId: timer.id }),
+    ])
+
+    seedProjects([account, local], local.id, new Map([[local.id, [timer]]]))
+    writeCountUpState(local.id, { occurrences: [localOccurrence], observations: [] })
+    const stalePostStore = createHydratedStore()
+    await settleInitialCloudCheck()
+    const cloudEvent = countUpOccurrence(account.cloudProjectId!, "timer-cloud-post", targetAtMs)
+    vi.mocked(fetch).mockResolvedValueOnce(countUpResponse([cloudEvent]))
+    await stalePostStore.getState().syncCountUpOccurrences()
+
+    const resolvePost = pendingFetchOnce()
+    stalePostStore.getState().acknowledgeCountUpsForProject(account.cloudProjectId!, [cloudEvent.key], nowMs)
+    await settleCountUpTasks()
+    stalePostStore.getState().removeAccountProjectsFromDevice()
+    resolvePost(countUpResponse([{ ...cloudEvent, acknowledgedAt: nowMs }]))
+    await settleCountUpTasks()
+
+    expect(stalePostStore.getState().countUpOccurrences).toEqual([
+      expect.objectContaining({ projectId: local.id, timerId: timer.id }),
+    ])
+  })
+
+  it("serializes acknowledge and Undo so the late acknowledge response cannot win", async () => {
+    const nowMs = Date.parse(FIXED_NOW)
+    const targetAtMs = nowMs - 60_000
+    const local = makeLocalProjectMeta({ id: "project-local", name: "Local", restoreKey: "restoreKey_local" })
+    const account = makeAccountProjectMeta()
+    seedProjects([account, local], local.id, new Map())
+    const store = createHydratedStore()
+    await settleInitialCloudCheck()
+    const cloudEvent = countUpOccurrence(account.cloudProjectId!, "timer-cloud", targetAtMs)
+    vi.mocked(fetch).mockResolvedValueOnce(countUpResponse([cloudEvent]))
+    await store.getState().syncCountUpOccurrences()
+
+    const requests: Array<{ action: string }> = []
+    const responders: Array<(response: Response) => void> = []
+    vi.mocked(fetch).mockImplementation((_input, init) => {
+      requests.push(JSON.parse(String(init?.body)) as { action: string })
+      return new Promise<Response>((resolve) => responders.push(resolve))
+    })
+
+    store.getState().acknowledgeCountUpsForProject(account.cloudProjectId!, [cloudEvent.key], nowMs)
+    store.getState().unacknowledgeCountUpsForProject(account.cloudProjectId!, [cloudEvent.key])
+    await settleCountUpTasks()
+
+    expect(requests).toEqual([expect.objectContaining({ action: "acknowledge" })])
+    responders[0](countUpResponse([{ ...cloudEvent, acknowledgedAt: nowMs }]))
+    await vi.waitFor(() => {
+      expect(requests).toEqual([
+        expect.objectContaining({ action: "acknowledge" }),
+        expect.objectContaining({ action: "unacknowledge" }),
+      ])
+    })
+
+    responders[1](countUpResponse([cloudEvent]))
+    await vi.waitFor(() => {
+      expect(
+        store.getState().countUpOccurrences.find((event) => event.projectId === account.cloudProjectId)?.acknowledgedAt,
+      ).toBeNull()
+    })
+  })
+
+  it("treats cloud mutation responses as authoritative without removing anonymous events", async () => {
+    const nowMs = Date.parse(FIXED_NOW)
+    const targetAtMs = nowMs - 60_000
+    const local = makeLocalProjectMeta({ id: "project-local", name: "Local", restoreKey: "restoreKey_local" })
+    const account = makeAccountProjectMeta()
+    const localTimer = makeTimer({
+      id: "timer-local",
+      targetDate: new Date(targetAtMs).toISOString(),
+      createdAt: new Date(targetAtMs - 60_000).toISOString(),
+    })
+    seedProjects([account, local], local.id, new Map([[local.id, [localTimer]]]))
+    const localOccurrence = countUpOccurrence(local.id, localTimer.id, targetAtMs)
+    writeCountUpState(local.id, { occurrences: [localOccurrence], observations: [] })
+    const store = createHydratedStore()
+    await settleInitialCloudCheck()
+    const retainedCloudEvent = countUpOccurrence(account.cloudProjectId!, "timer-cloud", targetAtMs)
+    const staleCloudEvent = countUpOccurrence(account.cloudProjectId!, "timer-cloud-stale", targetAtMs - 1)
+    vi.mocked(fetch).mockResolvedValueOnce(countUpResponse([retainedCloudEvent, staleCloudEvent]))
+    await store.getState().syncCountUpOccurrences()
+    expect(store.getState().countUpOccurrences).toHaveLength(3)
+
+    vi.mocked(fetch).mockResolvedValueOnce(countUpResponse([{ ...retainedCloudEvent, firstSeenAt: nowMs }]))
+    store.getState().markCountUpSeenForProject(account.cloudProjectId!, [retainedCloudEvent.key], nowMs)
+    await vi.waitFor(() => expect(store.getState().countUpOccurrences).toHaveLength(2))
+
+    expect(store.getState().countUpOccurrences).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ projectId: local.id, timerId: localTimer.id }),
+        expect.objectContaining({ projectId: account.cloudProjectId, timerId: retainedCloudEvent.timerId }),
+      ]),
+    )
+    expect(store.getState().countUpOccurrences.some((event) => event.timerId === staleCloudEvent.timerId)).toBe(false)
   })
 })

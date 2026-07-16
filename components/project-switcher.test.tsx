@@ -85,6 +85,7 @@ describe("ProjectSwitcher", () => {
       restoreKey: "restoreKey_123",
       timers: [],
       spaces: [],
+      countUpOccurrences: [],
       hasHydrated: true,
       isSyncing: false,
       isCheckingCloud: false,
@@ -178,6 +179,155 @@ describe("ProjectSwitcher", () => {
     await user.click(screen.getByRole("button", { name: "Switch project" }))
 
     expect(screen.queryByText("Local")).not.toBeInTheDocument()
+  })
+
+  it("does not render attention indicators before store hydration", () => {
+    storeState.hasHydrated = false
+    storeState.countUpOccurrences = [
+      {
+        key: "timer-a|1000",
+        projectId: "project-a",
+        timerId: "timer-a",
+        targetAtMs: 1_000,
+        crossedAt: 1_000,
+        firstSeenAt: null,
+        acknowledgedAt: null,
+        deferredUntil: null,
+      },
+    ]
+
+    renderSwitcher()
+
+    expect(document.querySelector("[data-count-up-project-indicator]")).not.toBeInTheDocument()
+  })
+
+  it("shows the new count instead of the waiting dot when a project has both states", async () => {
+    const user = userEvent.setup()
+    storeState.projects = [
+      {
+        id: "project-a",
+        name: "Alpha",
+        restoreKey: "restoreKey_123",
+        cloudProjectId: "cloud-project-a",
+        createdAt: "2026-05-20T00:00:00.000Z",
+        updatedAt: "2026-05-20T00:00:00.000Z",
+      },
+    ]
+    storeState.countUpOccurrences = [
+      {
+        key: "timer-new|1000",
+        projectId: "cloud-project-a",
+        timerId: "timer-new",
+        targetAtMs: 1_000,
+        crossedAt: 1_000,
+        firstSeenAt: null,
+        acknowledgedAt: null,
+        deferredUntil: null,
+      },
+      {
+        key: "timer-waiting|2000",
+        projectId: "cloud-project-a",
+        timerId: "timer-waiting",
+        targetAtMs: 2_000,
+        crossedAt: 2_000,
+        firstSeenAt: 2_500,
+        acknowledgedAt: null,
+        deferredUntil: null,
+      },
+    ]
+
+    renderSwitcher()
+    await user.click(screen.getByRole("button", { name: "Switch project" }))
+
+    const indicator = document.querySelector('[data-project-id="cloud-project-a"]')
+    expect(indicator).toHaveAttribute("data-count-up-project-indicator", "new")
+    expect(indicator).toHaveTextContent("1")
+    expect(indicator?.getAttribute("aria-label")).toMatch(/Alpha/i)
+    expect(indicator?.getAttribute("aria-label")).toMatch(/1/)
+    expect(
+      document.querySelector(
+        '[data-project-id="cloud-project-a"][data-count-up-project-indicator="waiting-for-review"]',
+      ),
+    ).not.toBeInTheDocument()
+  })
+
+  it("isolates new and waiting indicators by cloud or local project identity", async () => {
+    const user = userEvent.setup()
+    storeState.projects = [
+      {
+        id: "local-shell-a",
+        name: "Alpha",
+        restoreKey: "restoreKey_alpha",
+        cloudProjectId: "cloud-project-a",
+        createdAt: "2026-05-20T00:00:00.000Z",
+        updatedAt: "2026-05-20T00:00:00.000Z",
+      },
+      {
+        id: "local-project-b",
+        name: "Beta",
+        restoreKey: "restoreKey_beta",
+        createdAt: "2026-05-21T00:00:00.000Z",
+        updatedAt: "2026-05-21T00:00:00.000Z",
+      },
+    ]
+    storeState.countUpOccurrences = [
+      ...["timer-a-1", "timer-a-2"].map((timerId, index) => ({
+        key: `${timerId}|${index + 1}`,
+        projectId: "cloud-project-a",
+        timerId,
+        targetAtMs: index + 1,
+        crossedAt: index + 1,
+        firstSeenAt: null,
+        acknowledgedAt: null,
+        deferredUntil: null,
+      })),
+      {
+        key: "timer-b|3000",
+        projectId: "local-project-b",
+        timerId: "timer-b",
+        targetAtMs: 3_000,
+        crossedAt: 3_000,
+        firstSeenAt: 3_500,
+        acknowledgedAt: null,
+        deferredUntil: null,
+      },
+      {
+        key: "timer-b-acknowledged|4000",
+        projectId: "local-project-b",
+        timerId: "timer-b-acknowledged",
+        targetAtMs: 4_000,
+        crossedAt: 4_000,
+        firstSeenAt: 4_500,
+        acknowledgedAt: 5_000,
+        deferredUntil: null,
+      },
+      {
+        key: "timer-foreign|5000",
+        projectId: "foreign-project",
+        timerId: "timer-foreign",
+        targetAtMs: 5_000,
+        crossedAt: 5_000,
+        firstSeenAt: null,
+        acknowledgedAt: null,
+        deferredUntil: null,
+      },
+    ]
+
+    renderSwitcher()
+    await user.click(screen.getByRole("button", { name: "Switch project" }))
+
+    const alphaIndicator = document.querySelector('[data-project-id="cloud-project-a"]')
+    expect(alphaIndicator).toHaveAttribute("data-count-up-project-indicator", "new")
+    expect(alphaIndicator).toHaveTextContent("2")
+    expect(alphaIndicator?.getAttribute("aria-label")).toMatch(/Alpha/i)
+
+    const betaIndicator = document.querySelector('[data-project-id="local-project-b"]')
+    expect(betaIndicator).toHaveAttribute("data-count-up-project-indicator", "waiting-for-review")
+    expect(betaIndicator).toHaveAttribute("role", "img")
+    expect(betaIndicator?.getAttribute("aria-label")).toMatch(/Beta/i)
+
+    expect(document.querySelector('[data-project-id="foreign-project"]')).not.toBeInTheDocument()
+    expect(document.querySelectorAll("[data-count-up-project-indicator]")).toHaveLength(2)
   })
 
   it("copies the cloud project id from the row copy button", async () => {

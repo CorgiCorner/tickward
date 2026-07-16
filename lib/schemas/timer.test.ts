@@ -8,6 +8,7 @@ import {
   normalizeTimerUrl,
   quickAddTimerFormSchema,
   timerFormSchema,
+  timerAfterZeroFromForm,
   timerSchema,
   type TimerFormValues,
 } from "@/lib/schemas/timer"
@@ -120,9 +121,42 @@ const baseTimerFormValues: TimerFormValues = {
   lastDay: false,
   spaceId: "",
   image: null,
+  afterZeroMode: "use-default",
+  afterZeroMinutes: "30",
 }
 
 describe("timer form schema", () => {
+  it("validates and maps timer-specific after-zero overrides", () => {
+    expect(
+      timerSchema.safeParse({
+        id: "timer-a",
+        label: "Launch",
+        targetDate: "2026-05-25T12:00:00.000Z",
+        timezone: "UTC",
+        createdAt: "2026-05-20T00:00:00.000Z",
+        afterZero: { mode: "keep-visible", minutes: 45 },
+      }).success,
+    ).toBe(true)
+    expect(timerAfterZeroFromForm({ afterZeroMode: "keep-visible-1h", afterZeroMinutes: "30" })).toEqual({
+      mode: "keep-visible",
+      minutes: 60,
+    })
+    expect(timerAfterZeroFromForm({ afterZeroMode: "keep-visible-custom", afterZeroMinutes: "45" })).toEqual({
+      mode: "keep-visible",
+      minutes: 45,
+    })
+  })
+
+  it("rejects invalid custom after-zero minutes", () => {
+    expect(
+      timerFormSchema.safeParse({
+        ...baseTimerFormValues,
+        afterZeroMode: "keep-visible-custom",
+        afterZeroMinutes: "0",
+      }).success,
+    ).toBe(false)
+  })
+
   it("allows empty labels for submit-time default naming", () => {
     expect(timerFormSchema.safeParse({ ...baseTimerFormValues, label: "   " }).success).toBe(true)
     expect(

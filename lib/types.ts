@@ -1,4 +1,5 @@
 import type { TimerNotificationSettings } from "@/lib/notification-preferences"
+import type { TimerAfterZero } from "@/lib/count-up-policy"
 
 export type TimerReminder = {
   offsetMinutes: number
@@ -19,6 +20,7 @@ export type Timer = {
   notify?: boolean
   notification?: TimerNotificationSettings
   pinned?: boolean
+  afterZero?: TimerAfterZero
   recurrence?: {
     // Loops on a calendar cadence/slot, anchored to the set date (targetDate).
     // The slot (time, weekday, day-of-month, month) is read from targetDate in

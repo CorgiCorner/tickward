@@ -49,6 +49,7 @@ export function ProjectSwitcher() {
   const activeProjectId = useTimerStore((s) => s.activeProjectId)
   const timers = useTimerStore((s) => s.timers)
   const spaces = useTimerStore((s) => s.spaces)
+  const countUpOccurrences = useTimerStore((s) => s.countUpOccurrences)
   const hasHydrated = useTimerStore((s) => s.hasHydrated)
   const switchProject = useTimerStore((s) => s.switchProject)
   const createProject = useTimerStore((s) => s.createProject)
@@ -117,6 +118,14 @@ export function ProjectSwitcher() {
         <div className="-mx-1.5 grid max-h-56 gap-0.5 overflow-y-auto overflow-x-hidden px-1.5">
           {projects.map((project) => {
             const selected = project.id === activeProjectId
+            const countUpProjectId = project.cloudProjectId ?? project.id
+            const activeCountUpOccurrences = countUpOccurrences.filter(
+              (occurrence) => occurrence.projectId === countUpProjectId && occurrence.acknowledgedAt === null,
+            )
+            const newCountUpCount = activeCountUpOccurrences.filter(
+              (occurrence) => occurrence.firstSeenAt === null,
+            ).length
+            const waitingCountUpCount = activeCountUpOccurrences.length - newCountUpCount
             const timerCount = projectTimerCount({
               projectId: project.id,
               activeProjectId,
@@ -155,6 +164,34 @@ export function ProjectSwitcher() {
                       <span className="min-w-0 truncate text-sm font-medium" title={project.name}>
                         {project.name}
                       </span>
+                      {hasHydrated && newCountUpCount > 0 ? (
+                        <span
+                          data-count-up-project-indicator="new"
+                          data-project-id={countUpProjectId}
+                          className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums text-foreground"
+                          aria-label={formatMessage("countUp.project.newCount", {
+                            count: newCountUpCount,
+                            project: project.name,
+                          })}
+                          title={formatMessage("countUp.project.newCount", {
+                            count: newCountUpCount,
+                            project: project.name,
+                          })}
+                        >
+                          {newCountUpCount}
+                        </span>
+                      ) : hasHydrated && waitingCountUpCount > 0 ? (
+                        <span
+                          data-count-up-project-indicator="waiting-for-review"
+                          data-project-id={countUpProjectId}
+                          role="img"
+                          className="size-2 shrink-0 rounded-full border border-foreground/60 bg-muted-foreground/35"
+                          aria-label={formatMessage("countUp.project.waiting", { project: project.name })}
+                          title={formatMessage("countUp.project.waiting", {
+                            project: project.name,
+                          })}
+                        />
+                      ) : null}
                       {!project.cloudProjectId ? (
                         <span className="shrink-0 rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase leading-none text-muted-foreground">
                           {formatMessage("project.local")}

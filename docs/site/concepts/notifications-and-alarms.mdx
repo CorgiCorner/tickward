@@ -13,7 +13,9 @@ exists for the one case the client cannot cover: no tab is open at all.
 The hook in `components/use-local-timer-alarms.ts` owns alarm delivery. A timer
 participates only if it opted in - `timer.notify` or `timer.notification.enabled`
 is true - and is not archived. Its alarm boundary is the target date, or, for
-recurring timers, the next occurrence.
+recurring timers, the next occurrence. A recurring alarm can fire at every
+occurrence without creating a [Started counting up](/concepts/started-counting-up)
+review item; count-up review is only for one-off timers.
 
 Delivery uses two primary mechanisms, both armed at the absolute target time and
 both independent of the render loop, plus a tick-based backstop. All three funnel

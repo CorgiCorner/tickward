@@ -168,7 +168,7 @@ function AuthLegalNotice() {
   const linkClass = "font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
 
   return (
-    <p className="text-[11px] leading-4 text-muted-foreground">
+    <p className="mb-2 text-[11px] leading-4 text-muted-foreground">
       {formatMessage("auth.legal.prefix")}{" "}
       <Link className={linkClass} href={localeHref(locale, "/legal/terms")}>
         {formatMessage("auth.legal.terms")}
@@ -424,6 +424,7 @@ export function OtpSignInPageClient(props: Readonly<{ email: string; nextPath?: 
       })
       if (result.error) throw result.error
       cooldown.start()
+      setCode("")
       toast.success(formatMessage("auth.otp.sent"))
     } catch (requestError) {
       const retryAfter = authErrorRetryAfter(requestError)
@@ -546,6 +547,7 @@ function SignInDialogContent(
       })
       if (result.error) throw result.error
       cooldown.start()
+      setCode("")
       toast.success(formatMessage("auth.otp.sent"))
     } catch (requestError) {
       const retryAfter = authErrorRetryAfter(requestError)

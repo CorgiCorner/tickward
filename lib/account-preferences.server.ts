@@ -5,6 +5,7 @@ import {
   type AccountPreferencesPatch,
   type AccountPreferencesRecord,
 } from "@/lib/account-preferences"
+import { normalizeCountUpPolicy } from "@/lib/count-up-policy"
 import type { UserRef } from "@/lib/contracts"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
 import { notificationSoundSchema } from "@/lib/schemas/timer"
@@ -15,6 +16,9 @@ type UserPreferenceRow = {
   fullPageAlarm: boolean
   inAppNotifications?: boolean | null
   notificationSound: string
+  countUpPolicy?: string | null
+  countUpPolicyMinutes?: number | null
+  countUpIntroDismissed?: boolean | null
 }
 
 type UserPreferenceDelegate = {
@@ -73,6 +77,11 @@ function publicAccountPreferences(row: UserPreferenceRow | null | undefined): Ac
     full_page_alarm: row.fullPageAlarm,
     in_app_notifications: row.inAppNotifications !== false,
     notification_sound: sound.success ? sound.data : "none",
+    count_up_policy: normalizeCountUpPolicy({
+      mode: row.countUpPolicy,
+      minutes: row.countUpPolicyMinutes ?? null,
+    }),
+    count_up_intro_dismissed: row.countUpIntroDismissed === true,
   }
 }
 
@@ -94,6 +103,13 @@ export async function updateAccountPreferencesForUser(
   if (patch.full_page_alarm !== undefined) data.fullPageAlarm = patch.full_page_alarm
   if (patch.in_app_notifications !== undefined) data.inAppNotifications = patch.in_app_notifications
   if (patch.notification_sound !== undefined) data.notificationSound = patch.notification_sound
+  if (patch.count_up_policy !== undefined) {
+    data.countUpPolicy = patch.count_up_policy.mode
+    data.countUpPolicyMinutes = patch.count_up_policy.minutes
+  }
+  if (patch.count_up_intro_dismissed !== undefined) {
+    data.countUpIntroDismissed = patch.count_up_intro_dismissed
+  }
 
   const create = {
     userId: user.id,
@@ -110,6 +126,13 @@ export async function updateAccountPreferencesForUser(
       typeof data.notificationSound === "string"
         ? data.notificationSound
         : DEFAULT_ACCOUNT_PREFERENCES.notification_sound,
+    countUpPolicy:
+      typeof data.countUpPolicy === "string" ? data.countUpPolicy : DEFAULT_ACCOUNT_PREFERENCES.count_up_policy.mode,
+    countUpPolicyMinutes: typeof data.countUpPolicyMinutes === "number" ? data.countUpPolicyMinutes : null,
+    countUpIntroDismissed:
+      typeof data.countUpIntroDismissed === "boolean"
+        ? data.countUpIntroDismissed
+        : DEFAULT_ACCOUNT_PREFERENCES.count_up_intro_dismissed,
   }
 
   const prisma = requirePrismaClient()

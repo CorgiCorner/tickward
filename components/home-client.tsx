@@ -12,14 +12,25 @@ import {
   TimerIcon,
   XIcon,
 } from "lucide-react"
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 
 import { FooterStatusBar } from "@/components/footer"
+import { CountUpIntroNote } from "@/components/count-up-intro-note"
+import {
+  COUNT_UP_HIGHLIGHT_DURATION_MS,
+  COUNT_UP_VIEW_EVENT,
+  findCountUpCard,
+  isCountUpCardInViewport,
+  navigateToCountUpCard,
+  takePendingCountUpTarget,
+  type CountUpNavigationTarget,
+} from "@/components/count-up-navigation"
 import { IosPwaPrompt } from "@/components/ios-pwa-prompt"
 import { Header } from "@/components/header"
 import { HOME_EMPTY_TIMER_EXAMPLES, HomeMainLoadingSkeleton } from "@/components/app-shell-loading"
 import { OrganizerBar } from "@/components/organizer-bar"
+import { aggregateCountUpAnalyticsPolicy, trackCountUpAnalyticsEvent } from "@/components/plausible-analytics"
 import { ProjectClaimToast } from "@/components/project-claim-slot"
 import { QuickAddTimer } from "@/components/quick-add-timer"
 import { TimerAlarmOverlay } from "@/components/timer-alarm-overlay"
@@ -27,6 +38,7 @@ import { TimerCard } from "@/components/timer-card"
 import { Button } from "@/components/ui/button"
 import { useNow } from "@/components/use-now"
 import { useLocalTimerAlarms } from "@/components/use-local-timer-alarms"
+import { useBatchedCountUpSeen } from "@/components/use-count-up-seen"
 import { useProjectUrlSync } from "@/hooks/use-project-url-sync"
 import { authClient } from "@/lib/auth/auth-client"
 import { runInBackground } from "@/lib/background-task"
@@ -35,6 +47,7 @@ import { logClientError } from "@/lib/client-errors"
 import { getEntitlements, setActiveClientPlan } from "@/lib/entitlements"
 import { formatMessage } from "@/lib/i18n/messages"
 import { useTimerStore } from "@/lib/store"
+import { getCountUpOccurrenceKey, type CountUpOccurrence } from "@/lib/stores/count-up-store"
 import { timerMatchesFilters } from "@/lib/timer-filters"
 import type { Timer, TimerSortMode } from "@/lib/types"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
@@ -79,7 +92,12 @@ function OnboardingBanner(props: Readonly<{ timerCount: number; spaceCount: numb
   )
 }
 
-function EmptyState(props: Readonly<{ compact?: boolean; onSelectExample: (label: string) => void }>) {
+function EmptyState(
+  props: Readonly<{
+    compact?: boolean
+    onSelectExample: (label: string) => void
+  }>,
+) {
   return (
     <div
       className={[
@@ -176,17 +194,42 @@ function ProjectReadOnlyBanner() {
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium">{formatMessage("project.readOnly.banner.title")}</div>
           <div className="mt-1 text-xs opacity-80">
-            {formatMessage("project.readOnly.banner.description", { max: String(maxProjects) })}
+            {formatMessage("project.readOnly.banner.description", {
+              max: String(maxProjects),
+            })}
           </div>
           {purgeAt ? (
             <div className="mt-1 text-xs opacity-80">
               {formatMessage("project.readOnly.banner.purgeScheduled", {
-                date: new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(purgeAt)),
+                date: new Intl.DateTimeFormat(undefined, {
+                  dateStyle: "medium",
+                }).format(new Date(purgeAt)),
               })}
             </div>
           ) : null}
         </div>
       </div>
+    </div>
+  )
+}
+
+function CountUpStickyBanner(props: Readonly<{ count: number; onView: () => void }>) {
+  if (props.count === 0) return null
+
+  return (
+    <div
+      data-slot="count-up-sticky-banner"
+      className="sticky top-[4.25rem] z-30 mb-4 flex items-center gap-2 rounded-2xl border border-primary/20 bg-background/95 px-3 py-2.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85"
+    >
+      <TimerIcon className="size-4 shrink-0 text-primary" aria-hidden="true" />
+      <p className="min-w-0 flex-1 text-sm">
+        {formatMessage(props.count === 1 ? "countUp.sticky.single" : "countUp.sticky.multiple", {
+          count: props.count,
+        })}
+      </p>
+      <Button type="button" size="sm" variant="ghost" className="h-7 shrink-0 px-2 text-xs" onClick={props.onView}>
+        {formatMessage("countUp.view")}
+      </Button>
     </div>
   )
 }
@@ -233,7 +276,9 @@ function sortTimers(timers: Timer[], sortMode: TimerSortMode, nowMs: number) {
     }
 
     if (sortMode === "name_asc") {
-      const byName = a.label.localeCompare(b.label, undefined, { sensitivity: "base" })
+      const byName = a.label.localeCompare(b.label, undefined, {
+        sensitivity: "base",
+      })
       if (byName !== 0) return byName
       return targetMs(a, nowMs) - targetMs(b, nowMs)
     }
@@ -255,7 +300,9 @@ function matchesActiveSpace(timer: Timer, activeSpaceId: string | null, spaces: 
   return timer.spaceId === activeSpaceId
 }
 
-type TimerSectionKind = "pinned" | "upcoming" | "past" | "archived"
+type TimerSectionKind = "pinned" | "countUp" | "upcoming" | "past" | "archived"
+const COUNT_UP_CROSS_HOLD_MS = 1_500
+const COUNT_UP_CROSSFADE_MS = 300
 
 const SortableTimerSection = memo(function SortableTimerSection(
   props: Readonly<{
@@ -272,7 +319,14 @@ const SortableTimerSection = memo(function SortableTimerSection(
     className?: string
     listClassName?: string
     action?: ReactNode
+    count?: number
     sortable?: boolean
+    countUpOccurrences?: ReadonlyMap<string, CountUpOccurrence>
+    countUpPlacement?: "section" | "pinned"
+    heldCountUpTimerIds?: ReadonlySet<string>
+    reducedMotionCountUpTimerIds?: ReadonlySet<string>
+    onCountUpInteractionChange?: (timerId: string, active: boolean) => void
+    onCountUpSeen?: (key: string) => void
   }>,
 ) {
   if (props.timers.length === 0) return null
@@ -280,7 +334,20 @@ const SortableTimerSection = memo(function SortableTimerSection(
   const list = (
     <div data-slot={props.dataSlot} className={cn("grid gap-3", props.listClassName)}>
       {props.timers.map((timer) => (
-        <TimerCard key={timer.id} timer={timer} nowMs={props.nowMs} sortable={props.sortable} />
+        <TimerCard
+          key={timer.id}
+          timer={timer}
+          nowMs={props.nowMs}
+          sortable={props.sortable}
+          countUpOccurrence={props.countUpOccurrences?.get(timer.id)}
+          countUpPlacement={props.countUpOccurrences?.has(timer.id) ? props.countUpPlacement : undefined}
+          countUpHolding={props.heldCountUpTimerIds?.has(timer.id)}
+          countUpCrossfade={
+            props.reducedMotionCountUpTimerIds?.has(timer.id) && !props.heldCountUpTimerIds?.has(timer.id)
+          }
+          onCountUpInteractionChange={(active) => props.onCountUpInteractionChange?.(timer.id, active)}
+          onCountUpSeen={props.onCountUpSeen}
+        />
       ))}
     </div>
   )
@@ -293,7 +360,12 @@ const SortableTimerSection = memo(function SortableTimerSection(
           className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
         >
           {props.icon}
-          {props.title}
+          <span>{props.title}</span>
+          {props.count === undefined ? null : (
+            <span data-slot="timer-section-count" className="tabular-nums">
+              {props.count}
+            </span>
+          )}
         </div>
         {props.action}
       </div>
@@ -314,17 +386,147 @@ const SortableTimerSection = memo(function SortableTimerSection(
   )
 })
 
+const CountUpTimerSection = memo(function CountUpTimerSection(
+  props: Readonly<{
+    timers: Timer[]
+    occurrencesByTimer: ReadonlyMap<string, CountUpOccurrence>
+    nowMs: number
+    onAcknowledge: (keys: string[]) => void
+    onUnacknowledge: (keys: string[]) => void
+    reducedMotionCountUpTimerIds: ReadonlySet<string>
+    onInteractionChange: (timerId: string, active: boolean) => void
+    onCountUpSeen: (key: string) => void
+    revealCountUpKey?: string
+  }>,
+) {
+  const [expanded, setExpanded] = useState(false)
+  const count = props.timers.length
+  if (count === 0) return null
+
+  const canExpand = count >= 4 && count <= 10
+  const revealTimer = props.revealCountUpKey
+    ? props.timers.find((timer) => props.occurrencesByTimer.get(timer.id)?.key === props.revealCountUpKey)
+    : undefined
+  const orderedForDisplay =
+    revealTimer && !props.timers.slice(0, 3).includes(revealTimer)
+      ? [revealTimer, ...props.timers.filter((timer) => timer.id !== revealTimer.id)]
+      : props.timers
+  const visibleTimers = canExpand && expanded ? props.timers : orderedForDisplay.slice(0, 3)
+  const hiddenCount = count - visibleTimers.length
+  const keys = props.timers.flatMap((timer) => {
+    const occurrence = props.occurrencesByTimer.get(timer.id)
+    return occurrence ? [occurrence.key] : []
+  })
+
+  function acknowledgeAll() {
+    const policy = aggregateCountUpAnalyticsPolicy(
+      props.timers.map((timer) => props.occurrencesByTimer.get(timer.id)?.policy?.mode),
+    )
+    props.onAcknowledge(keys)
+    trackCountUpAnalyticsEvent("transition_bulk_action", { policy, sectionSize: 0 })
+    toast(formatMessage("countUp.bulkMoved", { count }), {
+      action: {
+        label: formatMessage("common.undo"),
+        onClick: () => {
+          props.onUnacknowledge(keys)
+          trackCountUpAnalyticsEvent("transition_undo", { policy, sectionSize: count })
+        },
+      },
+    })
+  }
+
+  return (
+    <section id="count-up-timers" aria-labelledby="count-up-timers-heading" className="scroll-mt-20">
+      <div className="mb-2 flex items-start justify-between gap-3 px-1">
+        <div className="min-w-0">
+          <div
+            id="count-up-timers-heading"
+            className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
+          >
+            <TimerIcon className="size-3" />
+            {formatMessage("home.startedCountingUp")} · {formatMessage("countUp.sectionCount", { count })}
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">{formatMessage("home.startedCountingUp.helper")}</p>
+        </div>
+        {count > 1 ? (
+          <button
+            type="button"
+            className="shrink-0 text-[11px] font-medium text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+            onClick={acknowledgeAll}
+          >
+            {formatMessage("countUp.acknowledgeAll")}
+          </button>
+        ) : null}
+      </div>
+      <CountUpIntroNote />
+      <div data-slot="count-up-timer-list" className="grid gap-3">
+        {visibleTimers.map((timer) => (
+          <TimerCard
+            key={timer.id}
+            timer={timer}
+            nowMs={props.nowMs}
+            sortable={false}
+            countUpOccurrence={props.occurrencesByTimer.get(timer.id)}
+            countUpPlacement="section"
+            countUpCrossfade={props.reducedMotionCountUpTimerIds.has(timer.id)}
+            onCountUpInteractionChange={(active) => props.onInteractionChange(timer.id, active)}
+            onCountUpSeen={props.onCountUpSeen}
+          />
+        ))}
+      </div>
+      {canExpand && hiddenCount > 0 ? (
+        <button
+          type="button"
+          className="mt-2 w-full rounded-xl border border-dashed px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+          onClick={() => setExpanded(true)}
+        >
+          {formatMessage("countUp.showMore", { count: hiddenCount })}
+        </button>
+      ) : null}
+      {canExpand && expanded ? (
+        <button
+          type="button"
+          className="mt-2 w-full text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+          onClick={() => setExpanded(false)}
+        >
+          {formatMessage("countUp.collapse")}
+        </button>
+      ) : null}
+      {count > 10 ? (
+        <p className="mt-2 rounded-xl border border-dashed px-3 py-2 text-xs text-muted-foreground">
+          {formatMessage("countUp.summary", { count: count - 3 })}
+        </p>
+      ) : null}
+    </section>
+  )
+})
+
 const ActiveTimerList = memo(function ActiveTimerList(
   props: Readonly<{
     pinnedTimers: Timer[]
+    countUpTimers: Timer[]
+    countUpOccurrencesByTimer: ReadonlyMap<string, CountUpOccurrence>
     upcomingTimers: Timer[]
     pastTimers: Timer[]
     nowMs: number
     sensors: ReturnType<typeof useSensors>
     onDragEnd: (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => void
+    onAcknowledgeCountUps: (keys: string[]) => void
+    onUnacknowledgeCountUps: (keys: string[]) => void
+    heldCountUpTimerIds: ReadonlySet<string>
+    reducedMotionCountUpTimerIds: ReadonlySet<string>
+    onCountUpInteractionChange: (timerId: string, active: boolean) => void
+    onCountUpSeen: (key: string) => void
+    revealCountUpKey?: string
   }>,
 ) {
-  if (props.pinnedTimers.length === 0 && props.upcomingTimers.length === 0 && props.pastTimers.length === 0) return null
+  if (
+    props.pinnedTimers.length === 0 &&
+    props.countUpTimers.length === 0 &&
+    props.upcomingTimers.length === 0 &&
+    props.pastTimers.length === 0
+  )
+    return null
 
   return (
     <div id="active-timers" data-slot="timer-list" className="grid gap-6 scroll-mt-20">
@@ -337,6 +539,23 @@ const ActiveTimerList = memo(function ActiveTimerList(
         sensors={props.sensors}
         onDragEnd={props.onDragEnd}
         icon={<PinIcon className="size-3" />}
+        countUpOccurrences={props.countUpOccurrencesByTimer}
+        countUpPlacement="pinned"
+        heldCountUpTimerIds={props.heldCountUpTimerIds}
+        reducedMotionCountUpTimerIds={props.reducedMotionCountUpTimerIds}
+        onCountUpInteractionChange={props.onCountUpInteractionChange}
+        onCountUpSeen={props.onCountUpSeen}
+      />
+      <CountUpTimerSection
+        timers={props.countUpTimers}
+        occurrencesByTimer={props.countUpOccurrencesByTimer}
+        nowMs={props.nowMs}
+        onAcknowledge={props.onAcknowledgeCountUps}
+        onUnacknowledge={props.onUnacknowledgeCountUps}
+        reducedMotionCountUpTimerIds={props.reducedMotionCountUpTimerIds}
+        onInteractionChange={props.onCountUpInteractionChange}
+        onCountUpSeen={props.onCountUpSeen}
+        revealCountUpKey={props.revealCountUpKey}
       />
       <SortableTimerSection
         kind="upcoming"
@@ -346,16 +565,24 @@ const ActiveTimerList = memo(function ActiveTimerList(
         nowMs={props.nowMs}
         sensors={props.sensors}
         onDragEnd={props.onDragEnd}
+        countUpOccurrences={props.countUpOccurrencesByTimer}
+        countUpPlacement="section"
+        heldCountUpTimerIds={props.heldCountUpTimerIds}
+        reducedMotionCountUpTimerIds={props.reducedMotionCountUpTimerIds}
+        onCountUpInteractionChange={props.onCountUpInteractionChange}
+        onCountUpSeen={props.onCountUpSeen}
       />
       <SortableTimerSection
         kind="past"
         headingId="past-timers-heading"
         title={formatMessage("home.past")}
         timers={props.pastTimers}
+        count={props.pastTimers.length}
         nowMs={props.nowMs}
         sensors={props.sensors}
         onDragEnd={props.onDragEnd}
         sortable={false}
+        onCountUpInteractionChange={props.onCountUpInteractionChange}
       />
     </div>
   )
@@ -363,7 +590,27 @@ const ActiveTimerList = memo(function ActiveTimerList(
 
 function scrollToId(id: string) {
   const reduceMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
-  document.getElementById(id)?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" })
+  document.getElementById(id)?.scrollIntoView({
+    behavior: reduceMotion ? "auto" : "smooth",
+    block: "start",
+  })
+}
+
+function countUpPrefersReducedMotion() {
+  return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+}
+
+type CountUpTransitionDocument = Document & {
+  startViewTransition?: (update: () => void) => unknown
+}
+
+function runCountUpMove(update: () => void, reduceMotion: boolean) {
+  const startViewTransition = (document as CountUpTransitionDocument).startViewTransition
+  if (reduceMotion || !startViewTransition) {
+    update()
+    return
+  }
+  startViewTransition.call(document, update)
 }
 
 // Jump control between the active list and the archived list, shown only when
@@ -433,12 +680,21 @@ const TimerCollection = memo(function TimerCollection(
     activeTimers: Timer[]
     archivedTimers: Timer[]
     pinnedTimers: Timer[]
+    countUpTimers: Timer[]
+    countUpOccurrencesByTimer: ReadonlyMap<string, CountUpOccurrence>
     upcomingTimers: Timer[]
     pastTimers: Timer[]
     nowMs: number
     sensors: ReturnType<typeof useSensors>
     onDragEnd: (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => void
     onSelectExample: (label: string) => void
+    onAcknowledgeCountUps: (keys: string[]) => void
+    onUnacknowledgeCountUps: (keys: string[]) => void
+    heldCountUpTimerIds: ReadonlySet<string>
+    reducedMotionCountUpTimerIds: ReadonlySet<string>
+    onCountUpInteractionChange: (timerId: string, active: boolean) => void
+    onCountUpSeen: (key: string) => void
+    revealCountUpKey?: string
   }>,
 ) {
   if (props.timers.length === 0) {
@@ -458,11 +714,20 @@ const TimerCollection = memo(function TimerCollection(
       {props.activeTimers.length > 0 ? (
         <ActiveTimerList
           pinnedTimers={props.pinnedTimers}
+          countUpTimers={props.countUpTimers}
+          countUpOccurrencesByTimer={props.countUpOccurrencesByTimer}
           upcomingTimers={props.upcomingTimers}
           pastTimers={props.pastTimers}
           nowMs={props.nowMs}
           sensors={props.sensors}
           onDragEnd={props.onDragEnd}
+          onAcknowledgeCountUps={props.onAcknowledgeCountUps}
+          onUnacknowledgeCountUps={props.onUnacknowledgeCountUps}
+          heldCountUpTimerIds={props.heldCountUpTimerIds}
+          reducedMotionCountUpTimerIds={props.reducedMotionCountUpTimerIds}
+          onCountUpInteractionChange={props.onCountUpInteractionChange}
+          onCountUpSeen={props.onCountUpSeen}
+          revealCountUpKey={props.revealCountUpKey}
         />
       ) : null}
       {showSectionJump ? (
@@ -500,6 +765,7 @@ function ReclassificationBoundary(
 
 function HomeTickEffects(
   props: Readonly<{
+    activeProjectId?: string
     activeProjectName?: string
     hasHydrated: boolean
     timers: Timer[]
@@ -507,14 +773,49 @@ function HomeTickEffects(
 ) {
   const nowMs = useNow()
   const alarmTimers = props.hasHydrated ? props.timers : []
-  const localAlarm = useLocalTimerAlarms(alarmTimers, nowMs)
+  const localAlarm = useLocalTimerAlarms(alarmTimers, nowMs, {
+    projectId: props.activeProjectId ?? "local",
+    projectName: props.activeProjectName ?? formatMessage("project.defaultName"),
+  })
+  const markCountUpSeenForProject = useTimerStore((state) => state.markCountUpSeenForProject)
 
   useEffect(() => {
     if (!props.hasHydrated) return
-    document.title = browserTitle({ projectName: props.activeProjectName, timers: props.timers, nowMs })
+    document.title = browserTitle({
+      projectName: props.activeProjectName,
+      timers: props.timers,
+      nowMs,
+    })
   }, [props.activeProjectName, props.hasHydrated, nowMs, props.timers])
 
-  return <TimerAlarmOverlay alarm={localAlarm.alarm} onDismiss={localAlarm.dismissAlarm} />
+  const dismissAlarm = () => {
+    if (localAlarm.alarm?.countUpOccurrence) {
+      const targetAtMs = new Date(localAlarm.alarm.boundary).getTime()
+      if (Number.isFinite(targetAtMs)) {
+        markCountUpSeenForProject(localAlarm.alarm.projectId, [
+          getCountUpOccurrenceKey(localAlarm.alarm.timerId, targetAtMs),
+        ])
+      }
+    }
+    localAlarm.dismissAlarm()
+  }
+
+  const viewAlarm = () => {
+    const alarm = localAlarm.alarm
+    if (!alarm) return
+    dismissAlarm()
+    globalThis.dispatchEvent(
+      new CustomEvent(COUNT_UP_VIEW_EVENT, {
+        detail: {
+          projectId: alarm.projectId,
+          timerId: alarm.timerId,
+          targetAtMs: new Date(alarm.boundary).getTime(),
+        },
+      }),
+    )
+  }
+
+  return <TimerAlarmOverlay alarm={localAlarm.alarm} onDismiss={dismissAlarm} onView={viewAlarm} />
 }
 
 function isPastTimer(timer: Timer, nowMs: number) {
@@ -540,39 +841,111 @@ export function HomeClient() {
   const reorderVisibleTimers = useTimerStore((s) => s.reorderVisibleTimers)
   const reorderTimers = useTimerStore((s) => s.reorderTimers)
   const setTimerSortMode = useTimerStore((s) => s.setTimerSortMode)
+  const setActiveSpace = useTimerStore((s) => s.setActiveSpace)
+  const clearTimerFilters = useTimerStore((s) => s.clearTimerFilters)
+  const countUpOccurrences = useTimerStore((s) => s.countUpOccurrences)
+  const detectTimerZeroCross = useTimerStore((s) => s.detectTimerZeroCross)
+  const acknowledgeCountUps = useTimerStore((s) => s.acknowledgeCountUps)
+  const markCountUpSeen = useTimerStore((s) => s.markCountUpSeen)
+  const unacknowledgeCountUps = useTimerStore((s) => s.unacknowledgeCountUps)
+  const syncCountUpOccurrences = useTimerStore((s) => s.syncCountUpOccurrences)
+  const openCountUpProject = useTimerStore((s) => s.openCountUpProject)
+  const queueCountUpSeen = useBatchedCountUpSeen(markCountUpSeen)
+  const prepareCountUpTarget = useCallback(() => {
+    setActiveSpace(null)
+    clearTimerFilters()
+  }, [clearTimerFilters, setActiveSpace])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
   const activeProject = projects.find((project) => project.id === activeProjectId)
+  const activeCountUpProjectId = activeProject?.cloudProjectId ?? activeProjectId
   const session = authClient.useSession()
   const signedInUserKey = session.data?.user?.id ?? session.data?.user?.email ?? null
   const sessionPending = Boolean(session.isPending)
   const [quickAddLabel, setQuickAddLabel] = useState("")
   const [classificationNowMs, setClassificationNowMs] = useState(() => Date.now())
+  const [heldCountUpTimerIds, setHeldCountUpTimerIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [reducedMotionCountUpTimerIds, setReducedMotionCountUpTimerIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [countUpAnnouncement, setCountUpAnnouncement] = useState("")
+  const [countUpRevealKey, setCountUpRevealKey] = useState<string | undefined>()
+  const [offscreenCountUpTargets, setOffscreenCountUpTargets] = useState<
+    ReadonlyArray<CountUpNavigationTarget & { key: string; localProjectId: string }>
+  >([])
+  const countUpInteractionIdsRef = useRef(new Set<string>())
+  const countUpReadyToMoveIdsRef = useRef(new Set<string>())
+  const countUpHoldTimeoutsRef = useRef(new Map<string, ReturnType<typeof globalThis.setTimeout>>())
+  const countUpCrossfadeTimeoutsRef = useRef(new Map<string, ReturnType<typeof globalThis.setTimeout>>())
+  const countUpReducedMotionIdsRef = useRef(new Set<string>())
+  const countUpLabelsRef = useRef(new Map<string, string>())
   const visibleSpaceTimers = useMemo(
     () => timers.filter((timer) => matchesActiveSpace(timer, activeSpaceId, spaces)),
     [activeSpaceId, spaces, timers],
   )
+  const activeProjectTimers = useMemo(() => timers.filter((timer) => !timer.archivedAt), [timers])
   const filteredTimers = useMemo(
     () => visibleSpaceTimers.filter((timer) => timerMatchesFilters(timer, timerFilters, classificationNowMs)),
     [classificationNowMs, timerFilters, visibleSpaceTimers],
   )
   const activeTimers = useMemo(() => filteredTimers.filter((timer) => !timer.archivedAt), [filteredTimers])
+  const countUpOccurrencesByTimer = useMemo(() => {
+    const timersById = new Map(activeTimers.map((timer) => [timer.id, timer]))
+    const activeOccurrences = new Map<string, CountUpOccurrence>()
+    for (const occurrence of countUpOccurrences) {
+      if (activeCountUpProjectId && occurrence.projectId !== activeCountUpProjectId) continue
+      const timer = timersById.get(occurrence.timerId)
+      if (
+        occurrence.acknowledgedAt === null &&
+        timer &&
+        isPastTimer(timer, classificationNowMs) &&
+        occurrence.targetAtMs === targetMs(timer, classificationNowMs)
+      ) {
+        activeOccurrences.set(timer.id, occurrence)
+      }
+    }
+    return activeOccurrences
+  }, [activeCountUpProjectId, activeTimers, countUpOccurrences, classificationNowMs])
   const pinnedTimers = useMemo(() => activeTimers.filter((timer) => timer.pinned), [activeTimers])
+  const countUpTimers = useMemo(
+    () =>
+      activeTimers
+        .filter(
+          (timer) => !timer.pinned && countUpOccurrencesByTimer.has(timer.id) && !heldCountUpTimerIds.has(timer.id),
+        )
+        .sort((left, right) => {
+          const leftOccurrence = countUpOccurrencesByTimer.get(left.id)!
+          const rightOccurrence = countUpOccurrencesByTimer.get(right.id)!
+          const leftNew = leftOccurrence.firstSeenAt === null
+          const rightNew = rightOccurrence.firstSeenAt === null
+          if (leftNew !== rightNew) return leftNew ? -1 : 1
+          return leftNew
+            ? rightOccurrence.crossedAt - leftOccurrence.crossedAt
+            : leftOccurrence.crossedAt - rightOccurrence.crossedAt
+        }),
+    [activeTimers, countUpOccurrencesByTimer, heldCountUpTimerIds],
+  )
   const upcomingTimers = useMemo(
     () =>
       sortTimers(
-        activeTimers.filter((timer) => !timer.pinned && !isPastTimer(timer, classificationNowMs)),
+        activeTimers.filter(
+          (timer) =>
+            !timer.pinned &&
+            (heldCountUpTimerIds.has(timer.id) ||
+              (!countUpOccurrencesByTimer.has(timer.id) && !isPastTimer(timer, classificationNowMs))),
+        ),
         sortMode,
         classificationNowMs,
       ),
-    [activeTimers, classificationNowMs, sortMode],
+    [activeTimers, countUpOccurrencesByTimer, classificationNowMs, heldCountUpTimerIds, sortMode],
   )
   const pastTimers = useMemo(
     () =>
       activeTimers
-        .filter((timer) => !timer.pinned && isPastTimer(timer, classificationNowMs))
+        .filter(
+          (timer) =>
+            !timer.pinned && !countUpOccurrencesByTimer.has(timer.id) && isPastTimer(timer, classificationNowMs),
+        )
         .sort((a, b) => targetMs(b, classificationNowMs) - targetMs(a, classificationNowMs)),
-    [activeTimers, classificationNowMs],
+    [activeTimers, countUpOccurrencesByTimer, classificationNowMs],
   )
   const archivedTimers = useMemo(() => {
     const archived = filteredTimers.filter((timer) => timer.archivedAt)
@@ -580,14 +953,70 @@ export function HomeClient() {
     return [...archived].sort((a, b) => new Date(b.archivedAt ?? 0).getTime() - new Date(a.archivedAt ?? 0).getTime())
   }, [filteredTimers, sortMode])
   const nextBoundaryMs = useMemo(
-    () => nextReclassificationBoundaryMs(visibleSpaceTimers, classificationNowMs),
-    [classificationNowMs, visibleSpaceTimers],
+    () => nextReclassificationBoundaryMs(activeProjectTimers, classificationNowMs),
+    [activeProjectTimers, classificationNowMs],
   )
+  const activeOffscreenCountUpTargets = useMemo(() => {
+    const activeOccurrenceKeys = new Set(
+      countUpOccurrences
+        .filter((occurrence) => occurrence.projectId === activeCountUpProjectId && occurrence.acknowledgedAt === null)
+        .map((occurrence) => occurrence.key),
+    )
+    return offscreenCountUpTargets.filter(
+      (target) => target.localProjectId === activeProjectId && activeOccurrenceKeys.has(target.key),
+    )
+  }, [activeCountUpProjectId, activeProjectId, countUpOccurrences, offscreenCountUpTargets])
+
+  useEffect(() => {
+    const revealTarget = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !event.detail || typeof event.detail !== "object") return
+      const projectId = Reflect.get(event.detail, "projectId")
+      const timerId = Reflect.get(event.detail, "timerId")
+      const targetAtMs = Reflect.get(event.detail, "targetAtMs")
+      if (typeof projectId !== "string" || typeof timerId !== "string") return
+      if (targetAtMs !== undefined && (typeof targetAtMs !== "number" || !Number.isSafeInteger(targetAtMs))) return
+
+      const revealKey =
+        targetAtMs === undefined
+          ? countUpOccurrences.find((candidate) => candidate.timerId === timerId && candidate.acknowledgedAt === null)
+              ?.key
+          : getCountUpOccurrenceKey(timerId, targetAtMs)
+      setCountUpRevealKey(revealKey)
+
+      void navigateToCountUpCard(
+        { projectId, timerId, ...(targetAtMs === undefined ? {} : { targetAtMs }) },
+        { openProject: openCountUpProject, prepareTarget: prepareCountUpTarget },
+      ).then((revealed) => {
+        globalThis.setTimeout(() => setCountUpRevealKey(undefined), revealed ? COUNT_UP_HIGHLIGHT_DURATION_MS : 0)
+      })
+    }
+    globalThis.addEventListener(COUNT_UP_VIEW_EVENT, revealTarget)
+    return () => globalThis.removeEventListener(COUNT_UP_VIEW_EVENT, revealTarget)
+  }, [countUpOccurrences, openCountUpProject, prepareCountUpTarget])
+
+  useEffect(() => {
+    if (!hasHydrated) return
+    const timeout = globalThis.setTimeout(() => {
+      const target = takePendingCountUpTarget()
+      if (!target) return
+      setCountUpRevealKey(
+        target.targetAtMs === undefined ? undefined : getCountUpOccurrenceKey(target.timerId, target.targetAtMs),
+      )
+      void navigateToCountUpCard(target, {
+        openProject: openCountUpProject,
+        prepareTarget: prepareCountUpTarget,
+      }).then((revealed) => {
+        globalThis.setTimeout(() => setCountUpRevealKey(undefined), revealed ? COUNT_UP_HIGHLIGHT_DURATION_MS : 0)
+      })
+    }, 0)
+    return () => globalThis.clearTimeout(timeout)
+  }, [hasHydrated, openCountUpProject, prepareCountUpTarget])
 
   useEffect(() => {
     if (!hasHydrated || sessionPending) return
     if (signedInUserKey) {
       setActiveClientPlan("free")
+      runInBackground("home.syncCountUpOccurrences", syncCountUpOccurrences())
       runInBackground(
         "home.autoClaimActiveProject",
         refreshAccountProjectsFromCloud()
@@ -595,7 +1024,11 @@ export function HomeClient() {
           .then((status) => {
             if (status === "claimed") toast.success(formatMessage("auth.claim.claimed"))
             if (status === "claimed_read_only")
-              toast(formatMessage("auth.claim.claimedReadOnly", { max: String(getEntitlements().maxProjects) }))
+              toast(
+                formatMessage("auth.claim.claimedReadOnly", {
+                  max: String(getEntitlements().maxProjects),
+                }),
+              )
           })
           .catch((error) => {
             // Silent failure: the manual claim toast stays as the fallback.
@@ -613,7 +1046,137 @@ export function HomeClient() {
     removeAccountProjectsFromDevice,
     sessionPending,
     signedInUserKey,
+    syncCountUpOccurrences,
   ])
+
+  const releaseCountUpHold = useCallback((timerId: string) => {
+    if (countUpInteractionIdsRef.current.has(timerId)) {
+      countUpReadyToMoveIdsRef.current.add(timerId)
+      return
+    }
+
+    countUpReadyToMoveIdsRef.current.delete(timerId)
+    const reduceMotion = countUpReducedMotionIdsRef.current.has(timerId)
+    runCountUpMove(
+      () =>
+        setHeldCountUpTimerIds((current) => {
+          if (!current.has(timerId)) return current
+          const next = new Set(current)
+          next.delete(timerId)
+          return next
+        }),
+      reduceMotion,
+    )
+
+    if (!reduceMotion) return
+    const label = countUpLabelsRef.current.get(timerId)
+    if (label) setCountUpAnnouncement(formatMessage("countUp.movedToSectionAnnouncement", { label }))
+    const existing = countUpCrossfadeTimeoutsRef.current.get(timerId)
+    if (existing !== undefined) globalThis.clearTimeout(existing)
+    const timeout = globalThis.setTimeout(() => {
+      countUpReducedMotionIdsRef.current.delete(timerId)
+      setReducedMotionCountUpTimerIds((current) => {
+        if (!current.has(timerId)) return current
+        const next = new Set(current)
+        next.delete(timerId)
+        return next
+      })
+      countUpCrossfadeTimeoutsRef.current.delete(timerId)
+    }, COUNT_UP_CROSSFADE_MS)
+    countUpCrossfadeTimeoutsRef.current.set(timerId, timeout)
+  }, [])
+
+  const handleCountUpInteractionChange = useCallback(
+    (timerId: string, active: boolean) => {
+      if (active) {
+        countUpInteractionIdsRef.current.add(timerId)
+        return
+      }
+      countUpInteractionIdsRef.current.delete(timerId)
+      if (countUpReadyToMoveIdsRef.current.has(timerId)) releaseCountUpHold(timerId)
+    },
+    [releaseCountUpHold],
+  )
+
+  const handleReclassificationBoundary = useCallback(
+    (nowMs: number) => {
+      for (const timer of activeProjectTimers) {
+        const boundary = timerReclassificationBoundaryMs(timer, classificationNowMs)
+        if (boundary === null || boundary > nowMs) continue
+        const renderedCard = activeProjectId ? findCountUpCard({ projectId: activeProjectId, timerId: timer.id }) : null
+        const crossedOutsideViewport = renderedCard === null || !isCountUpCardInViewport(renderedCard)
+        const createdCountUpOccurrence = detectTimerZeroCross(timer.id, nowMs)
+        if (!createdCountUpOccurrence) continue
+        setCountUpAnnouncement(
+          formatMessage("countUp.crossedAnnouncement", {
+            label: timer.label,
+          }),
+        )
+
+        if (crossedOutsideViewport && activeProjectId) {
+          const targetAtMs = targetMs(timer, classificationNowMs)
+          const projectId = activeProject?.cloudProjectId ?? activeProjectId
+          const key = getCountUpOccurrenceKey(timer.id, targetAtMs)
+          setOffscreenCountUpTargets((current) => {
+            if (current.some((target) => target.key === key && target.projectId === projectId)) return current
+            return [...current, { key, localProjectId: activeProjectId, projectId, timerId: timer.id, targetAtMs }]
+          })
+        }
+
+        const isVisibleCard = activeTimers.some((activeTimer) => activeTimer.id === timer.id)
+        if (!isVisibleCard || timer.pinned) continue
+        countUpLabelsRef.current.set(timer.id, timer.label)
+        const reduceMotion = countUpPrefersReducedMotion()
+        if (reduceMotion) {
+          countUpReducedMotionIdsRef.current.add(timer.id)
+          setReducedMotionCountUpTimerIds((current) => new Set(current).add(timer.id))
+        }
+        setHeldCountUpTimerIds((current) => new Set(current).add(timer.id))
+        const existing = countUpHoldTimeoutsRef.current.get(timer.id)
+        if (existing !== undefined) globalThis.clearTimeout(existing)
+        const timeout = globalThis.setTimeout(() => {
+          countUpHoldTimeoutsRef.current.delete(timer.id)
+          releaseCountUpHold(timer.id)
+        }, COUNT_UP_CROSS_HOLD_MS)
+        countUpHoldTimeoutsRef.current.set(timer.id, timeout)
+      }
+      setClassificationNowMs(nowMs)
+    },
+    [
+      activeProject,
+      activeProjectId,
+      activeProjectTimers,
+      activeTimers,
+      classificationNowMs,
+      detectTimerZeroCross,
+      releaseCountUpHold,
+    ],
+  )
+
+  const viewOffscreenCountUps = useCallback(() => {
+    const newest = activeOffscreenCountUpTargets.reduce<(typeof activeOffscreenCountUpTargets)[number] | null>(
+      (current, target) => (!current || (target.targetAtMs ?? 0) > (current.targetAtMs ?? 0) ? target : current),
+      null,
+    )
+    if (!newest) return
+    void navigateToCountUpCard(newest, {
+      openProject: openCountUpProject,
+      prepareTarget: prepareCountUpTarget,
+    }).then((revealed) => {
+      if (!revealed) return
+      setOffscreenCountUpTargets((current) =>
+        current.filter((target) => target.localProjectId !== newest.localProjectId),
+      )
+    })
+  }, [activeOffscreenCountUpTargets, openCountUpProject, prepareCountUpTarget])
+
+  useEffect(
+    () => () => {
+      for (const timeout of countUpHoldTimeoutsRef.current.values()) globalThis.clearTimeout(timeout)
+      for (const timeout of countUpCrossfadeTimeoutsRef.current.values()) globalThis.clearTimeout(timeout)
+    },
+    [],
+  )
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional clock refresh so changed data classifies against current time, not the last boundary
@@ -645,7 +1208,7 @@ export function HomeClient() {
 
   const handleTimerDragEnd = useCallback(
     (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => {
-      if (kind === "past") return
+      if (kind === "past" || kind === "countUp") return
 
       const { active, over } = event
       if (!over || active.id === over.id) return
@@ -665,7 +1228,9 @@ export function HomeClient() {
       }
 
       if (sortMode !== "manual") {
-        toast(formatMessage("timer.manualOrder"), { id: "manual-sort-after-drag" })
+        toast(formatMessage("timer.manualOrder"), {
+          id: "manual-sort-after-drag",
+        })
       }
     },
     [reorderTimers, reorderVisibleTimers, setTimerSortMode, sortMode, timers],
@@ -674,8 +1239,11 @@ export function HomeClient() {
   return (
     <div className="flex min-h-svh flex-col bg-background">
       {nextBoundaryMs !== null ? (
-        <ReclassificationBoundary nextBoundaryMs={nextBoundaryMs} onBoundary={setClassificationNowMs} />
+        <ReclassificationBoundary nextBoundaryMs={nextBoundaryMs} onBoundary={handleReclassificationBoundary} />
       ) : null}
+      <div className="sr-only" aria-live="polite" aria-atomic="true" data-slot="count-up-announcer">
+        {countUpAnnouncement}
+      </div>
       <Header />
 
       {/* The section constrains the sticky status footer to the timer list area
@@ -694,6 +1262,7 @@ export function HomeClient() {
                 timerCount={timers.length}
               />
               <OnboardingBanner timerCount={timers.length} spaceCount={spaces.length} />
+              <CountUpStickyBanner count={activeOffscreenCountUpTargets.length} onView={viewOffscreenCountUps} />
               <QuickAddTimer label={quickAddLabel} onLabelChange={setQuickAddLabel} />
               <TimerCollection
                 hasActiveProject={Boolean(activeProject)}
@@ -701,12 +1270,21 @@ export function HomeClient() {
                 activeTimers={activeTimers}
                 archivedTimers={archivedTimers}
                 pinnedTimers={pinnedTimers}
+                countUpTimers={countUpTimers}
+                countUpOccurrencesByTimer={countUpOccurrencesByTimer}
                 upcomingTimers={upcomingTimers}
                 pastTimers={pastTimers}
                 nowMs={classificationNowMs}
                 sensors={sensors}
                 onDragEnd={handleTimerDragEnd}
                 onSelectExample={setQuickAddLabel}
+                onAcknowledgeCountUps={acknowledgeCountUps}
+                onUnacknowledgeCountUps={unacknowledgeCountUps}
+                heldCountUpTimerIds={heldCountUpTimerIds}
+                reducedMotionCountUpTimerIds={reducedMotionCountUpTimerIds}
+                onCountUpInteractionChange={handleCountUpInteractionChange}
+                onCountUpSeen={queueCountUpSeen}
+                revealCountUpKey={countUpRevealKey}
               />
             </>
           ) : (
@@ -716,7 +1294,12 @@ export function HomeClient() {
         <FooterStatusBar />
       </section>
       <IosPwaPrompt />
-      <HomeTickEffects activeProjectName={activeProject?.name} hasHydrated={hasHydrated} timers={timers} />
+      <HomeTickEffects
+        activeProjectId={activeProject?.cloudProjectId ?? activeProject?.id}
+        activeProjectName={activeProject?.name}
+        hasHydrated={hasHydrated}
+        timers={timers}
+      />
     </div>
   )
 }

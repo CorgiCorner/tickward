@@ -20,16 +20,16 @@ model User {
   banReason     String?
   banExpires    DateTime?
 
-  sessions                 Session[]
-  accounts                 Account[]
-  ownedProjects            Project[]                 @relation("ProjectOwner")
-  ownedTimers              Timer[]                   @relation("TimerOwner")
-  ownedSpaces              Space[]                   @relation("SpaceOwner")
-  ownedShares              Share[]                   @relation("ShareOwner")
-  notificationPreferences  NotificationPreference[]
-  notificationOutboxItems  NotificationOutboxItem[]
-  inAppNotifications       InAppNotification[]
-  pushSubscriptions        WebPushSubscription[]
+  sessions                  Session[]
+  accounts                  Account[]
+  ownedProjects             Project[]                  @relation("ProjectOwner")
+  ownedTimers               Timer[]                    @relation("TimerOwner")
+  ownedSpaces               Space[]                    @relation("SpaceOwner")
+  ownedShares               Share[]                    @relation("ShareOwner")
+  notificationPreferences   NotificationPreference[]
+  notificationOutboxItems   NotificationOutboxItem[]
+  inAppNotifications        InAppNotification[]
+  pushSubscriptions         WebPushSubscription[]
   apiKeys                   ApiKey[]
   deviceAuthorizationGrants DeviceAuthorizationGrant[]
   mcpAuthorizationGrants    McpAuthorizationGrant[]
@@ -38,20 +38,24 @@ model User {
   webhookEndpoints          WebhookEndpoint[]
   webhookEvents             WebhookEvent[]
   webhookDeliveries         WebhookDelivery[]
+  countUpOccurrences        CountUpOccurrence[]
 
   @@map("user")
 }
 
 model UserPreference {
-  id                          String   @id @default(cuid())
-  userId                      String   @unique
-  defaultTimezone             String?
-  emailReminders              Boolean  @default(false)
-  fullPageAlarm               Boolean  @default(true)
-  inAppNotifications          Boolean  @default(true)
-  notificationSound           String   @default("polite")
-  createdAt                   DateTime @default(now())
-  updatedAt                   DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  defaultTimezone       String?
+  emailReminders        Boolean  @default(false)
+  fullPageAlarm         Boolean  @default(true)
+  inAppNotifications    Boolean  @default(true)
+  notificationSound     String   @default("polite")
+  countUpPolicy         String   @default("until-i-move-it") @map("attentionPolicy")
+  countUpPolicyMinutes  Int?     @map("attentionPolicyMinutes")
+  countUpIntroDismissed Boolean  @default(false) @map("attentionIntroDismissed")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -226,15 +230,15 @@ model Verification {
 }
 
 model Project {
-  id              String    @id @default(cuid())
-  ownerId         String?
-  name            String
-  color           String?
-  snapshot        Json
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  claimedAt       DateTime?
-  overLimitSince  DateTime?
+  id             String    @id @default(cuid())
+  ownerId        String?
+  name           String
+  color          String?
+  snapshot       Json
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  claimedAt      DateTime?
+  overLimitSince DateTime?
 
   owner        User?                @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   accessTokens ProjectAccessToken[]
@@ -271,8 +275,9 @@ model Timer {
   updatedAt  DateTime  @updatedAt
   archivedAt DateTime?
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  owner   User?   @relation("TimerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  project            Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  owner              User?               @relation("TimerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  countUpOccurrences CountUpOccurrence[]
 
   // Client-supplied ids are unique per project, not globally: two accounts
   // may pick the same deterministic id without contending for it. The plain
@@ -281,6 +286,29 @@ model Timer {
   @@index([id])
   @@index([ownerId])
   @@map("timer")
+}
+
+model CountUpOccurrence {
+  id             String    @id @default(cuid())
+  userId         String
+  projectId      String
+  timerId        String
+  targetAtMs     BigInt
+  crossedAt      DateTime
+  firstSeenAt    DateTime?
+  acknowledgedAt DateTime?
+  deferredUntil  DateTime?
+  policyMode     String    @default("until-i-move-it")
+  policyMinutes  Int?
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  timer Timer @relation(fields: [projectId, timerId], references: [projectId, id], onDelete: Cascade)
+
+  @@unique([userId, projectId, timerId, targetAtMs])
+  @@index([userId, acknowledgedAt])
+  @@index([projectId, timerId])
+  @@index([timerId])
+  @@map("timer_attention_event")
 }
 
 model InAppNotification {

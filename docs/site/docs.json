@@ -19,7 +19,6 @@
             "pages": [
               "index",
               "guides/self-hosting",
-              "guides/account-migration",
               "guides/api-quickstart",
               "guides/embedding-timers",
               "guides/webhooks",
@@ -32,6 +31,7 @@
             "group": "Concepts",
             "pages": [
               "concepts/countdown-accuracy",
+              "concepts/started-counting-up",
               "concepts/recurrence",
               "concepts/notifications-and-alarms",
               "concepts/where-timers-live",

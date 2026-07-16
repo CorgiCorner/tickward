@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   isEmailOtpSendRequest: vi.fn(),
   postHandler: vi.fn(),
   recordAuditEvent: vi.fn(),
+  trackEmailOtpDelivery: vi.fn(),
   toNextJsHandler: vi.fn(),
 }))
 
@@ -32,6 +33,10 @@ vi.mock("@/lib/auth/email-otp-rate-limit.server", () => ({
   isEmailOtpSendRequest: mocks.isEmailOtpSendRequest,
 }))
 
+vi.mock("@/lib/auth/email-otp-delivery-context.server", () => ({
+  trackEmailOtpDelivery: mocks.trackEmailOtpDelivery,
+}))
+
 vi.mock("better-auth/next-js", () => ({
   toNextJsHandler: mocks.toNextJsHandler,
 }))
@@ -47,6 +52,11 @@ describe("/api/auth/[...all]", () => {
     mocks.postHandler.mockReset()
     mocks.postHandler.mockResolvedValue(Response.json({ ok: true }))
     mocks.recordAuditEvent.mockReset()
+    mocks.trackEmailOtpDelivery.mockReset()
+    mocks.trackEmailOtpDelivery.mockImplementation(async (task: () => Promise<Response>) => ({
+      deliveryFailed: false,
+      value: await task(),
+    }))
     mocks.toNextJsHandler.mockReset()
     mocks.toNextJsHandler.mockReturnValue({ POST: mocks.postHandler })
   })
@@ -107,6 +117,24 @@ describe("/api/auth/[...all]", () => {
     expect(res.status).toBe(200)
     expect(mocks.enforceEmailOtpSendRateLimit).toHaveBeenCalled()
     expect(mocks.postHandler).toHaveBeenCalled()
+  })
+
+  it("returns a generic error when OTP email delivery fails", async () => {
+    const { POST } = await import("./route")
+    mocks.getTickwardAuth.mockReturnValue({ auth: true })
+    mocks.isEmailOtpSendRequest.mockReturnValue(true)
+    mocks.postHandler.mockResolvedValue(Response.json({ success: true }))
+    mocks.trackEmailOtpDelivery.mockImplementation(async (task: () => Promise<Response>) => ({
+      deliveryFailed: true,
+      value: await task(),
+    }))
+
+    const res = await POST(new Request("https://tickward.test/api/auth/email-otp/send-verification-otp"))
+
+    expect(res.status).toBe(502)
+    const responseText = await res.clone().text()
+    await expectPublicError(res, PUBLIC_ERROR_CODES.authEmailDeliveryFailed, "auth.error.generic")
+    expect(responseText).not.toContain("private detail")
   })
 
   it("audits failed OTP verification without logging the OTP code", async () => {

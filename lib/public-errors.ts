@@ -2,6 +2,7 @@ import { formatMessage, type MessageKey, type MessageParams } from "@/lib/i18n/m
 
 export const PUBLIC_ERROR_CODES = {
   adminAlreadyExists: "admin_already_exists",
+  authEmailDeliveryFailed: "auth_email_delivery_failed",
   authNotConfigured: "auth_not_configured",
   claimSignInRequired: "claim_sign_in_required",
   claimUnsupported: "claim_unsupported",

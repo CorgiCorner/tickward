@@ -1,12 +1,13 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { TimerCard } from "@/components/timer-card"
 import { TIMER_FOCUS_THEME_STORAGE_KEY } from "@/components/timer-focus-mode"
 import { LOCAL_NOTIFICATION_STORAGE_KEYS } from "@/lib/notification-preferences"
 import type { TimerStore } from "@/lib/store"
+import type { CountUpOccurrence } from "@/lib/stores/count-up-store"
 import { makeTimer } from "@/test/factories"
 
 let storeState: Partial<TimerStore>
@@ -19,6 +20,22 @@ const toastMock = vi.hoisted(() =>
     error: vi.fn(),
   }),
 )
+const analyticsTrack = vi.hoisted(() => vi.fn())
+
+const countUpOccurrence: CountUpOccurrence = {
+  key: "timer-a|1779703200000",
+  timerId: "timer-a",
+  targetAtMs: Date.parse("2026-05-25T12:00:00.000Z"),
+  crossedAt: Date.parse("2026-05-25T12:00:00.000Z"),
+  firstSeenAt: null,
+  acknowledgedAt: null,
+  deferredUntil: null,
+  policy: { mode: "until-i-move-it", minutes: null },
+}
+
+vi.mock("@/components/plausible-analytics", () => ({ trackCountUpAnalyticsEvent: analyticsTrack }))
+
+vi.mock("@/components/use-now", () => ({ useNow: () => Date.now() }))
 
 vi.mock("@/lib/store", () => ({
   useTimerStore: <T,>(selector: (store: TimerStore) => T) => selector(storeState as TimerStore),
@@ -83,6 +100,10 @@ async function clickFirstTimerAction(user: ReturnType<typeof userEvent.setup>, n
 }
 
 describe("TimerCard", () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   beforeEach(() => {
     authMocks.useSession.mockReset()
     authMocks.useSession.mockReturnValue({ data: { user: { id: "user_123", email: "ada@example.com" } } })
@@ -93,6 +114,7 @@ describe("TimerCard", () => {
     toastMock.mockClear()
     toastMock.success.mockClear()
     toastMock.error.mockClear()
+    analyticsTrack.mockReset()
     storeState = {
       restoreKey: "restoreKey_123",
       projects: [
@@ -114,9 +136,167 @@ describe("TimerCard", () => {
       unarchiveTimer: vi.fn(),
       duplicateTimer: vi.fn(),
       setPinnedTimer: vi.fn(),
+      acknowledgeCountUps: vi.fn(),
+      unacknowledgeCountUps: vi.fn(),
+      deferCountUps: vi.fn(),
       unfollowTimer: vi.fn(),
       syncToCloud: vi.fn().mockResolvedValue(true),
     }
+  })
+
+  it("renders compact decision and scheduled-status controls beside the badge", () => {
+    const nowMs = Date.parse("2026-05-25T13:00:00.000Z")
+    vi.spyOn(Date, "now").mockReturnValue(nowMs)
+    render(
+      <TimerCard
+        timer={makeTimer()}
+        nowMs={nowMs}
+        countUpOccurrence={{ ...countUpOccurrence, firstSeenAt: nowMs, deferredUntil: nowMs + 30 * 60 * 1000 }}
+        countUpPlacement="section"
+      />,
+    )
+
+    const badges = screen.getAllByText("COUNTING UP")
+    expect(badges.length).toBeGreaterThan(0)
+    expect(badges[0]).toHaveClass("bg-muted", "text-foreground")
+    expect(badges[0].className).not.toMatch(/red/)
+    expect(screen.queryByText(/Started counting up at/)).not.toBeInTheDocument()
+    const acknowledge = screen.getAllByRole("button", { name: "Acknowledge" })[0]
+    expect(acknowledge).toHaveClass("h-[18px]", "text-[9px]")
+    expect(acknowledge).toHaveTextContent("Acknowledge")
+    expect(acknowledge.querySelector("svg")).toBeInTheDocument()
+    const scheduled = screen.getAllByRole("img", {
+      name: "Scheduled to acknowledge in about 30 minutes",
+    })[0]
+    expect(scheduled).toHaveClass("size-[18px]")
+    expect(scheduled.querySelector("svg")).toBeInTheDocument()
+    expect(screen.queryByText("Moves to Counting up in about 30 minutes")).not.toBeInTheDocument()
+  })
+
+  it("calculates a deferred status from the live clock rather than the stale classification clock", () => {
+    const liveNowMs = Date.parse("2026-05-25T13:05:00.000Z")
+    vi.spyOn(Date, "now").mockReturnValue(liveNowMs)
+
+    render(
+      <TimerCard
+        timer={makeTimer()}
+        nowMs={liveNowMs - 5 * 60 * 1000}
+        countUpOccurrence={{
+          ...countUpOccurrence,
+          firstSeenAt: liveNowMs,
+          deferredUntil: liveNowMs + 60 * 60 * 1000,
+        }}
+        countUpPlacement="section"
+      />,
+    )
+
+    expect(screen.getAllByRole("img", { name: "Scheduled to acknowledge in about 60 minutes" })[0]).toBeInTheDocument()
+    expect(screen.queryByRole("img", { name: "Scheduled to acknowledge in about 65 minutes" })).not.toBeInTheDocument()
+  })
+
+  it("exposes stable project, timer, and occurrence targets for attention navigation", () => {
+    render(
+      <TimerCard
+        timer={makeTimer({ id: "timer-a" })}
+        nowMs={Date.parse("2026-05-25T13:00:00.000Z")}
+        projectId="project_123"
+        countUpOccurrence={countUpOccurrence}
+        countUpPlacement="section"
+      />,
+    )
+
+    const card = document.querySelector("[data-count-up-timer-id='timer-a']")
+    expect(card).toHaveAttribute("data-count-up-project-id", "project_123")
+    expect(card).toHaveAttribute("data-count-up-target-at-ms", String(countUpOccurrence.targetAtMs))
+    expect(screen.getAllByText("NEW").length).toBeGreaterThan(0)
+  })
+
+  it("acknowledges a count-up timer into Counting up and offers Undo", async () => {
+    const user = userEvent.setup()
+    render(
+      <TimerCard
+        timer={makeTimer()}
+        nowMs={Date.parse("2026-05-25T13:00:00.000Z")}
+        countUpOccurrence={countUpOccurrence}
+        countUpPlacement="section"
+      />,
+    )
+
+    const acknowledgeButton = screen.getAllByRole("button", { name: "Acknowledge" })[0]
+    expect(acknowledgeButton).toHaveAttribute("aria-describedby")
+    await user.hover(acknowledgeButton)
+    expect(
+      await screen.findAllByText("Moves the timer to its place in Counting up. It keeps counting up."),
+    ).not.toHaveLength(0)
+    await user.click(acknowledgeButton)
+    await user.click(await screen.findByRole("menuitem", { name: "Acknowledge" }))
+    expect(storeState.acknowledgeCountUps).toHaveBeenCalledWith([countUpOccurrence.key])
+    expect(analyticsTrack).toHaveBeenCalledWith("transition_acknowledged", {
+      policy: "until-i-move-it",
+      secondsFromCrossedAtToFirstSeen: undefined,
+      sectionSize: 0,
+    })
+    expect(toastMock).toHaveBeenCalledWith(
+      "Moved to Counting up",
+      expect.objectContaining({ action: expect.objectContaining({ label: "Undo", onClick: expect.any(Function) }) }),
+    )
+
+    const [, options] = toastMock.mock.calls[0] as [string, { action: { onClick: () => void } }]
+    options.action.onClick()
+    expect(storeState.unacknowledgeCountUps).toHaveBeenCalledWith([countUpOccurrence.key])
+    expect(analyticsTrack).toHaveBeenCalledWith("transition_undo", {
+      policy: "until-i-move-it",
+      secondsFromCrossedAtToFirstSeen: undefined,
+      sectionSize: 1,
+    })
+  })
+
+  it("pins and acknowledges an attention timer with a complete Undo", async () => {
+    const user = userEvent.setup()
+    render(
+      <TimerCard
+        timer={makeTimer()}
+        nowMs={Date.parse("2026-05-25T13:00:00.000Z")}
+        countUpOccurrence={countUpOccurrence}
+        countUpPlacement="section"
+      />,
+    )
+
+    await user.click(screen.getAllByRole("button", { name: "Pin timer to top" })[0])
+    expect(storeState.setPinnedTimer).toHaveBeenCalledWith("timer-a")
+    expect(storeState.acknowledgeCountUps).toHaveBeenCalledWith([countUpOccurrence.key])
+    expect(analyticsTrack).toHaveBeenCalledWith("transition_pinned", {
+      policy: "until-i-move-it",
+      secondsFromCrossedAtToFirstSeen: undefined,
+      sectionSize: 0,
+    })
+
+    const [, options] = toastMock.mock.calls[0] as [string, { action: { onClick: () => void } }]
+    options.action.onClick()
+    expect(storeState.setPinnedTimer).toHaveBeenCalledTimes(2)
+    expect(storeState.unacknowledgeCountUps).toHaveBeenCalledWith([countUpOccurrence.key])
+  })
+
+  it("defers a count-up from the compact decision menu instead of the overflow menu", async () => {
+    const nowMs = Date.parse("2026-05-25T13:00:00.000Z")
+    vi.spyOn(Date, "now").mockReturnValue(nowMs)
+    const user = userEvent.setup()
+    render(
+      <TimerCard timer={makeTimer()} nowMs={nowMs} countUpOccurrence={countUpOccurrence} countUpPlacement="section" />,
+    )
+
+    await user.click(screen.getAllByRole("button", { name: "Acknowledge" })[0])
+    await user.click(await screen.findByRole("menuitem", { name: "15 minutes" }))
+
+    expect(storeState.deferCountUps).toHaveBeenCalledWith([countUpOccurrence.key], nowMs + 15 * 60 * 1000)
+    expect(analyticsTrack).toHaveBeenCalledWith("transition_extended", {
+      policy: "until-i-move-it",
+      secondsFromCrossedAtToFirstSeen: undefined,
+      sectionSize: 1,
+    })
+
+    await openFirstTimerActions(user)
+    expect(screen.queryByRole("menuitem", { name: "15 minutes" })).not.toBeInTheDocument()
   })
 
   it("archives active timers from the per-timer action", async () => {
@@ -313,7 +493,12 @@ describe("TimerCard", () => {
 
   it("deletes unshared timers immediately and restores the same id on undo", async () => {
     const user = userEvent.setup()
-    render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+    render(
+      <TimerCard
+        timer={makeTimer({ afterZero: { mode: "keep-visible", minutes: 45 } })}
+        nowMs={Date.parse("2026-05-24T00:00:00.000Z")}
+      />,
+    )
 
     await clickFirstTimerAction(user, "Delete")
 
@@ -328,7 +513,9 @@ describe("TimerCard", () => {
 
     const [, options] = toastMock.mock.calls[0] as [string, { action: { onClick: () => void } }]
     options.action.onClick()
-    expect(storeState.addTimer).toHaveBeenCalledWith(expect.objectContaining({ id: "timer-a" }))
+    expect(storeState.addTimer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "timer-a", afterZero: { mode: "keep-visible", minutes: 45 } }),
+    )
     expect(toastMock.error).not.toHaveBeenCalled()
   })
 

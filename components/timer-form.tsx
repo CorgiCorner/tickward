@@ -14,6 +14,9 @@ import {
 } from "@/components/timer-form-sections"
 import { useNow } from "@/components/use-now"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -33,6 +36,7 @@ import {
   normalizeTimerUrl,
   timerFormSchema,
   timerFormStepFields,
+  timerAfterZeroFromForm,
   type TimerFormStep,
   type TimerFormSubmitValue,
   type TimerFormValues,
@@ -77,6 +81,26 @@ function recurrenceForSubmit(parsed: TimerFormValues) {
   return { type: parsed.repeatType, enabled: true, ...(monthlyLastDay ? { lastDay: true } : {}) }
 }
 
+function afterZeroFormDefaults(
+  afterZero: Timer["afterZero"],
+): Pick<TimerFormValues, "afterZeroMode" | "afterZeroMinutes"> {
+  if (!afterZero || afterZero.mode === "use-default") return { afterZeroMode: "use-default", afterZeroMinutes: "30" }
+  if (afterZero.mode === "move-directly-to-past") {
+    return { afterZeroMode: "move-directly-to-past", afterZeroMinutes: "30" }
+  }
+  if (afterZero.mode === "until-reviewed") return { afterZeroMode: "until-reviewed", afterZeroMinutes: "30" }
+  const fixedMode = {
+    5: "keep-visible-5m",
+    15: "keep-visible-15m",
+    60: "keep-visible-1h",
+    1440: "keep-visible-1d",
+  }[afterZero.minutes] as TimerFormValues["afterZeroMode"] | undefined
+  return {
+    afterZeroMode: fixedMode ?? "keep-visible-custom",
+    afterZeroMinutes: String(afterZero.minutes),
+  }
+}
+
 function getDefaultValues(args: {
   initial?: Timer
   mode: Mode
@@ -111,7 +135,55 @@ function getDefaultValues(args: {
     lastDay: args.initial?.recurrence?.lastDay ?? false,
     spaceId: args.initial?.spaceId ?? activeSpaceId,
     image: args.initial?.image ?? null,
+    ...afterZeroFormDefaults(args.initial?.afterZero),
   }
+}
+
+function TimerAfterZeroField(props: Readonly<{ form: UseFormReturn<TimerFormValues> }>) {
+  const mode = useWatch({ control: props.form.control, name: "afterZeroMode" })
+
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor="timer-after-zero">{formatMessage("timer.form.afterZero.label")}</Label>
+      <Select
+        value={mode}
+        onValueChange={(value) =>
+          props.form.setValue("afterZeroMode", value as TimerFormValues["afterZeroMode"], {
+            shouldDirty: true,
+            shouldTouch: true,
+            shouldValidate: true,
+          })
+        }
+      >
+        <SelectTrigger id="timer-after-zero" aria-label={formatMessage("timer.form.afterZero.label")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="use-default">{formatMessage("timer.form.afterZero.useDefault")}</SelectItem>
+          <SelectItem value="move-directly-to-past">{formatMessage("timer.form.afterZero.moveDirectly")}</SelectItem>
+          <SelectItem value="keep-visible-5m">{formatMessage("timer.form.afterZero.keep5m")}</SelectItem>
+          <SelectItem value="keep-visible-15m">{formatMessage("timer.form.afterZero.keep15m")}</SelectItem>
+          <SelectItem value="keep-visible-1h">{formatMessage("timer.form.afterZero.keep1h")}</SelectItem>
+          <SelectItem value="keep-visible-1d">{formatMessage("timer.form.afterZero.keep1d")}</SelectItem>
+          <SelectItem value="keep-visible-custom">{formatMessage("timer.form.afterZero.keepCustom")}</SelectItem>
+          <SelectItem value="until-reviewed">{formatMessage("timer.form.afterZero.untilReviewed")}</SelectItem>
+        </SelectContent>
+      </Select>
+      {mode === "keep-visible-custom" ? (
+        <div className="grid gap-2">
+          <Label htmlFor="timer-after-zero-minutes">{formatMessage("timer.form.afterZero.customMinutes")}</Label>
+          <Input
+            id="timer-after-zero-minutes"
+            type="number"
+            min={1}
+            max={525_600}
+            inputMode="numeric"
+            {...props.form.register("afterZeroMinutes")}
+          />
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 type NotifyToggleResult = {
@@ -159,18 +231,21 @@ function TimerStepContent(
 
   if (props.currentStep === 2) {
     return (
-      <TimerScheduleSection
-        control={props.form.control}
-        allowScheduleMode
-        localTz={props.localTz}
-        timezone={props.timezone}
-        scheduleMode={props.scheduleMode}
-        repeatEnabled={props.repeatEnabled}
-        repeatType={props.repeatType}
-        repeatPreview={props.repeatPreview}
-        isPastDate={props.isPastDate}
-        onNotifyChange={props.onNotifyChange}
-      />
+      <>
+        <TimerScheduleSection
+          control={props.form.control}
+          allowScheduleMode
+          localTz={props.localTz}
+          timezone={props.timezone}
+          scheduleMode={props.scheduleMode}
+          repeatEnabled={props.repeatEnabled}
+          repeatType={props.repeatType}
+          repeatPreview={props.repeatPreview}
+          isPastDate={props.isPastDate}
+          onNotifyChange={props.onNotifyChange}
+        />
+        {!props.repeatEnabled ? <TimerAfterZeroField form={props.form} /> : null}
+      </>
     )
   }
 
@@ -272,6 +347,7 @@ function TimerEditSections(
           isPastDate={props.isPastDate}
           onNotifyChange={props.onNotifyChange}
         />
+        {!props.repeatEnabled ? <TimerAfterZeroField form={props.form} /> : null}
       </section>
       <section className="grid gap-3 rounded-lg border p-4">
         <button
@@ -419,6 +495,7 @@ function TimerFormContent(
       recurrence: durationMode ? undefined : recurrenceForSubmit(parsed),
       spaceId: parsed.spaceId || undefined,
       image: parsed.image ?? undefined,
+      afterZero: parsed.repeatEnabled ? undefined : timerAfterZeroFromForm(parsed),
     })
     props.onOpenChange(false)
   }

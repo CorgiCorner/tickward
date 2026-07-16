@@ -18,6 +18,8 @@ describe("TimerAlarmOverlay", () => {
     render(
       <TimerAlarmOverlay
         alarm={{
+          countUpOccurrence: true,
+          projectId: "project-a",
           timerId: "timer-a",
           label: "Deploy",
           boundary: "2026-05-24T00:00:00.000Z",
@@ -34,5 +36,29 @@ describe("TimerAlarmOverlay", () => {
     await user.click(screen.getByRole("button", { name: "Dismiss" }))
 
     expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
+
+  it("offers an explicit View route without changing attention state itself", async () => {
+    const user = userEvent.setup()
+    const onView = vi.fn()
+
+    render(
+      <TimerAlarmOverlay
+        alarm={{
+          countUpOccurrence: true,
+          projectId: "project-a",
+          timerId: "timer-a",
+          label: "Deploy",
+          boundary: "2026-05-24T00:00:00.000Z",
+          fullPageAlarm: true,
+        }}
+        onDismiss={vi.fn()}
+        onView={onView}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "View" }))
+
+    expect(onView).toHaveBeenCalledTimes(1)
   })
 })

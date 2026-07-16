@@ -6,8 +6,8 @@ import { admin, emailOTP } from "better-auth/plugins"
 
 import { auditRequestContext, recordAuditEvent } from "@/lib/audit-log.server"
 import { appAccessControl, appAccessRoles } from "@/lib/auth/access-control"
+import { recordEmailOtpDeliveryFailure } from "@/lib/auth/email-otp-delivery-context.server"
 import { assertEmailOtpProviderConfigured, sendEmailOtpMessage } from "@/lib/auth/email-otp.server"
-import { runInBackground } from "@/lib/background-task"
 import { getPrismaClient } from "@/lib/db/prisma.server"
 import { getBetterAuthConfig } from "@/lib/private-config.server"
 
@@ -27,11 +27,17 @@ function auditActorFromAuthContext(context: unknown) {
   }
 }
 
-function sendEmailOtpWithoutTimingSignal(
+async function sendEmailOtp(
   data: Parameters<typeof sendEmailOtpMessage>[0],
   requestContext = { ip: null, userAgent: null } as ReturnType<typeof auditRequestContext>,
 ) {
-  assertEmailOtpProviderConfigured()
+  try {
+    assertEmailOtpProviderConfigured()
+    await sendEmailOtpMessage(data)
+  } catch (error) {
+    recordEmailOtpDeliveryFailure()
+    throw error
+  }
   recordAuditEvent({
     action: "auth.otp.sent",
     actorEmail: data.email,
@@ -40,7 +46,6 @@ function sendEmailOtpWithoutTimingSignal(
     targetType: "auth_otp",
     userAgent: requestContext.userAgent,
   })
-  runInBackground("auth.emailOtpDelivery", sendEmailOtpMessage(data))
 }
 
 function createTickwardAuth(args: {
@@ -103,12 +108,12 @@ function createTickwardAuth(args: {
     plugins: [
       emailOTP({
         otpLength: 6,
-        expiresIn: 300,
+        expiresIn: 600,
         allowedAttempts: 3,
         storeOTP: "hashed",
         overrideDefaultEmailVerification: true,
         async sendVerificationOTP(data, ctx) {
-          sendEmailOtpWithoutTimingSignal(data, ctx?.headers ? auditRequestContext(ctx.headers) : undefined)
+          await sendEmailOtp(data, ctx?.headers ? auditRequestContext(ctx.headers) : undefined)
         },
       }),
       admin({

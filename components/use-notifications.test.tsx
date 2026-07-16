@@ -1,5 +1,5 @@
 import { renderHook } from "@testing-library/react"
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { useTimerNotifications } from "@/components/use-notifications"
 import { makeTimer } from "@/test/factories"
@@ -29,7 +29,7 @@ describe("useTimerNotifications", () => {
     localStorage.setItem("notificationsEnabled", "1")
   })
 
-  it("fires once when a notify-enabled timer crosses its target", () => {
+  it("fires once when a notify-enabled timer crosses its target", async () => {
     const timer = makeTimer({
       id: "timer-a",
       label: "Deploy",
@@ -44,7 +44,23 @@ describe("useTimerNotifications", () => {
     expect(notificationCalls).toEqual([])
 
     rerender({ nowMs: Date.parse("2026-05-24T00:00:00.000Z") })
-    expect(notificationCalls).toEqual([{ title: "Timer finished!", options: { body: "Deploy", tag: "timer-timer-a" } }])
+    await vi.waitFor(() => {
+      expect(notificationCalls).toEqual([
+        {
+          title: "Timer finished!",
+          options: {
+            body: "Deploy started counting up in Project",
+            data: {
+              kind: "timer",
+              projectId: "local",
+              timerId: "timer-a",
+              targetAtMs: Date.parse("2026-05-24T00:00:00.000Z"),
+            },
+            tag: "timer-local-timer-a",
+          },
+        },
+      ])
+    })
 
     rerender({ nowMs: Date.parse("2026-05-24T00:00:01.000Z") })
     expect(notificationCalls).toHaveLength(1)

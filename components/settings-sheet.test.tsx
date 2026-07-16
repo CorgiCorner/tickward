@@ -59,6 +59,7 @@ describe("SettingsSheet", () => {
       refreshActiveProjectFromCloud: vi.fn().mockResolvedValue(undefined),
       deleteActiveProjectFromCloud: vi.fn().mockResolvedValue(undefined),
       clearAllTimers: vi.fn(),
+      setCountUpPolicy: vi.fn(),
     }
   })
 
@@ -96,6 +97,7 @@ describe("SettingsSheet", () => {
 
     expect(screen.getByRole("button", { name: "Clear project timers" })).toHaveAttribute("data-variant", "destructive")
     expect(screen.getByRole("button", { name: "Delete project" })).toHaveAttribute("data-variant", "destructive")
+    expect(screen.queryByLabelText("When a countdown reaches zero")).not.toBeInTheDocument()
   })
 
   it("requires the active project name before destructive project actions", async () => {

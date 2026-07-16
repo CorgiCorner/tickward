@@ -1,6 +1,8 @@
 import type { EntitlementsTable, PlanId } from "@/lib/entitlements"
 import type { ProjectMeta, ProjectRestoreResponse, ProjectSnapshotV2 } from "@/lib/project-model"
 import type { Space, Timer, TimerFilterKey, TimerFilterType, TimerFilters, TimerSortMode } from "@/lib/types"
+import type { CountUpOccurrence } from "@/lib/stores/count-up-store"
+import type { CountUpPolicy } from "@/lib/count-up-policy"
 
 export type ProjectConflict = {
   projectId: string
@@ -15,6 +17,7 @@ export type TimerState = {
   sortMode: TimerSortMode
   timerFilters: TimerFilters
   restoreKey: string | null
+  countUpOccurrences: CountUpOccurrence[]
 
   projects: ProjectMeta[]
   activeProjectId: string | null
@@ -27,6 +30,30 @@ export type TimerState = {
 
 export type TimerActions = {
   hydrateProjectsFromBrowser: () => void
+
+  hydrateCountUpOccurrences: (nowMs?: number) => void
+  reconcileCountUpOccurrences: (nowMs?: number) => void
+  detectTimerZeroCross: (timerId: string, nowMs?: number) => boolean
+  suppressNextCountUpOccurrence: (timerId: string, targetAtMs: number) => void
+  markCountUpSeen: (keys: string[], atMs?: number) => void
+  markCountUpSeenForProject: (projectId: string, keys: string[], atMs?: number) => void
+  acknowledgeCountUps: (keys: string[], atMs?: number) => void
+  acknowledgeCountUpsForProject: (projectId: string, keys: string[], atMs?: number) => void
+  acknowledgeCountUpsGlobally: (keys: string[], atMs?: number) => void
+  pinCountUpForProject: (projectId: string, timerId: string, occurrenceKey: string, atMs?: number) => Promise<boolean>
+  undoPinCountUpForProject: (
+    projectId: string,
+    timerId: string,
+    occurrenceKey: string,
+    unpin: boolean,
+  ) => Promise<boolean>
+  unacknowledgeCountUps: (keys: string[]) => void
+  unacknowledgeCountUpsForProject: (projectId: string, keys: string[]) => void
+  deferCountUps: (keys: string[], untilMs: number | null) => void
+  deferCountUpsForProject: (projectId: string, keys: string[], untilMs: number | null) => void
+  syncCountUpOccurrences: () => Promise<void>
+  setCountUpPolicy: (policy: CountUpPolicy) => void
+  openCountUpProject: (projectId: string) => void
 
   addTimer: (timer: Omit<Timer, "id" | "createdAt"> & { id?: string }) => boolean
   removeTimer: (id: string) => void
@@ -96,8 +123,12 @@ export type TimerStore = TimerState &
   }
 
 export type TimerStoreInit = Partial<
-  Pick<TimerState, "timers" | "spaces" | "activeSpaceId" | "sortMode" | "timerFilters" | "restoreKey">
+  Pick<
+    TimerState,
+    "timers" | "spaces" | "activeSpaceId" | "sortMode" | "timerFilters" | "restoreKey" | "countUpOccurrences"
+  >
 > & {
   activePlan?: PlanId
   entitlementsTable?: EntitlementsTable
+  countUpPolicy?: CountUpPolicy
 }

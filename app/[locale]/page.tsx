@@ -97,7 +97,16 @@ async function PersonalizedHome() {
   const home = <HomeClient />
 
   return (
-    <TimerStoreProvider initialState={{ timers, spaces, restoreKey, entitlementsTable, activePlan }}>
+    <TimerStoreProvider
+      initialState={{
+        timers,
+        spaces,
+        restoreKey,
+        entitlementsTable,
+        activePlan,
+        countUpPolicy: accountPreferences?.count_up_policy,
+      }}
+    >
       <WebMcpTools />
       {accountPreferences ? (
         <AccountPreferencesProvider initialPreferences={accountPreferences} initialError={null}>

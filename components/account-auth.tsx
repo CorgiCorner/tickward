@@ -6,7 +6,6 @@ import { lazy, Suspense, useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { AccountAvatar, cleanUserName, type AccountUser, useAccountSignOut } from "@/components/account-button"
-import { AccountMigrationSettings } from "@/components/account-migration-settings"
 import { AccountPreferencesProvider, useAccountPreferences } from "@/components/account-preferences-provider"
 import type { ApiKeyRecord } from "@/components/api-keys-settings"
 import { DefaultTimezoneSettingsRow } from "@/components/timer-defaults-settings"
@@ -46,6 +45,10 @@ function SettingsPanelLoading(props: Readonly<{ id: string }>) {
 
 const NotificationSettingsPanel = lazy(() =>
   import("@/components/notification-settings").then((mod) => ({ default: mod.NotificationSettingsPanel })),
+)
+
+const CountUpPolicySettings = lazy(() =>
+  import("@/components/count-up-policy-settings").then((mod) => ({ default: mod.CountUpPolicySettings })),
 )
 
 const ApiKeysSettingsPanel = lazy(() =>
@@ -187,6 +190,16 @@ function AccountPreferencesSections(
       <Suspense fallback={<SettingsPanelLoading id="alerts" />}>
         <NotificationSettingsPanel />
       </Suspense>
+      <section id="count-up" className="scroll-mt-28 pt-0">
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+          {formatMessage("home.startedCountingUp")}
+        </h2>
+        <div className="mt-2">
+          <Suspense fallback={<SettingsPanelLoading id="count-up-policy-settings" />}>
+            <CountUpPolicySettings />
+          </Suspense>
+        </div>
+      </section>
       <section id="developer" className="scroll-mt-28 pt-0">
         <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
           {formatMessage("settings.developer")}
@@ -220,9 +233,10 @@ const SETTINGS_SECTION_IDS = new Set([
   "account",
   "profile",
   "defaults",
-  "migration",
   "notifications",
   "alerts",
+  "count-up",
+  "count-up-policy-settings",
   "developer",
   "api-keys",
   "webhooks",
@@ -278,17 +292,19 @@ function SettingsHashScroller() {
 const SETTINGS_NAV_ITEMS = [
   { id: "account", labelKey: "auth.account" },
   { id: "notifications", labelKey: "settings.notifications" },
+  { id: "count-up", labelKey: "home.startedCountingUp" },
   { id: "developer", labelKey: "settings.developer" },
 ] as const
 
 function parentSectionForHash(id: string | null) {
   if (id === "alerts") return "notifications"
+  if (id === "count-up-policy-settings") return "count-up"
   if (id === "api-keys" || id === "webhooks" || id === "mcp") return "developer"
-  if (id === "profile" || id === "defaults" || id === "migration") return "account"
-  return id === "notifications" || id === "developer" ? id : "account"
+  if (id === "profile" || id === "defaults") return "account"
+  return id === "notifications" || id === "count-up" || id === "developer" ? id : "account"
 }
 
-function SettingsAnchorNav() {
+function SettingsAnchorNav(props: Readonly<{ signedIn: boolean }>) {
   const [activeId, setActiveId] = useState(() =>
     globalThis.location === undefined ? "account" : parentSectionForHash(normalizedSettingsHashId()),
   )
@@ -300,30 +316,32 @@ function SettingsAnchorNav() {
   }, [])
 
   return (
-    <nav className="sticky top-[57px] z-30 -mx-4 mt-4 border-b border-border bg-background px-4">
-      <div className="flex gap-5 text-sm">
-        {SETTINGS_NAV_ITEMS.map((item) => {
-          const active = activeId === item.id
-          return (
-            <a
-              key={item.id}
-              href={`#${item.id}`}
-              className={
-                active
-                  ? "border-b-2 border-foreground py-2.5 font-medium"
-                  : "border-b-2 border-transparent py-2.5 text-muted-foreground hover:text-foreground"
-              }
-              onClick={(event) => {
-                event.preventDefault()
-                setActiveId(item.id)
-                globalThis.history.pushState(null, "", `#${item.id}`)
-                globalThis.document.getElementById(item.id)?.scrollIntoView({ block: "start", behavior: "smooth" })
-              }}
-            >
-              {formatMessage(item.labelKey)}
-            </a>
-          )
-        })}
+    <nav className="sticky top-[57px] z-30 -mx-4 mt-4 overflow-x-auto border-b border-border bg-background px-4">
+      <div className="flex w-max min-w-full gap-5 text-sm">
+        {SETTINGS_NAV_ITEMS.filter((item) => props.signedIn || item.id === "account" || item.id === "count-up").map(
+          (item) => {
+            const active = activeId === item.id
+            return (
+              <a
+                key={item.id}
+                href={`#${item.id}`}
+                className={
+                  active
+                    ? "shrink-0 whitespace-nowrap border-b-2 border-foreground py-2.5 font-medium"
+                    : "shrink-0 whitespace-nowrap border-b-2 border-transparent py-2.5 text-muted-foreground hover:text-foreground"
+                }
+                onClick={(event) => {
+                  event.preventDefault()
+                  setActiveId(item.id)
+                  globalThis.history.pushState(null, "", `#${item.id}`)
+                  globalThis.document.getElementById(item.id)?.scrollIntoView({ block: "start", behavior: "smooth" })
+                }}
+              >
+                {formatMessage(item.labelKey)}
+              </a>
+            )
+          },
+        )}
       </div>
     </nav>
   )
@@ -405,7 +423,6 @@ export function AccountPageClient(props: Readonly<AccountPageInitialData> = {}) 
             onNameCommit={() => runInBackground("account.updateProfileName", updateProfileName())}
             onSignOut={() => runInBackground("account.signOut", signOutAction.signOut())}
           />
-          <AccountMigrationSettings />
         </section>
         <AccountPreferencesSections
           apiKeys={props.apiKeys}
@@ -422,12 +439,24 @@ export function AccountPageClient(props: Readonly<AccountPageInitialData> = {}) 
     )
   } else {
     content = (
-      <section id="account" className="scroll-mt-28 pt-8">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-          {formatMessage("auth.account")}
-        </h2>
-        <AccountSignInRequiredPanel />
-      </section>
+      <>
+        <section id="account" className="scroll-mt-28 pt-8">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+            {formatMessage("auth.account")}
+          </h2>
+          <AccountSignInRequiredPanel />
+        </section>
+        <section id="count-up" className="scroll-mt-28 pt-0">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+            {formatMessage("home.startedCountingUp")}
+          </h2>
+          <div className="mt-2">
+            <Suspense fallback={<SettingsPanelLoading id="count-up-policy-settings" />}>
+              <CountUpPolicySettings />
+            </Suspense>
+          </div>
+        </section>
+      </>
     )
   }
 
@@ -435,7 +464,7 @@ export function AccountPageClient(props: Readonly<AccountPageInitialData> = {}) 
     <main className="mx-auto w-full max-w-[640px] flex-1 px-4 pb-16 pt-8">
       <SettingsHashScroller />
       <h1 className="text-2xl font-semibold tracking-tight">{formatMessage("auth.accountSettings")}</h1>
-      <SettingsAnchorNav />
+      <SettingsAnchorNav signedIn={Boolean(session.data?.user)} />
       <div className="grid gap-10">{content}</div>
     </main>
   )

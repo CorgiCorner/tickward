@@ -62,6 +62,10 @@ vi.mock("@/components/notification-settings", () => ({
   ),
 }))
 
+vi.mock("@/components/count-up-policy-settings", () => ({
+  CountUpPolicySettings: () => <div id="count-up-policy-settings">Count-up policy</div>,
+}))
+
 vi.mock("@/components/timer-defaults-settings", () => ({
   DefaultTimezoneSettingsRow: () => <div id="defaults">Default timezone</div>,
 }))
@@ -221,6 +225,8 @@ describe("AccountPageClient", () => {
     render(<AccountPageClient />)
 
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/en/sign-in")
+    expect(document.getElementById("count-up-policy-settings")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Notifications" })).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument()
   })
 
@@ -281,7 +287,7 @@ describe("AccountPageClient", () => {
     expect(mocks.refetch).toHaveBeenCalled()
   })
 
-  it("orders settings sections from account to developer", async () => {
+  it("shows count-up policy settings between notifications and developer settings", async () => {
     mocks.useSession.mockReturnValue({
       data: { user: { email: "ada@example.com" } },
       refetch: mocks.refetch,
@@ -293,6 +299,8 @@ describe("AccountPageClient", () => {
     const defaults = document.getElementById("defaults")
     const notifications = document.getElementById("notifications")
     const alerts = document.getElementById("alerts")
+    const countUp = document.getElementById("count-up")
+    const countUpPolicy = document.getElementById("count-up-policy-settings")
     const developer = document.getElementById("developer")
     const apiKeys = document.getElementById("api-keys")
     const webhooks = document.getElementById("webhooks")
@@ -303,13 +311,16 @@ describe("AccountPageClient", () => {
     expect(defaults).not.toBeNull()
     expect(notifications).not.toBeNull()
     expect(alerts).not.toBeNull()
+    expect(countUp).not.toBeNull()
+    expect(countUpPolicy).not.toBeNull()
     expect(developer).not.toBeNull()
     expect(apiKeys).not.toBeNull()
     expect(webhooks).not.toBeNull()
     expect(mcp).not.toBeNull()
     expect(profile!.compareDocumentPosition(defaults!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(defaults!.compareDocumentPosition(notifications!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(alerts!.compareDocumentPosition(developer!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(alerts!.compareDocumentPosition(countUp!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(countUpPolicy!.compareDocumentPosition(developer!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(apiKeys!.compareDocumentPosition(webhooks!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(webhooks!.compareDocumentPosition(mcp!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(await screen.findByText("MCP configured")).toBeVisible()
@@ -349,7 +360,7 @@ describe("AccountPageClient", () => {
     await waitFor(() => expect(notificationsTab.className).toContain("border-foreground"))
   })
 
-  it("smooth-scrolls to the section when a nav tab is clicked", async () => {
+  it("smooth-scrolls to count-up policy settings from the account navigation", async () => {
     const scrollIntoView = vi.fn()
     mocks.useSession.mockReturnValue({
       data: { user: { email: "ada@example.com" } },
@@ -360,11 +371,11 @@ describe("AccountPageClient", () => {
 
     render(<AccountPageClient />)
 
-    await userEvent.click(screen.getByRole("link", { name: "Developer" }))
+    await userEvent.click(screen.getByRole("link", { name: "Started counting up" }))
 
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "smooth" })
-    expect(window.location.hash).toBe("#developer")
-    const developerTab = screen.getByRole("link", { name: "Developer" })
-    expect(developerTab.className).toContain("border-foreground")
+    expect(window.location.hash).toBe("#count-up")
+    const countUpTab = screen.getByRole("link", { name: "Started counting up" })
+    expect(countUpTab.className).toContain("border-foreground")
   })
 })

@@ -104,8 +104,10 @@ describe("SignInPageClient", () => {
   it("shows the legal terms below the email field", () => {
     render(<SignInPageClient />)
 
-    expect(screen.getByRole("link", { name: "Terms of Service" })).toHaveAttribute("href", "/en/legal/terms")
+    const termsLink = screen.getByRole("link", { name: "Terms of Service" })
+    expect(termsLink).toHaveAttribute("href", "/en/legal/terms")
     expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/en/legal/privacy")
+    expect(termsLink.closest("p")).toHaveClass("mb-2")
   })
 
   it("centers the signed-in state", () => {
@@ -310,5 +312,27 @@ describe("OtpSignInPageClient", () => {
     await waitFor(() =>
       expect(mocks.sendVerificationOtp).toHaveBeenCalledWith({ email: "ada@example.com", type: "sign-in" }),
     )
+  })
+
+  it("clears the code and validation status after resend succeeds", async () => {
+    const user = userEvent.setup()
+    mocks.signInEmailOtp.mockResolvedValueOnce({ data: null, error: { message: "INVALID_OTP" } })
+    render(<OtpSignInPageClient email="ada@example.com" />)
+
+    const firstSlot = screen.getByLabelText("Code 1")
+    await user.type(firstSlot, "123456")
+    await user.click(screen.getByRole("button", { name: "Verify code" }))
+
+    await waitFor(() => expect(screen.getByText("Invalid or expired code.")).toBeVisible())
+    expect(firstSlot).toHaveAttribute("aria-invalid", "true")
+
+    await user.click(screen.getByRole("button", { name: "Resend code" }))
+
+    await waitFor(() => expect(mocks.sendVerificationOtp).toHaveBeenCalled())
+    expect(screen.queryByText("Invalid or expired code.")).not.toBeInTheDocument()
+    for (let index = 1; index <= 6; index += 1) {
+      expect(screen.getByLabelText(`Code ${index}`)).toHaveValue("")
+      expect(screen.getByLabelText(`Code ${index}`)).toHaveAttribute("aria-invalid", "false")
+    }
   })
 })

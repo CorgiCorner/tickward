@@ -6,7 +6,9 @@ import type { LocalTimerAlarm } from "@/components/use-local-timer-alarms"
 import { Button } from "@/components/ui/button"
 import { formatMessage } from "@/lib/i18n/messages"
 
-export function TimerAlarmOverlay(props: Readonly<{ alarm: LocalTimerAlarm | null; onDismiss: () => void }>) {
+export function TimerAlarmOverlay(
+  props: Readonly<{ alarm: LocalTimerAlarm | null; onDismiss: () => void; onView?: () => void }>,
+) {
   if (!props.alarm?.fullPageAlarm) return null
 
   return (
@@ -20,10 +22,13 @@ export function TimerAlarmOverlay(props: Readonly<{ alarm: LocalTimerAlarm | nul
           <div className="text-sm font-medium text-muted-foreground">{formatMessage("timer.finished")}</div>
           <div className="mt-2 text-3xl font-semibold">{props.alarm.label}</div>
         </div>
-        <Button onClick={props.onDismiss} className="justify-self-center">
-          <XIcon className="mr-1.5 size-4" />
-          {formatMessage("common.dismiss")}
-        </Button>
+        <div className="flex justify-center gap-2">
+          {props.onView ? <Button onClick={props.onView}>{formatMessage("countUp.view")}</Button> : null}
+          <Button onClick={props.onDismiss} variant="outline">
+            <XIcon className="mr-1.5 size-4" />
+            {formatMessage("common.dismiss")}
+          </Button>
+        </div>
       </div>
     </div>
   )

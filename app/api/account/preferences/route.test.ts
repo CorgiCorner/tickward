@@ -56,6 +56,8 @@ describe("/api/account/preferences", () => {
       full_page_alarm: false,
       in_app_notifications: false,
       notification_sound: "glass",
+      count_up_policy: { mode: "custom", minutes: 45 },
+      count_up_intro_dismissed: true,
     }
 
     const res = await PATCH(

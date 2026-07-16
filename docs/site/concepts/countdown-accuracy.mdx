@@ -27,8 +27,10 @@ const seconds = totalSeconds % 60
 ```
 
 The delta is split into days, hours, minutes, and seconds with integer
-division. Days are total days, not calendar months or weeks. When the target
-has passed, the same numbers are shown as a count-up ("since") instead.
+division. Days are total days, not calendar months or weeks. When a one-off
+target has passed, the same numbers are shown as a count-up ("since") and the
+timer can enter [Started counting up](/concepts/started-counting-up) for review.
+Repeating timers advance to their next occurrence instead.
 
 ## Where "now" comes from
 
@@ -69,7 +71,7 @@ come from the browser, so they stay current with browser updates.
 Recurring timers store a wall-clock pattern in the timer's time zone and
 compute the next occurrence on demand. Occurrences are calculated, never
 mutated, so the countdown is correct even if the app was closed while several
-occurrences passed.
+occurrences passed. They never create count-up review occurrences.
 
 ## Browser support
 

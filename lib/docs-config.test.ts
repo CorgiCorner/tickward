@@ -33,7 +33,6 @@ describe("docs config", () => {
     expect(getDocsSitemapPaths()).toEqual([
       "/docs",
       "/docs/guides/self-hosting",
-      "/docs/guides/account-migration",
       "/docs/guides/api-quickstart",
       "/docs/guides/embedding-timers",
       "/docs/guides/webhooks",
@@ -41,6 +40,7 @@ describe("docs config", () => {
       "/docs/guides/agent-usage",
       "/docs/guides/claude-code-codex-usage-limits",
       "/docs/concepts/countdown-accuracy",
+      "/docs/concepts/started-counting-up",
       "/docs/concepts/recurrence",
       "/docs/concepts/notifications-and-alarms",
       "/docs/concepts/where-timers-live",

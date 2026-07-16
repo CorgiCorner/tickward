@@ -7,6 +7,29 @@ beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
 
+  Object.defineProperties(Element.prototype, {
+    hasPointerCapture: {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => false),
+    },
+    releasePointerCapture: {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    },
+    scrollIntoView: {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    },
+    setPointerCapture: {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    },
+  })
+
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     writable: true,

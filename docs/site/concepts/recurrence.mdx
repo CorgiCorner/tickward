@@ -123,6 +123,10 @@ The countdown display counts to `effectiveTargetDate(timer, nowMs)`, so a
 recurring timer always points at the next occurrence. Once an occurrence
 passes, the next tick shows the time remaining until the following one.
 
+Recurring timers do not enter [Started counting up](/concepts/started-counting-up)
+and do not create count-up review occurrences. That review flow is reserved for
+one-off timers whose counter continues upward after zero.
+
 Alarms use the most recent occurrence boundary instead. In
 `components/use-local-timer-alarms.ts`, recurring timers read that boundary
 from `recurrenceHistory(timer, nowMs).last`:

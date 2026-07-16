@@ -6,6 +6,7 @@ import { useTheme } from "next-themes"
 import { useSyncExternalStore } from "react"
 
 import { AccountButton } from "@/components/account-button"
+import { CountUpNotificationRouter } from "@/components/count-up-indicator"
 import { GitHubRepoButton } from "@/components/github-repo-button"
 import { NotificationBell } from "@/components/notification-bell"
 import { ProjectSwitcher } from "@/components/project-switcher"
@@ -32,7 +33,7 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-[640px] items-center gap-2.5 px-4 py-3">
+      <div className="mx-auto flex w-full max-w-[640px] flex-wrap items-center gap-2.5 px-4 py-3">
         <div className="min-w-0 shrink-0">
           <Link
             href="/"
@@ -47,6 +48,8 @@ export function Header() {
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <ProjectSwitcher />
         </div>
+
+        <CountUpNotificationRouter />
 
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <GitHubRepoButton variant="compact" className="hidden sm:inline-flex" />

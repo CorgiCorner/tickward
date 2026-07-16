@@ -1,0 +1,66 @@
+---
+title: "Started Counting Up"
+description: "How one-off timers remain visible for review after they pass zero, and why repeating timers behave differently."
+---
+
+Started counting up is a review flow for **one-off timers**. It prevents a timer
+from disappearing into Counting up before you have had a chance to notice that its
+deadline passed. Repeating timers do not use this flow: when one occurrence
+ends, their countdown advances directly to the next scheduled occurrence.
+
+## What happens at zero
+
+When a one-off timer reaches zero, its counter keeps running upward and the
+timer appears in **Started counting up**, between Pinned and Upcoming. This is a
+per-user review overlay, not a new timer status. The timer itself keeps its
+normal countdown data and eventually belongs in Counting up.
+
+An occurrence starts as **new**. After at least half of its card has remained
+visible in the focused app for a short dwell, it becomes **waiting** for review.
+Simply opening the project, receiving a notification, or viewing a section
+header does not acknowledge it.
+
+Pinned timers remain in Pinned with a **New** or **Counting up** badge, so the same
+timer never appears twice. The project section shows only timers from the active
+project. Project-switcher indicators show which other projects have new or
+waiting occurrences without duplicating their timers in a global drawer.
+
+## Acknowledge now or later
+
+Choose **Acknowledge** when you have reviewed an occurrence. On the web app this
+returns the timer to its natural place in Counting up, where it continues counting up.
+Every manual acknowledgement, including bulk actions, offers Undo.
+
+The compact **Acknowledge** menu can also schedule acknowledgement after 15
+minutes, 1 hour, or 1 day, or leave the decision open until you acknowledge it.
+A clock icon marks a scheduled acknowledgement without adding another line to
+the card; hover or focus the icon to see the approximate remaining time. The
+global policy in Settings can keep occurrences for review, move them directly
+to Counting up, or apply a duration. Timed policies start only after the
+occurrence is first shown to you; occurrences that have not yet been shown
+never expire automatically.
+
+These settings apply only to one-off timers. The **After zero** override is
+therefore hidden when Repeat is enabled.
+
+## Repeating timers
+
+A repeating timer always counts down to its next effective occurrence. At an
+occurrence boundary it may still fire its configured alarm or notification, but
+it does not create a count-up review occurrence and never enters Started
+counting up. The next render shows the time remaining until the following
+occurrence.
+
+For details about calendar slots and daylight saving behavior, see
+[Recurrence](/concepts/recurrence). For the underlying clock calculation, see
+[Countdown Accuracy](/concepts/countdown-accuracy).
+
+## Persistence and offline crossings
+
+For signed-in users, review state is per user and syncs across devices. One
+member acknowledging a shared timer does not acknowledge it for anyone else.
+Anonymous state remains in the browser for each local project.
+
+When the app opens after being offline, naturally crossed one-off timers from
+the previous 48 hours can be restored to review. Older elapsed timers and timers
+created or manually edited directly into the past do not create a backlog.

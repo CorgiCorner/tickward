@@ -158,7 +158,7 @@ describe("resend mail provider", () => {
       reply_to: "contact@example.com",
       to: ["ada@example.com"],
       subject: "Verify your Tickward email",
-      html: "<p>Your Tickward code is <strong>123&lt;456</strong>.</p><p>This code expires in 5 minutes.</p>",
+      html: "<p>Your Tickward code is <strong>123&lt;456</strong>.</p><p>This code expires in 10 minutes.</p>",
     })
   })
 

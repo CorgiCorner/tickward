@@ -20,6 +20,8 @@ import type { Timer } from "@/lib/types"
 import { effectiveTargetDate, recurrenceHistory } from "@/lib/utils"
 
 export type LocalTimerAlarm = {
+  countUpOccurrence: boolean
+  projectId: string
   timerId: string
   label: string
   boundary: string
@@ -31,8 +33,14 @@ type TimerAlarmCandidate = {
   firedKey: string
   fullPageAlarm: boolean
   sound: NotificationSound
+  project: TimerAlarmProject
   timer: Timer
 }
+
+export type TimerAlarmProject = Readonly<{
+  projectId: string
+  projectName: string
+}>
 
 type ScheduleEntry = {
   boundaryMs: number
@@ -45,11 +53,27 @@ type ScheduleEntry = {
   timeoutId: number
 }
 
+type CountUpNotificationData =
+  | { kind: "timer"; projectId: string; timerId: string; targetAtMs: number }
+  | { kind: "review"; projectCount: number }
+
+export type CountUpNotificationOccurrence = Readonly<{
+  projectId: string
+  projectName: string
+  timerId: string
+  label: string
+  targetAtMs: number
+}>
+
+type PersistentNotificationOptions = NotificationOptions & {
+  actions?: Array<{ action: "acknowledge" | "view"; title: string }>
+}
+
 // At most 15 minutes ahead: keeps setTimeout values sane and bounds
 // Date.now()/ctx.currentTime drift to an acceptable level.
 const HORIZON_MS = 15 * 60 * 1000
 
-function sendSWNotification(title: string, options: NotificationOptions) {
+function sendSWNotification(title: string, options: PersistentNotificationOptions) {
   void navigator.serviceWorker.ready.then((reg) => {
     if (reg.active) {
       reg.active.postMessage({ type: "SHOW_NOTIFICATION", title, options })
@@ -57,12 +81,12 @@ function sendSWNotification(title: string, options: NotificationOptions) {
   })
 }
 
-function showNotification(title: string, options: NotificationOptions) {
+function showNotification(title: string, options: PersistentNotificationOptions) {
   if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
     sendSWNotification(title, options)
   } else {
     try {
-      new Notification(title, options)
+      new Notification(title, { body: options.body, data: options.data, tag: options.tag })
     } catch {
       // Notifications may fail in some contexts.
     }
@@ -92,6 +116,7 @@ function timerAlarmCandidate(
   nowMs: number,
   preferences: LocalNotificationPreferences,
   firedKeys: Set<string>,
+  project: TimerAlarmProject,
 ): TimerAlarmCandidate | null {
   if (!timerIsAlarmable(timer)) return null
 
@@ -99,7 +124,7 @@ function timerAlarmCandidate(
   if (!boundary) return null
 
   const boundaryMs = new Date(boundary).getTime()
-  const firedKey = `${timer.id}::${boundary}`
+  const firedKey = `${project.projectId}::${timer.id}::${boundary}`
   // Fire whenever the boundary was crossed since the previous tick, so a tick
   // delayed by background-tab throttling still triggers the alarm instead of
   // silently skipping it.
@@ -110,7 +135,7 @@ function timerAlarmCandidate(
   const sound = preferences.sound
   if (!browserNotificationAllowed(preferences) && !fullPageAlarm && sound === "none") return null
 
-  return { boundary, firedKey, fullPageAlarm, sound, timer }
+  return { boundary, firedKey, fullPageAlarm, project, sound, timer }
 }
 
 type UpcomingAlarmBoundary = {
@@ -127,6 +152,7 @@ function upcomingAlarmBoundary(
   now: number,
   preferences: LocalNotificationPreferences,
   firedKeys: Set<string>,
+  projectId: string,
 ): UpcomingAlarmBoundary | null {
   if (!timerIsAlarmable(timer)) return null
 
@@ -140,7 +166,7 @@ function upcomingAlarmBoundary(
   // Skip boundaries in the past or already fired.
   if (msUntil <= 0 || msUntil > HORIZON_MS) return null
 
-  const firedKey = `${timer.id}::${boundaryIso}`
+  const firedKey = `${projectId}::${timer.id}::${boundaryIso}`
   if (firedKeys.has(firedKey)) return null
 
   // Check whether there is anything to do (preferences gate).
@@ -204,9 +230,70 @@ function armScheduledSound(args: ScheduleSoundArgs): (() => void) | undefined {
   return undefined
 }
 
-function showTimerBrowserNotification(candidate: TimerAlarmCandidate, preferences: LocalNotificationPreferences) {
-  if (!browserNotificationAllowed(preferences)) return
+export function buildCountUpNotificationContent(occurrences: CountUpNotificationOccurrence[]) {
+  if (occurrences.length === 0) return null
+  const first = occurrences[0]
+  const projects = new Map(occurrences.map((occurrence) => [occurrence.projectId, occurrence.projectName]))
+  const isSingle = occurrences.length === 1
+  const data: CountUpNotificationData = isSingle
+    ? {
+        kind: "timer",
+        projectId: first.projectId,
+        timerId: first.timerId,
+        targetAtMs: first.targetAtMs,
+      }
+    : { kind: "review", projectCount: projects.size }
+  const body = isSingle
+    ? formatMessage("countUp.notification.single", {
+        label: first.label,
+        project: first.projectName,
+      })
+    : projects.size === 1
+      ? formatMessage("countUp.notification.multiple", {
+          count: occurrences.length,
+          project: first.projectName,
+        })
+      : formatMessage("countUp.notification.multipleProjects", {
+          count: occurrences.length,
+          projectCount: projects.size,
+        })
 
+  return { body, data, isSingle, projectCount: projects.size }
+}
+
+function showTimerBrowserNotification(candidates: TimerAlarmCandidate[]) {
+  const first = candidates[0]
+  const content = buildCountUpNotificationContent(
+    candidates.map((candidate) => ({
+      projectId: candidate.project.projectId,
+      projectName: candidate.project.projectName,
+      timerId: candidate.timer.id,
+      label: candidate.timer.label,
+      targetAtMs: new Date(candidate.boundary).getTime(),
+    })),
+  )
+  if (!first || !content) return
+
+  showNotification(formatMessage("notifications.timerFinishedTitle"), {
+    body: content.body,
+    tag: content.isSingle
+      ? `timer-${first.project.projectId}-${first.timer.id}`
+      : `timer-count-ups-${content.projectCount}-${first.boundary}`,
+    actions: content.isSingle
+      ? [
+          { action: "view", title: formatMessage("countUp.notification.action.view") },
+          { action: "acknowledge", title: formatMessage("countUp.notification.action.acknowledge") },
+        ]
+      : [{ action: "view", title: formatMessage("countUp.notification.action.view") }],
+    data: content.data,
+  })
+}
+
+function showRecurringTimerBrowserNotification(
+  candidate: TimerAlarmCandidate,
+  preferences: LocalNotificationPreferences,
+) {
+  if (!browserNotificationAllowed(preferences)) return
   showNotification(formatMessage("notifications.timerFinishedTitle"), {
     body: candidate.timer.label,
     tag: `timer-${candidate.timer.id}`,
@@ -218,6 +305,8 @@ function triggerFullPageAlarm(candidate: TimerAlarmCandidate, setAlarm: (alarm: 
 
   window.setTimeout(() => {
     setAlarm({
+      countUpOccurrence: candidate.timer.recurrence?.enabled !== true,
+      projectId: candidate.project.projectId,
       timerId: candidate.timer.id,
       label: candidate.timer.label,
       boundary: candidate.boundary,
@@ -226,12 +315,31 @@ function triggerFullPageAlarm(candidate: TimerAlarmCandidate, setAlarm: (alarm: 
   }, 0)
 }
 
-export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
+export function useLocalTimerAlarms(timers: Timer[], nowMs: number, project?: TimerAlarmProject) {
+  const projectId = project?.projectId ?? "local"
+  const projectName = project?.projectName.trim() || formatMessage("project.defaultName")
   const localPreferences = useLocalNotificationPreferences()
   const firedRef = useRef<Set<string>>(new Set())
   const prevNowMsRef = useRef(nowMs)
   const scheduledRef = useRef<Map<string, ScheduleEntry>>(new Map())
+  const notificationBatchRef = useRef<Map<string, TimerAlarmCandidate>>(new Map())
+  const notificationBatchTimeoutRef = useRef<number | null>(null)
   const [alarm, setAlarm] = useState<LocalTimerAlarm | null>(null)
+
+  const queueBrowserNotification = useRef(
+    (candidate: TimerAlarmCandidate, preferences: LocalNotificationPreferences) => {
+      if (!browserNotificationAllowed(preferences)) return
+      notificationBatchRef.current.set(candidate.firedKey, candidate)
+      if (notificationBatchTimeoutRef.current !== null) return
+
+      notificationBatchTimeoutRef.current = window.setTimeout(() => {
+        notificationBatchTimeoutRef.current = null
+        const candidates = [...notificationBatchRef.current.values()]
+        notificationBatchRef.current.clear()
+        showTimerBrowserNotification(candidates)
+      }, 0)
+    },
+  )
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -289,7 +397,11 @@ export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
       sound: freshPrefs.sound,
     }
 
-    showTimerBrowserNotification(freshedCandidate, freshPrefs)
+    if (freshedCandidate.timer.recurrence?.enabled === true) {
+      showRecurringTimerBrowserNotification(freshedCandidate, freshPrefs)
+    } else {
+      queueBrowserNotification.current(freshedCandidate, freshPrefs)
+    }
 
     // Only play the backstop sound if the scheduled audio handle did not
     // already (or will not) handle it. If the entry still exists in
@@ -324,7 +436,7 @@ export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
     const wantedKeys = new Set<string>()
 
     for (const timer of timers) {
-      const upcoming = upcomingAlarmBoundary(timer, now, preferences, firedRef.current)
+      const upcoming = upcomingAlarmBoundary(timer, now, preferences, firedRef.current, projectId)
       if (!upcoming) continue
 
       const { firedKey, boundaryIso, boundaryMs, msUntil } = upcoming
@@ -340,6 +452,7 @@ export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
         boundary: boundaryIso,
         firedKey,
         fullPageAlarm: preferences.fullPageAlarm,
+        project: { projectId, projectName },
         sound: preferences.sound,
         timer,
       }
@@ -371,7 +484,7 @@ export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
         scheduledRef.current.delete(key)
       }
     }
-  }, [timers, nowMs, localPreferences])
+  }, [timers, nowMs, localPreferences, projectId, projectName])
 
   // ---------------------------------------------------------------------------
   // BACKSTOP diff effect — boundary-crossing detection on every tick.
@@ -385,12 +498,15 @@ export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
     prevNowMsRef.current = nowMs
 
     for (const timer of timers) {
-      const candidate = timerAlarmCandidate(timer, prevNowMs, nowMs, preferences, firedRef.current)
+      const candidate = timerAlarmCandidate(timer, prevNowMs, nowMs, preferences, firedRef.current, {
+        projectId,
+        projectName,
+      })
       if (!candidate) continue
 
       fire.current(candidate, setAlarm)
     }
-  }, [timers, nowMs])
+  }, [timers, nowMs, projectId, projectName])
 
   // ---------------------------------------------------------------------------
   // Cleanup on unmount: cancel all scheduled primaries.
@@ -401,12 +517,16 @@ export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
     // the time the cleanup runs. For a mutable bookkeeping ref (not a DOM node)
     // this is intentional: we always want the live map at cleanup time.
     const scheduled = scheduledRef.current
+    const notificationBatch = notificationBatchRef.current
     return () => {
       for (const entry of scheduled.values()) {
         entry.cancelSound?.()
         clearTimeout(entry.timeoutId)
       }
       scheduled.clear()
+      if (notificationBatchTimeoutRef.current !== null) clearTimeout(notificationBatchTimeoutRef.current)
+      notificationBatchTimeoutRef.current = null
+      notificationBatch.clear()
     }
   }, [])
 
@@ -414,12 +534,12 @@ export function useLocalTimerAlarms(timers: Timer[], nowMs: number) {
   // Prune firedRef when timers are removed so keys don't accumulate forever.
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    const currentIds = new Set(timers.map((t) => t.id))
+    const currentKeys = new Set(timers.map((timer) => `${projectId}::${timer.id}`))
     for (const key of firedRef.current) {
-      const id = key.split("::")[0]
-      if (!currentIds.has(id)) firedRef.current.delete(key)
+      const [keyProjectId, timerId] = key.split("::")
+      if (keyProjectId === projectId && !currentKeys.has(`${keyProjectId}::${timerId}`)) firedRef.current.delete(key)
     }
-  }, [timers])
+  }, [timers, projectId])
 
   return {
     alarm,

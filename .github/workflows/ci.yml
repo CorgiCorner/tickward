@@ -80,10 +80,25 @@ jobs:
       - name: Validate and analyze isolated public snapshot
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          TICKWARD_SONAR_REQUIRED: "1"
+          # PR review requires a completed quality gate. A main push may still
+          # emit an explicitly degraded artifact after transient Sonar outages.
+          TICKWARD_SONAR_POLICY: ${{ github.event_name == 'pull_request' && 'gate' || 'config' }}
         run: |
           if [[ -z "$SONAR_TOKEN" ]]; then
             echo "::error::SONAR_TOKEN is required for private snapshot analysis"
             exit 1
           fi
-          scripts/publish-public.sh --validate-only
+          artifact_args=()
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            artifact_args=(--emit-artifact "$RUNNER_TEMP/public-snapshot-artifact")
+          fi
+          scripts/publish-public.sh --validate-only "${artifact_args[@]}"
+      - name: Upload verified public snapshot
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: public-snapshot-${{ github.sha }}
+          path: ${{ runner.temp }}/public-snapshot-artifact/*
+          retention-days: 30
+          if-no-files-found: error
+          overwrite: true

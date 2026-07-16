@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   getBetterAuthConfig: vi.fn(),
   getPrismaClient: vi.fn(),
   prismaAdapter: vi.fn(() => ({ id: "prisma-adapter" })),
+  recordEmailOtpDeliveryFailure: vi.fn(),
   recordAuditEvent: vi.fn(),
   sendEmailOtpMessage: vi.fn(),
 }))
@@ -57,6 +58,10 @@ vi.mock("@/lib/auth/email-otp.server", () => ({
   sendEmailOtpMessage: mocks.sendEmailOtpMessage,
 }))
 
+vi.mock("@/lib/auth/email-otp-delivery-context.server", () => ({
+  recordEmailOtpDeliveryFailure: mocks.recordEmailOtpDeliveryFailure,
+}))
+
 async function loadAuth() {
   vi.resetModules()
   const mod = await import("./auth.server")
@@ -77,6 +82,7 @@ describe("tickward Better Auth server config", () => {
     mocks.getBetterAuthConfig.mockReset()
     mocks.getPrismaClient.mockReset()
     mocks.prismaAdapter.mockClear()
+    mocks.recordEmailOtpDeliveryFailure.mockReset()
     mocks.recordAuditEvent.mockReset()
     mocks.sendEmailOtpMessage.mockReset()
     mocks.getBetterAuthConfig.mockReturnValue({ url: "https://tickward.test", secret: "secret" })
@@ -91,7 +97,7 @@ describe("tickward Better Auth server config", () => {
     expect(mocks.emailOTP).toHaveBeenCalledWith(
       expect.objectContaining({
         otpLength: 6,
-        expiresIn: 300,
+        expiresIn: 600,
         allowedAttempts: 3,
         storeOTP: "hashed",
         overrideDefaultEmailVerification: true,
@@ -151,6 +157,7 @@ describe("tickward Better Auth server config", () => {
       emailOtpPlugin.sendVerificationOTP({ email: "ada@example.com", otp: "123456", type: "sign-in" }),
     ).rejects.toThrow("Email sign-in is not configured.")
     expect(mocks.sendEmailOtpMessage).not.toHaveBeenCalled()
+    expect(mocks.recordEmailOtpDeliveryFailure).toHaveBeenCalledOnce()
     expect(mocks.recordAuditEvent).not.toHaveBeenCalled()
   })
 
@@ -209,23 +216,49 @@ describe("tickward Better Auth server config", () => {
     })
   })
 
-  it("does not await OTP email delivery after the provider guard passes", async () => {
+  it("awaits OTP email delivery before reporting success", async () => {
     const { emailOtpPlugin } = await loadAuth()
-    mocks.sendEmailOtpMessage.mockReturnValue(new Promise(() => {}))
+    let resolveDelivery: (() => void) | undefined
+    mocks.sendEmailOtpMessage.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveDelivery = resolve
+      }),
+    )
 
-    await expect(
-      Promise.race([
-        emailOtpPlugin
-          .sendVerificationOTP({ email: "ada@example.com", otp: "123456", type: "sign-in" })
-          .then(() => "resolved"),
-        new Promise((resolve) => setTimeout(() => resolve("timeout"), 50)),
-      ]),
-    ).resolves.toBe("resolved")
+    const send = emailOtpPlugin.sendVerificationOTP({
+      email: "ada@example.com",
+      otp: "123456",
+      type: "sign-in",
+    })
+
+    await expect(Promise.race([send.then(() => "resolved"), Promise.resolve("pending")])).resolves.toBe("pending")
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled()
+
+    resolveDelivery?.()
+    await expect(send).resolves.toBeUndefined()
     expect(mocks.assertEmailOtpProviderConfigured).toHaveBeenCalled()
     expect(mocks.sendEmailOtpMessage).toHaveBeenCalledWith({
       email: "ada@example.com",
       otp: "123456",
       type: "sign-in",
     })
+    expect(mocks.recordAuditEvent).toHaveBeenCalledOnce()
+  })
+
+  it("records OTP delivery failure and propagates a provider rejection", async () => {
+    const { emailOtpPlugin } = await loadAuth()
+    const providerError = new Error("provider rejected request: private detail")
+    mocks.sendEmailOtpMessage.mockRejectedValue(providerError)
+
+    await expect(
+      emailOtpPlugin.sendVerificationOTP({
+        email: "ada@example.com",
+        otp: "123456",
+        type: "sign-in",
+      }),
+    ).rejects.toBe(providerError)
+
+    expect(mocks.recordEmailOtpDeliveryFailure).toHaveBeenCalledOnce()
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled()
   })
 })

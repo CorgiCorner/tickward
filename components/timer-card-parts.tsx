@@ -1,6 +1,17 @@
-import { BellOffIcon, EllipsisVerticalIcon, ExternalLinkIcon, PinIcon, PinOffIcon, RepeatIcon } from "lucide-react"
+import {
+  ArrowUpIcon,
+  BellOffIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  ClockIcon,
+  EllipsisVerticalIcon,
+  ExternalLinkIcon,
+  PinIcon,
+  PinOffIcon,
+  RepeatIcon,
+} from "lucide-react"
 import Image from "next/image"
-import type { ReactNode } from "react"
+import { useId, type ReactNode } from "react"
 
 import { TimerFocusAction } from "@/components/timer-focus-action"
 import { useNow } from "@/components/use-now"
@@ -9,6 +20,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -245,8 +257,73 @@ export function TimerCardContent(
     mobileActions: ReactNode
     desktopActions: ReactNode
     onMobileCardTap?: () => void
+    nowCountingUp?: boolean
+    countUpBadgeLabel?: string
+    countUpExpiresAt?: number | null
+    countUpPrimaryLabel?: string
+    countUpPrimaryDescription?: string
+    onCountUpPrimary?: () => void
+    onDeferCountUp?: (durationMs: number | null) => void
+    onCountUpMenuOpenChange?: (open: boolean) => void
   }>,
 ) {
+  const countUpPrimaryDescriptionId = useId()
+  const countUpPrimaryAction =
+    props.onCountUpPrimary && props.countUpPrimaryLabel ? (
+      <DropdownMenu onOpenChange={props.onCountUpMenuOpenChange}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="xs"
+                variant="secondary"
+                data-timer-card-action=""
+                className="relative z-10 h-[18px] shrink-0 gap-0.5 rounded border border-border px-1.5 py-0 text-[9px] font-semibold leading-none"
+                aria-label={props.countUpPrimaryLabel}
+                aria-describedby={props.countUpPrimaryDescription ? countUpPrimaryDescriptionId : undefined}
+              >
+                <CheckIcon aria-hidden="true" className="size-2.5" />
+                {props.countUpPrimaryLabel}
+                <ChevronDownIcon aria-hidden="true" className="size-2.5 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent id={countUpPrimaryDescriptionId} side="top" className="max-w-64 text-center">
+            {props.countUpPrimaryDescription ?? props.countUpPrimaryLabel}
+          </TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="start" sideOffset={4}>
+          <DropdownMenuItem onSelect={props.onCountUpPrimary}>
+            <CheckIcon aria-hidden="true" className="size-3.5" />
+            {props.countUpPrimaryLabel}
+          </DropdownMenuItem>
+          {props.onDeferCountUp ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>{formatMessage("countUp.acknowledgeLater")}</DropdownMenuLabel>
+              <DropdownMenuItem onSelect={() => props.onDeferCountUp?.(15 * 60 * 1000)}>
+                {formatMessage("countUp.keep15m")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => props.onDeferCountUp?.(60 * 60 * 1000)}>
+                {formatMessage("countUp.keep1h")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => props.onDeferCountUp?.(24 * 60 * 60 * 1000)}>
+                {formatMessage("countUp.keep1d")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => props.onDeferCountUp?.(null)}>
+                {formatMessage("countUp.keepUntilAcknowledged")}
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : null
+  const countUpScheduledStatus =
+    props.countUpExpiresAt !== null && props.countUpExpiresAt !== undefined ? (
+      <CountUpScheduledStatus expiresAt={props.countUpExpiresAt} />
+    ) : null
+
   return (
     <article
       className={cn(
@@ -254,6 +331,7 @@ export function TimerCardContent(
         // own rounded corners (a 3px strip can't reproduce the 12px corner itself).
         "group relative min-w-0 w-full overflow-hidden rounded-[12px] border border-border bg-card px-4 pb-6 pt-4 transition-colors",
         props.isArchived ? "bg-card/70 text-muted-foreground" : "",
+        props.nowCountingUp ? "border-muted-foreground/30 bg-muted/25" : "",
       )}
     >
       {props.onMobileCardTap ? (
@@ -281,6 +359,10 @@ export function TimerCardContent(
           history={props.history}
           space={props.space}
           hasDragHandle={Boolean(props.dragHandle)}
+          nowCountingUp={props.nowCountingUp}
+          countUpBadgeLabel={props.countUpBadgeLabel}
+          countUpPrimaryAction={countUpPrimaryAction}
+          countUpScheduledStatus={countUpScheduledStatus}
         />
         <div data-timer-card-action="" className="hidden shrink-0 md:block">
           {props.desktopActions}
@@ -297,6 +379,37 @@ export function TimerCardContent(
   )
 }
 
+function CountUpScheduledStatus(props: Readonly<{ expiresAt: number }>) {
+  const descriptionId = useId()
+  const liveNowMs = useNow()
+
+  if (props.expiresAt <= liveNowMs) return null
+
+  const label = formatMessage("countUp.scheduledInMinutes", {
+    minutes: Math.max(1, Math.ceil((props.expiresAt - liveNowMs) / 60_000)),
+  })
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className="relative z-10 inline-flex size-[18px] shrink-0 items-center justify-center rounded border border-border text-muted-foreground"
+          role="img"
+          tabIndex={0}
+          aria-label={label}
+          aria-describedby={descriptionId}
+          data-count-up-scheduled=""
+        >
+          <ClockIcon aria-hidden="true" className="size-2.5" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent id={descriptionId} side="top" className="max-w-64 text-center">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 function TimerCardTitleBlock(
   props: Readonly<{
     timer: Timer
@@ -308,6 +421,10 @@ function TimerCardTitleBlock(
     history: RecurrenceHistory
     space?: Space
     hasDragHandle?: boolean
+    nowCountingUp?: boolean
+    countUpBadgeLabel?: string
+    countUpPrimaryAction?: ReactNode
+    countUpScheduledStatus?: ReactNode
   }>,
 ) {
   const parts = getCountdownParts(props.effectiveTarget, props.nowMs)
@@ -329,7 +446,18 @@ function TimerCardTitleBlock(
           <TimerSpaceDot timer={props.timer} space={props.space} />
           <h4 className="truncate text-sm font-semibold tracking-normal">{props.timer.label}</h4>
           {props.isRecurring ? <TimerRecurrenceBadge timer={props.timer} history={props.history} /> : null}
-          {!props.isRecurring && parts.isCountUp ? <TimerSinceBadge /> : null}
+          {props.nowCountingUp ? (
+            <>
+              <span className="inline-flex h-[18px] shrink-0 items-center gap-1 rounded border border-border bg-muted px-1.5 py-0 text-[9px] font-semibold uppercase leading-none text-foreground">
+                <ArrowUpIcon aria-hidden="true" className="size-2.5" />
+                {props.countUpBadgeLabel ?? formatMessage("countUp.badge")}
+              </span>
+              {props.countUpPrimaryAction}
+              {props.countUpScheduledStatus}
+            </>
+          ) : !props.isRecurring && parts.isCountUp ? (
+            <TimerSinceBadge />
+          ) : null}
           <TimerNotificationStateIcon timer={props.timer} />
           {props.timer.url ? (
             <a
@@ -379,6 +507,7 @@ export function TimerCardMobileActions(
     onDuplicate: () => void
     onToggleArchive: () => void
     onDelete: () => void
+    onMenuOpenChange?: (open: boolean) => void
   }>,
 ) {
   return (
@@ -422,6 +551,7 @@ export function TimerCardMobileActions(
         onDuplicate={props.onDuplicate}
         onToggleArchive={props.onToggleArchive}
         onDelete={props.onDelete}
+        onMenuOpenChange={props.onMenuOpenChange}
         triggerClassName={`rounded-full p-1.5 ${timerActionClassName}`}
         onTriggerPointerDown={(event) => {
           event.stopPropagation()
@@ -482,13 +612,14 @@ function TimerOverflowActions(
     onDuplicate: () => void
     onToggleArchive: () => void
     onDelete: () => void
+    onMenuOpenChange?: (open: boolean) => void
     triggerClassName?: string
     onTriggerPointerDown?: (event: StopPropagationEvent) => void
     onTriggerClick?: (event: StopPropagationEvent) => void
   }>,
 ) {
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={props.onMenuOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
@@ -568,6 +699,7 @@ export function TimerCardDesktopActions(
     onDuplicate: () => void
     onToggleArchive: () => void
     onDelete: () => void
+    onMenuOpenChange?: (open: boolean) => void
   }>,
 ) {
   return (
@@ -587,6 +719,7 @@ export function TimerCardDesktopActions(
         onDuplicate={props.onDuplicate}
         onToggleArchive={props.onToggleArchive}
         onDelete={props.onDelete}
+        onMenuOpenChange={props.onMenuOpenChange}
       />
     </div>
   )
