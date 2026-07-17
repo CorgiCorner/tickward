@@ -12,12 +12,19 @@ import { cn } from "@/lib/utils"
 interface DatePickerProps {
   value: string
   onChange: (value: string) => void
+  focusOnMount?: boolean
 }
 
-const DATE_PRESETS: Array<{ days: number; labelKey: MessageKey }> = [
+const FUTURE_DATE_PRESETS: Array<{ days: number; labelKey: MessageKey }> = [
   { days: 1, labelKey: "timer.form.date.preset.tomorrow" },
   { days: 7, labelKey: "timer.form.date.preset.inSevenDays" },
   { days: 14, labelKey: "timer.form.date.preset.inFourteenDays" },
+]
+
+const PAST_DATE_PRESETS: Array<{ days: number; labelKey: MessageKey }> = [
+  { days: -1, labelKey: "timer.form.date.preset.yesterday" },
+  { days: -7, labelKey: "timer.form.date.preset.sevenDaysAgo" },
+  { days: -14, labelKey: "timer.form.date.preset.fourteenDaysAgo" },
 ]
 
 function datePresetValue(daysFromToday: number) {
@@ -30,10 +37,17 @@ function datePresetValue(daysFromToday: number) {
   return `${year}-${month}-${date}`
 }
 
-function DatePresetChips(props: Readonly<{ onChange: (value: string) => void; className?: string }>) {
+function DatePresetChips(
+  props: Readonly<{
+    onChange: (value: string) => void
+    className?: string
+    direction?: "future" | "past"
+  }>,
+) {
+  const presets = props.direction === "past" ? PAST_DATE_PRESETS : FUTURE_DATE_PRESETS
   return (
     <div className={cn("flex flex-wrap gap-2", props.className)}>
-      {DATE_PRESETS.map((preset) => (
+      {presets.map((preset) => (
         <button
           key={preset.days}
           type="button"
@@ -47,8 +61,17 @@ function DatePresetChips(props: Readonly<{ onChange: (value: string) => void; cl
   )
 }
 
-function DatePicker({ value, onChange }: Readonly<DatePickerProps>) {
+function DatePicker({ value, onChange, focusOnMount = false }: Readonly<DatePickerProps>) {
   const [open, setOpen] = React.useState(false)
+  const nativeInputRef = React.useRef<HTMLInputElement>(null)
+  const desktopTriggerRef = React.useRef<HTMLButtonElement>(null)
+
+  React.useEffect(() => {
+    if (!focusOnMount) return
+    const desktop = globalThis.matchMedia?.("(min-width: 768px)").matches ?? false
+    const target = desktop ? desktopTriggerRef.current : nativeInputRef.current
+    target?.focus()
+  }, [focusOnMount])
 
   const selected = value ? parseISO(value) : undefined
 
@@ -68,6 +91,7 @@ function DatePicker({ value, onChange }: Readonly<DatePickerProps>) {
     <>
       {/* Mobile: native date input */}
       <Input
+        ref={nativeInputRef}
         type="date"
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -78,6 +102,7 @@ function DatePicker({ value, onChange }: Readonly<DatePickerProps>) {
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
+            ref={desktopTriggerRef}
             variant="outline"
             className={cn(
               "hidden w-full min-w-0 max-w-full justify-start text-left font-normal md:inline-flex",

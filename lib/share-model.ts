@@ -11,6 +11,8 @@ export type SharedTimerSnapshot = {
   spaceColor?: string
   description?: string
   refreshOnFinish?: boolean
+  mode?: Timer["mode"]
+  milestones?: Timer["milestones"]
   sharedAt: string
 }
 
@@ -34,7 +36,7 @@ export function sharedTimerFromTimer(
 ): ResolvedShare["timer"] {
   return {
     label: timer.label,
-    targetDate: effectiveTargetDate(timer, nowMs),
+    targetDate: timer.mode === "since" ? timer.targetDate : effectiveTargetDate(timer, nowMs),
     timezone: timer.timezone,
     createdAt: timer.createdAt,
     color: timer.color,
@@ -42,6 +44,8 @@ export function sharedTimerFromTimer(
     ...(space?.color ? { spaceColor: space.color } : {}),
     description: timer.description,
     ...(timer.recurrence?.enabled ? { refreshOnFinish: true } : {}),
+    ...(timer.mode ? { mode: timer.mode } : {}),
+    ...(timer.milestones ? { milestones: timer.milestones } : {}),
     sharedAt,
   }
 }

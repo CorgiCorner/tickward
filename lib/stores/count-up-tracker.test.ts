@@ -41,8 +41,10 @@ describe("CountUpTracker", () => {
         targetAtMs: TARGET_AT_MS,
         crossedAt: TARGET_AT_MS,
         firstSeenAt: null,
+        reviewExpiresAt: null,
         acknowledgedAt: null,
         deferredUntil: null,
+        usesDefaultPolicy: true,
       }),
     ])
     expect(result.occurrences).toEqual(result.created)
@@ -55,12 +57,16 @@ describe("CountUpTracker", () => {
       targetAtMs: TARGET_AT_MS,
       crossedAt: TARGET_AT_MS,
       firstSeenAt: null,
+      reviewExpiresAt: null,
       acknowledgedAt: null,
       deferredUntil: null,
       policy: { mode: "after-seen-5m", minutes: null } as const,
+      usesDefaultPolicy: true,
     }
 
     expect(getCountUpExpiresAt(occurrence)).toBeNull()
-    expect(getCountUpExpiresAt({ ...occurrence, firstSeenAt: NOW_MS })).toBe(NOW_MS + 5 * 60_000)
+    expect(getCountUpExpiresAt({ ...occurrence, firstSeenAt: NOW_MS, reviewExpiresAt: NOW_MS + 5 * 60_000 })).toBe(
+      NOW_MS + 5 * 60_000,
+    )
   })
 })

@@ -86,7 +86,12 @@ describe("timer reminders schema", () => {
       }).success,
     ).toBe(false)
 
-    expect(timerSchema.safeParse({ ...baseTimer, reminders: [{ offsetMinutes: -1 }] }).success).toBe(false)
+    expect(
+      timerSchema.safeParse({
+        ...baseTimer,
+        reminders: [{ offsetMinutes: -1 }],
+      }).success,
+    ).toBe(false)
     expect(
       timerSchema.safeParse({
         ...baseTimer,
@@ -102,11 +107,60 @@ describe("timer reminders schema", () => {
   })
 })
 
+describe("since timer schema", () => {
+  const baseTimer = {
+    id: "timer-since",
+    label: "Together",
+    targetDate: "2020-05-25T12:00:00.000Z",
+    timezone: "Europe/Warsaw",
+    createdAt: "2026-05-20T00:00:00.000Z",
+  }
+  const milestones = { rules: [{ unit: "years" as const, every: 1 }] }
+
+  it("accepts a since timer with milestones and no recurrence or after-zero policy", () => {
+    expect(timerSchema.safeParse({ ...baseTimer, mode: "since", milestones }).success).toBe(true)
+  })
+
+  it.each([
+    [{ ...baseTimer, mode: "since" }, ["milestones"]],
+    [
+      {
+        ...baseTimer,
+        mode: "since",
+        milestones,
+        recurrence: { type: "yearly", enabled: true },
+      },
+      ["recurrence"],
+    ],
+    [
+      {
+        ...baseTimer,
+        mode: "since",
+        milestones,
+        afterZero: { mode: "until-reviewed" },
+      },
+      ["afterZero"],
+    ],
+    [{ ...baseTimer, milestones }, ["milestones"]],
+  ])("rejects invalid since-timer combinations on the relevant path", (value, path) => {
+    const result = timerSchema.safeParse(value)
+    expect(result.success).toBe(false)
+    if (!result.success)
+      expect(result.error.issues).toEqual(expect.arrayContaining([expect.objectContaining({ path })]))
+  })
+
+  it("keeps legacy timers without mode backward-compatible", () => {
+    expect(timerSchema.safeParse(baseTimer).success).toBe(true)
+  })
+})
+
 const baseTimerFormValues: TimerFormValues = {
   label: "Launch",
   description: "",
   url: "",
   scheduleMode: "at",
+  timerMode: "until",
+  milestoneRules: [],
   date: "2026-06-06",
   time: "09:00",
   timezone: "UTC",
@@ -126,6 +180,42 @@ const baseTimerFormValues: TimerFormValues = {
 }
 
 describe("timer form schema", () => {
+  it("requires a past anchor and milestone rules for since timers", () => {
+    const valid = timerFormSchema.safeParse({
+      ...baseTimerFormValues,
+      timerMode: "since",
+      date: "2020-06-06",
+      notify: false,
+      milestoneRules: [{ unit: "years", every: 1 }],
+    })
+    expect(valid.success).toBe(true)
+
+    const missingRules = timerFormSchema.safeParse({
+      ...baseTimerFormValues,
+      timerMode: "since",
+      date: "2020-06-06",
+      notify: false,
+    })
+    expect(missingRules.success).toBe(false)
+    if (!missingRules.success) {
+      expect(missingRules.error.issues).toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: ["milestoneRules"] })]),
+      )
+    }
+
+    const futureAnchor = timerFormSchema.safeParse({
+      ...baseTimerFormValues,
+      timerMode: "since",
+      date: "2099-06-06",
+      notify: false,
+      milestoneRules: [{ unit: "days", every: 100 }],
+    })
+    expect(futureAnchor.success).toBe(false)
+    if (!futureAnchor.success) {
+      expect(futureAnchor.error.issues).toEqual(expect.arrayContaining([expect.objectContaining({ path: ["date"] })]))
+    }
+  })
+
   it("validates and maps timer-specific after-zero overrides", () => {
     expect(
       timerSchema.safeParse({
@@ -137,11 +227,21 @@ describe("timer form schema", () => {
         afterZero: { mode: "keep-visible", minutes: 45 },
       }).success,
     ).toBe(true)
-    expect(timerAfterZeroFromForm({ afterZeroMode: "keep-visible-1h", afterZeroMinutes: "30" })).toEqual({
+    expect(
+      timerAfterZeroFromForm({
+        afterZeroMode: "keep-visible-1h",
+        afterZeroMinutes: "30",
+      }),
+    ).toEqual({
       mode: "keep-visible",
       minutes: 60,
     })
-    expect(timerAfterZeroFromForm({ afterZeroMode: "keep-visible-custom", afterZeroMinutes: "45" })).toEqual({
+    expect(
+      timerAfterZeroFromForm({
+        afterZeroMode: "keep-visible-custom",
+        afterZeroMinutes: "45",
+      }),
+    ).toEqual({
       mode: "keep-visible",
       minutes: 45,
     })
@@ -180,13 +280,23 @@ describe("timer form schema", () => {
   })
 
   it("uses localized schedule validation messages", () => {
-    const invalidDateTime = timerFormSchema.safeParse({ ...baseTimerFormValues, date: "", time: "" })
+    const invalidDateTime = timerFormSchema.safeParse({
+      ...baseTimerFormValues,
+      date: "",
+      time: "",
+    })
     expect(invalidDateTime.success).toBe(false)
     if (!invalidDateTime.success) {
       expect(invalidDateTime.error.issues).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ message: "Pick a valid date.", path: ["date"] }),
-          expect.objectContaining({ message: "Pick a valid time.", path: ["time"] }),
+          expect.objectContaining({
+            message: "Pick a valid date.",
+            path: ["date"],
+          }),
+          expect.objectContaining({
+            message: "Pick a valid time.",
+            path: ["time"],
+          }),
         ]),
       )
     }
@@ -274,26 +384,54 @@ describe("timer form schema", () => {
         durationSeconds: "01",
       }).success,
     ).toBe(true)
-    expect(timerFormSchema.safeParse({ ...baseTimerFormValues, scheduleMode: "in", durationDays: "99" }).success).toBe(
-      true,
-    )
-    expect(timerFormSchema.safeParse({ ...baseTimerFormValues, scheduleMode: "in", durationDays: "100" }).success).toBe(
-      false,
-    )
-    expect(timerFormSchema.safeParse({ ...baseTimerFormValues, scheduleMode: "in", durationDays: "1a" }).success).toBe(
-      false,
-    )
     expect(
-      timerFormSchema.safeParse({ ...baseTimerFormValues, scheduleMode: "in", durationMinutes: "60" }).success,
+      timerFormSchema.safeParse({
+        ...baseTimerFormValues,
+        scheduleMode: "in",
+        durationDays: "99",
+      }).success,
+    ).toBe(true)
+    expect(
+      timerFormSchema.safeParse({
+        ...baseTimerFormValues,
+        scheduleMode: "in",
+        durationDays: "100",
+      }).success,
     ).toBe(false)
     expect(
-      timerFormSchema.safeParse({ ...baseTimerFormValues, scheduleMode: "in", durationSeconds: "60" }).success,
+      timerFormSchema.safeParse({
+        ...baseTimerFormValues,
+        scheduleMode: "in",
+        durationDays: "1a",
+      }).success,
     ).toBe(false)
     expect(
-      timerFormSchema.safeParse({ ...baseTimerFormValues, scheduleMode: "in", durationHours: "100" }).success,
+      timerFormSchema.safeParse({
+        ...baseTimerFormValues,
+        scheduleMode: "in",
+        durationMinutes: "60",
+      }).success,
     ).toBe(false)
     expect(
-      timerFormSchema.safeParse({ ...baseTimerFormValues, scheduleMode: "in", durationSeconds: "01" }).success,
+      timerFormSchema.safeParse({
+        ...baseTimerFormValues,
+        scheduleMode: "in",
+        durationSeconds: "60",
+      }).success,
+    ).toBe(false)
+    expect(
+      timerFormSchema.safeParse({
+        ...baseTimerFormValues,
+        scheduleMode: "in",
+        durationHours: "100",
+      }).success,
+    ).toBe(false)
+    expect(
+      timerFormSchema.safeParse({
+        ...baseTimerFormValues,
+        scheduleMode: "in",
+        durationSeconds: "01",
+      }).success,
     ).toBe(true)
   })
 

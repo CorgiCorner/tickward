@@ -6,6 +6,7 @@ import {
   clearUserProject,
   listUserProjects,
   projectCloudClient,
+  reorderUserProjects,
   restoreProject,
   restoreUserProject,
   saveProject,
@@ -236,6 +237,35 @@ describe("listUserProjects", () => {
   })
 })
 
+describe("reorderUserProjects", () => {
+  it("PATCHes the ordered project ids and maps ok responses", async () => {
+    const fetchMock = stubFetch(async () => new Response(null, { status: 200 }))
+
+    const result = await reorderUserProjects(["project_2", "project_1"])
+
+    expect(result).toEqual({ status: "ok" })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe("/api/projects/reorder")
+    expect(init?.method).toBe("PATCH")
+    expect(init?.headers).toEqual({ "content-type": "application/json" })
+    expect(JSON.parse(init?.body as string)).toEqual({ projectIds: ["project_2", "project_1"] })
+  })
+
+  it("maps reorder auth and availability status responses", async () => {
+    stubFetch(async () => new Response("Sign in.", { status: 401 }))
+    await expect(reorderUserProjects(["project_1"])).resolves.toEqual({ status: "unauthenticated" })
+
+    stubFetch(async () => new Response("Not configured.", { status: 501 }))
+    await expect(reorderUserProjects(["project_1"])).resolves.toEqual({ status: "unsupported" })
+  })
+
+  it("throws a safe fallback for unexpected reorder failures", async () => {
+    stubFetch(async () => new Response("", { status: 500 }))
+
+    await expect(reorderUserProjects(["project_1"])).rejects.toThrow("Save failed.")
+  })
+})
+
 describe("clearProject", () => {
   it("DELETEs the encoded key", async () => {
     const fetchMock = stubFetch(async () => new Response(null, { status: 200 }))
@@ -319,6 +349,7 @@ describe("projectCloudClient", () => {
       restoreProject,
       restoreUserProject,
       listUserProjects,
+      reorderUserProjects,
       clearProject,
       clearUserProject,
       claimProject,

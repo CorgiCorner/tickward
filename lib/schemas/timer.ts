@@ -1,3 +1,4 @@
+import { fromZonedTime } from "date-fns-tz"
 import { z } from "zod"
 
 import {
@@ -7,6 +8,12 @@ import {
   type TimerAfterZero,
 } from "@/lib/count-up-policy"
 import { formatMessage } from "@/lib/i18n/messages"
+import {
+  duplicateMilestoneRuleIndexes,
+  milestoneRuleSchema,
+  timerMilestonesSchema,
+  type MilestoneRule,
+} from "@/lib/milestones"
 import { NOTIFICATION_SOUNDS } from "@/lib/notification-preferences"
 
 const isoDatePrefixPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/
@@ -23,6 +30,107 @@ function isValidImageUrl(value: string) {
 export const TIMER_URL_MAX_LENGTH = 2048
 export const REMINDER_OFFSET_MAX_MINUTES = 40_320
 export const MAX_TIMER_REMINDERS = 5
+
+export const SINCE_TIMER_RECIPE_IDS = ["anniversary", "monthiversary", "recovery-ladder", "streak"] as const
+export type SinceTimerRecipeId = (typeof SINCE_TIMER_RECIPE_IDS)[number]
+export type TimerCreationTemplateId = "blank" | "birthday" | "deadline" | SinceTimerRecipeId
+
+type SinceTimerRecipePayload = {
+  mode: "since"
+  milestones: { rules: MilestoneRule[] }
+  reminders: Array<{ offset_minutes: number }>
+}
+
+// Stable, API-facing recipe ids and payloads. UI labels are localized at the
+// surface, while this registry remains the byte-for-byte product contract.
+const SINCE_TIMER_RECIPES = {
+  anniversary: {
+    mode: "since",
+    milestones: { rules: [{ unit: "years", every: 1 }] },
+    reminders: [{ offset_minutes: 0 }, { offset_minutes: 1440 }],
+  },
+  monthiversary: {
+    mode: "since",
+    milestones: {
+      rules: [
+        { unit: "months", every: 1 },
+        { unit: "years", every: 1 },
+      ],
+    },
+    reminders: [{ offset_minutes: 0 }],
+  },
+  "recovery-ladder": {
+    mode: "since",
+    milestones: {
+      rules: [
+        { unit: "days", at: [1, 3] },
+        { unit: "weeks", at: [1] },
+        { unit: "months", at: [1, 3] },
+        { unit: "years", at: [1] },
+      ],
+    },
+    reminders: [{ offset_minutes: 0 }],
+  },
+  streak: {
+    mode: "since",
+    milestones: { rules: [{ unit: "weeks", every: 1 }] },
+    reminders: [{ offset_minutes: 0 }],
+  },
+} as const satisfies Record<SinceTimerRecipeId, SinceTimerRecipePayload>
+
+function cloneMilestoneRule(rule: MilestoneRule): MilestoneRule {
+  return "every" in rule ? { ...rule } : { ...rule, at: [...rule.at] }
+}
+
+export function compileSinceTimerRecipe(id: SinceTimerRecipeId): SinceTimerRecipePayload {
+  const recipe = SINCE_TIMER_RECIPES[id]
+  return {
+    mode: recipe.mode,
+    milestones: { rules: recipe.milestones.rules.map((rule) => cloneMilestoneRule(rule)) },
+    reminders: recipe.reminders.map((reminder) => ({ ...reminder })),
+  }
+}
+
+export type TimerTemplateFormSeed = {
+  timerMode: "until" | "since"
+  milestoneRules: MilestoneRule[]
+  reminders: Array<{ offsetMinutes: number }>
+  repeatEnabled: boolean
+  repeatType: "daily" | "weekly" | "monthly" | "yearly"
+}
+
+export function timerTemplateFormSeed(id: TimerCreationTemplateId): TimerTemplateFormSeed {
+  if (id === "blank") {
+    return { timerMode: "until", milestoneRules: [], reminders: [], repeatEnabled: false, repeatType: "yearly" }
+  }
+  if (id === "birthday") {
+    return {
+      timerMode: "until",
+      milestoneRules: [],
+      reminders: [{ offsetMinutes: 1440 }],
+      repeatEnabled: true,
+      repeatType: "yearly",
+    }
+  }
+  if (id === "deadline") {
+    return {
+      timerMode: "until",
+      milestoneRules: [],
+      reminders: [{ offsetMinutes: 1440 }, { offsetMinutes: 0 }],
+      repeatEnabled: false,
+      repeatType: "yearly",
+    }
+  }
+
+  const recipe = compileSinceTimerRecipe(id)
+  return {
+    timerMode: recipe.mode,
+    milestoneRules: recipe.milestones.rules,
+    reminders: recipe.reminders.map((reminder) => ({ offsetMinutes: reminder.offset_minutes })),
+    repeatEnabled: false,
+    repeatType: "yearly",
+  }
+}
 
 // Normalize a user-supplied timer link. Returns "" for blank input, the cleaned
 // URL for a valid one, or null when invalid. Only http(s) is allowed (rendering
@@ -117,6 +225,8 @@ export const timerSchema = z
     notification: timerNotificationSettingsSchema.optional(),
     pinned: z.boolean().optional(),
     afterZero: timerAfterZeroSchema.optional(),
+    mode: z.enum(["until", "since"]).optional(),
+    milestones: timerMilestonesSchema.optional(),
     recurrence: recurrenceSchema.optional(),
     reminders: z.array(timerReminderSchema).max(MAX_TIMER_REMINDERS).optional(),
     description: z.string().optional(),
@@ -131,6 +241,35 @@ export const timerSchema = z
         code: "custom",
         message: "Reminder offsets must be unique.",
         path: ["reminders", duplicateIndex, "offsetMinutes"],
+      })
+    }
+    if (timer.mode === "since") {
+      if (!timer.milestones) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Since timers need at least one milestone rule.",
+          path: ["milestones"],
+        })
+      }
+      if (timer.recurrence) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Since timers cannot recur.",
+          path: ["recurrence"],
+        })
+      }
+      if (timer.afterZero) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Since timers have no after-zero policy.",
+          path: ["afterZero"],
+        })
+      }
+    } else if (timer.milestones) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Only since timers can define milestones.",
+        path: ["milestones"],
       })
     }
   })
@@ -150,7 +289,9 @@ export const timersPayloadSchema = timerArraySchema.superRefine((timers, ctx) =>
     if (timer.label.length > 200) {
       ctx.addIssue({
         code: "custom",
-        message: formatMessage("validation.timerLabelTooLong", { label: `${timer.label.slice(0, 20)}...` }),
+        message: formatMessage("validation.timerLabelTooLong", {
+          label: `${timer.label.slice(0, 20)}...`,
+        }),
       })
     }
 
@@ -169,7 +310,9 @@ export const spacesPayloadSchema = spaceArraySchema.superRefine((spaces, ctx) =>
     if (space.name.length > 30) {
       ctx.addIssue({
         code: "custom",
-        message: formatMessage("validation.spaceNameTooLong", { name: `${space.name.slice(0, 15)}...` }),
+        message: formatMessage("validation.spaceNameTooLong", {
+          name: `${space.name.slice(0, 15)}...`,
+        }),
       })
     }
   }
@@ -280,6 +423,8 @@ const timerFormBaseSchema = z.object({
       message: formatMessage("validation.timerUrlInvalid"),
     }),
   scheduleMode: scheduleModeSchema,
+  timerMode: z.enum(["until", "since"]),
+  milestoneRules: z.array(milestoneRuleSchema).max(4),
   date: z.string(),
   time: z.string(),
   timezone: timezoneSchema,
@@ -301,7 +446,9 @@ const timerFormBaseSchema = z.object({
     "keep-visible-custom",
     "until-reviewed",
   ]),
-  afterZeroMinutes: z.string().regex(/^\d{1,6}$/, { message: formatMessage("validation.afterZeroMinutes") }),
+  afterZeroMinutes: z.string().regex(/^\d{1,6}$/, {
+    message: formatMessage("validation.afterZeroMinutes"),
+  }),
 })
 
 function addDuplicateReminderIssue(reminders: Array<{ offsetMinutes: number }> | undefined, ctx: z.RefinementCtx) {
@@ -314,9 +461,68 @@ function addDuplicateReminderIssue(reminders: Array<{ offsetMinutes: number }> |
   })
 }
 
+type SinceFormValues = Pick<
+  z.infer<typeof timerFormBaseSchema>,
+  "timerMode" | "milestoneRules" | "repeatEnabled" | "scheduleMode" | "date" | "time" | "timezone"
+>
+
+function addSinceFormIssues(form: SinceFormValues, ctx: z.RefinementCtx) {
+  if (form.timerMode !== "since") {
+    if (form.milestoneRules.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: formatMessage("timer.form.milestones.onlySince"),
+        path: ["milestoneRules"],
+      })
+    }
+    return
+  }
+
+  if (form.milestoneRules.length === 0) {
+    ctx.addIssue({
+      code: "custom",
+      message: formatMessage("timer.form.milestones.required"),
+      path: ["milestoneRules"],
+    })
+  }
+  for (const index of duplicateMilestoneRuleIndexes(form.milestoneRules)) {
+    ctx.addIssue({
+      code: "custom",
+      message: formatMessage("timer.form.milestones.unique"),
+      path: ["milestoneRules", index],
+    })
+  }
+  if (form.repeatEnabled) {
+    ctx.addIssue({
+      code: "custom",
+      message: formatMessage("timer.form.milestones.noRecurrence"),
+      path: ["repeatEnabled"],
+    })
+  }
+  if (form.scheduleMode !== "at") {
+    ctx.addIssue({
+      code: "custom",
+      message: formatMessage("timer.form.milestones.anchorPast"),
+      path: ["scheduleMode"],
+    })
+    return
+  }
+  if (dateInputPattern.test(form.date) && timeInputPattern.test(form.time)) {
+    const anchorMs = fromZonedTime(`${form.date}T${form.time}:00`, form.timezone).getTime()
+    if (Number.isFinite(anchorMs) && anchorMs > Date.now() + 60_000) {
+      ctx.addIssue({
+        code: "custom",
+        message: formatMessage("timer.form.milestones.anchorPast"),
+        path: ["date"],
+      })
+    }
+  }
+}
+
 export const timerFormSchema = timerFormBaseSchema.superRefine((form, ctx) => {
   addScheduleModeIssues(form, ctx)
   addDuplicateReminderIssue(form.reminders, ctx)
+  addSinceFormIssues(form, ctx)
   if (form.afterZeroMode === "keep-visible-custom") {
     const minutes = Number(form.afterZeroMinutes)
     if (
@@ -337,6 +543,8 @@ export const timerFormStepFields = {
   1: ["label", "description", "url", "spaceId"],
   2: [
     "scheduleMode",
+    "timerMode",
+    "milestoneRules",
     "date",
     "time",
     "timezone",
@@ -356,10 +564,17 @@ export const timerFormStepFields = {
 } as const
 
 export const timerFormStepSchemas = {
-  1: timerFormBaseSchema.pick({ label: true, description: true, url: true, spaceId: true }),
+  1: timerFormBaseSchema.pick({
+    label: true,
+    description: true,
+    url: true,
+    spaceId: true,
+  }),
   2: timerFormBaseSchema
     .pick({
       scheduleMode: true,
+      timerMode: true,
+      milestoneRules: true,
       date: true,
       time: true,
       timezone: true,
@@ -378,6 +593,7 @@ export const timerFormStepSchemas = {
     .superRefine((form, ctx) => {
       addScheduleModeIssues(form, ctx)
       addDuplicateReminderIssue(form.reminders, ctx)
+      addSinceFormIssues(form, ctx)
       if (form.afterZeroMode === "keep-visible-custom") {
         const minutes = Number(form.afterZeroMinutes)
         if (
@@ -409,10 +625,16 @@ export type TimerFormSubmitValue = {
   url?: string
   notify?: boolean
   reminders?: Array<{ offsetMinutes: number }>
-  recurrence?: { type: TimerFormRecurrenceType; enabled: boolean; lastDay?: boolean }
+  recurrence?: {
+    type: TimerFormRecurrenceType
+    enabled: boolean
+    lastDay?: boolean
+  }
   spaceId?: string
   image?: UnsplashImage
   afterZero?: TimerAfterZero
+  mode?: "until" | "since"
+  milestones?: { rules: Array<z.infer<typeof milestoneRuleSchema>> }
 }
 
 export function timerAfterZeroFromForm(values: Pick<TimerFormValues, "afterZeroMode" | "afterZeroMinutes">) {

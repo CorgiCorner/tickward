@@ -46,9 +46,11 @@ function makeOccurrence(overrides: Partial<CountUpOccurrence> = {}): CountUpOccu
     targetAtMs,
     crossedAt: targetAtMs,
     firstSeenAt: null,
+    reviewExpiresAt: null,
     acknowledgedAt: null,
     deferredUntil: null,
     policy: DEFAULT_COUNT_UP_POLICY,
+    usesDefaultPolicy: true,
     ...overrides,
   }
 }
@@ -85,9 +87,11 @@ describe("count-up reconciliation", () => {
         targetAtMs,
         crossedAt: targetAtMs,
         firstSeenAt: null,
+        reviewExpiresAt: null,
         acknowledgedAt: null,
         deferredUntil: null,
         policy: DEFAULT_COUNT_UP_POLICY,
+        usesDefaultPolicy: true,
       },
     ])
     expect(result.occurrences).toEqual(result.created)
@@ -127,17 +131,16 @@ describe("count-up reconciliation", () => {
 
     expect(result.occurrences).toEqual([occurrence])
     expect(result.closedKeys).toEqual([])
-    expect(getCountUpExpiresAt(occurrence, 5 * 60_000)).toBeNull()
+    expect(getCountUpExpiresAt(occurrence)).toBeNull()
   })
 
-  it("computes expiry only from firstSeenAt", () => {
+  it("reads the persisted absolute expiry", () => {
     const unseen = makeOccurrence()
     const seenAt = NOW_MS + 12_345
-    const seen = makeOccurrence({ firstSeenAt: seenAt })
+    const seen = makeOccurrence({ firstSeenAt: seenAt, reviewExpiresAt: seenAt + 15 * 60_000 })
 
-    expect(getCountUpExpiresAt(unseen, 15 * 60_000)).toBeNull()
-    expect(getCountUpExpiresAt(seen, 15 * 60_000)).toBe(seenAt + 15 * 60_000)
-    expect(getCountUpExpiresAt(seen, -1)).toBeNull()
+    expect(getCountUpExpiresAt(unseen)).toBeNull()
+    expect(getCountUpExpiresAt(seen)).toBe(seenAt + 15 * 60_000)
   })
 
   it("never expires unseen state even when stale data contains deferredUntil", () => {
@@ -193,12 +196,14 @@ describe("count-up reconciliation", () => {
 
     expect(direct.created).toEqual([])
     expect(custom.created[0]?.policy).toEqual({ mode: "custom", minutes: 45 })
+    expect(custom.created[0]?.usesDefaultPolicy).toBe(false)
   })
 
   it("auto-acknowledges only seen occurrences after their snapshotted duration", () => {
     const unseen = makeOccurrence({ policy: { mode: "after-seen-5m", minutes: null } })
     const seen = makeOccurrence({
       firstSeenAt: NOW_MS - 6 * 60_000,
+      reviewExpiresAt: NOW_MS - 60_000,
       policy: { mode: "after-seen-5m", minutes: null },
     })
 
@@ -337,7 +342,11 @@ describe("count-up persistence and account merge", () => {
   })
 
   it("persists anonymous count-up state across reloads", () => {
-    const occurrence = makeOccurrence()
+    const occurrence = makeOccurrence({
+      firstSeenAt: NOW_MS,
+      reviewExpiresAt: NOW_MS + 15 * 60_000,
+      policy: { mode: "after-seen-15m", minutes: null },
+    })
     const observation = { timerId: occurrence.timerId, targetAtMs: occurrence.targetAtMs, observedAt: NOW_MS }
 
     writeCountUpState("project-1", { occurrences: [occurrence], observations: [observation] })
@@ -347,6 +356,38 @@ describe("count-up persistence and account merge", () => {
       observations: [observation],
     })
     expect(localStorage.getItem(countUpStorageKey("project-1"))).not.toBeNull()
+  })
+
+  it("faithfully normalizes legacy seen, unseen, and deferred records", () => {
+    const legacyRecord = (occurrence: CountUpOccurrence) => {
+      const record: Partial<CountUpOccurrence> = { ...occurrence }
+      delete record.reviewExpiresAt
+      delete record.usesDefaultPolicy
+      return record
+    }
+    localStorage.setItem(
+      countUpStorageKey("project-1"),
+      JSON.stringify({
+        occurrences: [
+          makeOccurrence({ firstSeenAt: NOW_MS, policy: { mode: "after-seen-15m", minutes: null } }),
+          makeOccurrence({ timerId: "timer-unseen", key: `timer-unseen|${NOW_MS - HOUR_MS}` }),
+          makeOccurrence({
+            timerId: "timer-deferred",
+            key: `timer-deferred|${NOW_MS - HOUR_MS}`,
+            firstSeenAt: NOW_MS,
+            deferredUntil: NOW_MS + HOUR_MS,
+            policy: { mode: "after-seen-5m", minutes: null },
+          }),
+        ].map(legacyRecord),
+      }),
+    )
+
+    const [seen, unseen, deferred] = readCountUpState("project-1").occurrences
+
+    expect(seen?.reviewExpiresAt).toBe(NOW_MS + 15 * 60_000)
+    expect(unseen?.reviewExpiresAt).toBeNull()
+    expect(deferred?.reviewExpiresAt).toBe(NOW_MS + HOUR_MS)
+    expect(seen?.usesDefaultPolicy).toBe(true)
   })
 
   it("preserves the existing browser-storage and API wire contracts", async () => {

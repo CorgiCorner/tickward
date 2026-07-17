@@ -38,6 +38,8 @@ import type { TimerFormSubmitValue } from "@/components/timer-form"
 import { authClient } from "@/lib/auth/auth-client"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
 import { formatMessage } from "@/lib/i18n/messages"
+import { formatMilestoneDisplayLabel } from "@/lib/milestone-display"
+import { nextMilestoneAfter } from "@/lib/milestones"
 import { timerNotificationsEnabled } from "@/lib/notification-preferences"
 import { PublicClientError, publicClientErrorFromResponse } from "@/lib/public-errors"
 import { useTimerStore } from "@/lib/store"
@@ -90,14 +92,15 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
   const sortable = props.sortable ?? true
   // Recurring timers count down to their next derived occurrence; the stored
   // `targetDate` is only the anchor and is never mutated.
-  const effectiveTarget = effectiveTargetDate(timer, nowMs)
+  const occurrenceTarget = effectiveTargetDate(timer, nowMs)
+  const effectiveTarget = timer.mode === "since" ? timer.targetDate : occurrenceTarget
   const isRecurring = timer.recurrence?.enabled === true
   const history = recurrenceHistory(timer, nowMs)
   const isFollowed = Boolean(timer.sourceShareId)
   const isArchived = Boolean(timer.archivedAt)
   const isPinned = timer.pinned === true && !isArchived
   const notificationsEnabled = timerNotificationsEnabled(timer.notification, timer.notify)
-  const isPastTimer = new Date(effectiveTarget).getTime() <= nowMs
+  const isPastTimer = timer.mode !== "since" && new Date(effectiveTarget).getTime() <= nowMs
   const countUpOccurrence = props.countUpOccurrence?.acknowledgedAt === null ? props.countUpOccurrence : undefined
   const countUpExpiresAt = countUpOccurrence ? getCountUpExpiresAt(countUpOccurrence) : null
 
@@ -151,7 +154,24 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
     }
   }
 
-  const sub = [formatTargetInTimeZone(effectiveTarget, timer.timezone), timer.timezone].filter(Boolean).join(" · ")
+  const nextMilestone =
+    timer.mode === "since" && timer.milestones
+      ? nextMilestoneAfter(timer.targetDate, timer.milestones.rules, timer.timezone, nowMs)
+      : null
+  const ladderComplete =
+    timer.mode === "since" &&
+    timer.milestones !== undefined &&
+    timer.milestones.rules.length > 0 &&
+    timer.milestones.rules.every((rule) => "at" in rule) &&
+    !nextMilestone
+  const milestoneSub = nextMilestone
+    ? formatMilestoneDisplayLabel("next", nextMilestone, timer.timezone)
+    : ladderComplete
+      ? formatMessage("timer.display.ladderComplete")
+      : null
+  const sub = [formatTargetInTimeZone(effectiveTarget, timer.timezone), timer.timezone, milestoneSub]
+    .filter(Boolean)
+    .join(" · ")
 
   const [shareOpen, setShareOpen] = useState(false)
   const [shareLoaded, setShareLoaded] = useState(false)

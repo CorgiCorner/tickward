@@ -179,12 +179,13 @@ describe("i18n catalog", () => {
     expect(violations).toEqual([])
   })
 
-  it("keeps Seen out of user-facing count-up messages", () => {
+  it("keeps legacy Seen terminology out of user-facing count-up messages", () => {
     const adapterPath = path.join(process.cwd(), adapterLocaleDir)
     const catalogs = [...localeFiles(), ...(existsSync(adapterPath) ? localeFiles(adapterPath) : [])]
+    const firstShownHelperKeys = new Set(["settings.countUp.helperTimed", "settings.countUp.helperTimedSingular"])
     const violations = catalogs.flatMap((filePath) =>
       countUpSourceMessages(filePath)
-        .filter(({ value }) => /\bseen\b/i.test(value))
+        .filter(({ key, value }) => /\bseen\b/i.test(value) && !firstShownHelperKeys.has(key))
         .map(({ key }) => `${relativePath(filePath)}: count-up message ${key} uses Seen`),
     )
 

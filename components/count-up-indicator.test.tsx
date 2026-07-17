@@ -44,9 +44,11 @@ function occurrence(overrides: Partial<CountUpOccurrence> = {}): CountUpOccurren
     targetAtMs: 1_000,
     crossedAt: 1_000,
     firstSeenAt: null,
+    reviewExpiresAt: null,
     acknowledgedAt: null,
     deferredUntil: null,
     policy: { mode: "until-i-move-it", minutes: null },
+    usesDefaultPolicy: true,
     ...overrides,
   }
 }

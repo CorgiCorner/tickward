@@ -27,15 +27,31 @@ function expectLoadingShell(container: HTMLElement, label: string) {
   expect(shell).toHaveAttribute("aria-busy", "true")
 }
 
+function expectStableBrand() {
+  const brand = screen.getByRole("link", { name: "Go to home" })
+  expect(brand).toHaveAttribute("href", "/")
+  expect(brand).toHaveTextContent("tickward")
+  expect(brand.querySelector("svg")).toBeInTheDocument()
+  expect(brand.querySelector('[data-slot="skeleton"]')).not.toBeInTheDocument()
+}
+
 describe("app shell loading skeletons", () => {
+  it("keeps the static brand visible while header controls load", () => {
+    const { container } = render(<AppHeaderLoadingSkeleton />)
+
+    expectStableBrand()
+    expect(skeletonCount(container)).toBeGreaterThan(3)
+  })
+
   it("renders a neutral route loading fallback", () => {
     const { container } = render(<AppShellLoading />)
 
     expectLoadingShell(container, "Loading")
+    expectStableBrand()
     expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument()
     expect(loadingRegion(container, "generic-main")).toBeInTheDocument()
     expect(loadingRegion(container, "timer-card")).not.toBeInTheDocument()
-    expect(skeletonCount(container)).toBeGreaterThan(15)
+    expect(skeletonCount(container)).toBeGreaterThan(13)
   })
 
   it("renders a home-specific full page loader separately from the route fallback", () => {
@@ -70,6 +86,7 @@ describe("app shell loading skeletons", () => {
     expect(loadingRegion(container, "quick-add")).not.toBeInTheDocument()
     expect(loadingRegion(container, "organizer")).not.toBeInTheDocument()
     expect(loadingRegion(container, "timer-card")).not.toBeInTheDocument()
+    expectStableBrand()
     expect(skeletonCount(container)).toBeGreaterThan(20)
   })
 

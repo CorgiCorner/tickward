@@ -3,6 +3,7 @@ import type {
   NotificationPresentation,
   TimerNotificationSettings,
 } from "@/lib/notification-preferences"
+import type { MilestoneUnit } from "@/lib/milestones"
 
 export type NotificationRecipient = {
   subscriberId?: string
@@ -35,6 +36,8 @@ export type TimerReminderDeliveryCommand = {
   recipient: NotificationRecipient
   offsetMinutes: number
   occurrenceAt: string
+  mode: "until" | "since"
+  milestone?: { unit: MilestoneUnit; count: number }
   // Resolved by the caller so channel providers can skip their own lookup.
   inAppNotificationsEnabled?: boolean
 }

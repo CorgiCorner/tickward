@@ -5,7 +5,7 @@ import {
   type AccountPreferencesPatch,
   type AccountPreferencesRecord,
 } from "@/lib/account-preferences"
-import { normalizeCountUpPolicy } from "@/lib/count-up-policy"
+import { countUpPolicyDurationMs, normalizeCountUpPolicy } from "@/lib/count-up-policy"
 import type { UserRef } from "@/lib/contracts"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
 import { notificationSoundSchema } from "@/lib/schemas/timer"
@@ -137,12 +137,45 @@ export async function updateAccountPreferencesForUser(
 
   const prisma = requirePrismaClient()
   const row = await prisma.$transaction(async (tx) => {
+    const previousRow =
+      patch.count_up_policy === undefined
+        ? null
+        : await userPreferenceDelegate(tx).findUnique({ where: { userId: user.id } })
+    const previousPolicy = previousRow
+      ? normalizeCountUpPolicy({
+          mode: previousRow.countUpPolicy,
+          minutes: previousRow.countUpPolicyMinutes ?? null,
+        })
+      : DEFAULT_ACCOUNT_PREFERENCES.count_up_policy
     await tx.user.upsert(userUpsertFields(user))
-    return userPreferenceDelegate(tx).upsert({
+    const updatedRow = await userPreferenceDelegate(tx).upsert({
       where: { userId: user.id },
       create,
       update: data,
     })
+    const nextPolicy = patch.count_up_policy
+    const policyChanged =
+      nextPolicy !== undefined &&
+      (previousPolicy.mode !== nextPolicy.mode || previousPolicy.minutes !== nextPolicy.minutes)
+    if (policyChanged && nextPolicy.mode !== "move-directly-to-past") {
+      const durationMs = countUpPolicyDurationMs(nextPolicy)
+      const rearmedAt = new Date()
+      await tx.countUpOccurrence.updateMany({
+        where: {
+          userId: user.id,
+          firstSeenAt: { not: null },
+          acknowledgedAt: null,
+          deferredUntil: null,
+          usesDefaultPolicy: true,
+        },
+        data: {
+          policyMode: nextPolicy.mode,
+          policyMinutes: nextPolicy.minutes,
+          reviewExpiresAt: durationMs === null ? null : new Date(rearmedAt.getTime() + durationMs),
+        },
+      })
+    }
+    return updatedRow
   })
 
   return publicAccountPreferences(row)

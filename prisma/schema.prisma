@@ -234,6 +234,7 @@ model Project {
   ownerId        String?
   name           String
   color          String?
+  position       Int?
   snapshot       Json
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -289,17 +290,19 @@ model Timer {
 }
 
 model CountUpOccurrence {
-  id             String    @id @default(cuid())
-  userId         String
-  projectId      String
-  timerId        String
-  targetAtMs     BigInt
-  crossedAt      DateTime
-  firstSeenAt    DateTime?
-  acknowledgedAt DateTime?
-  deferredUntil  DateTime?
-  policyMode     String    @default("until-i-move-it")
-  policyMinutes  Int?
+  id                String    @id @default(cuid())
+  userId            String
+  projectId         String
+  timerId           String
+  targetAtMs        BigInt
+  crossedAt         DateTime
+  firstSeenAt       DateTime?
+  reviewExpiresAt   DateTime?
+  acknowledgedAt    DateTime?
+  deferredUntil     DateTime?
+  policyMode        String    @default("until-i-move-it")
+  policyMinutes     Int?
+  usesDefaultPolicy Boolean   @default(true)
 
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   timer Timer @relation(fields: [projectId, timerId], references: [projectId, id], onDelete: Cascade)

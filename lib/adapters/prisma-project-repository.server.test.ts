@@ -502,7 +502,7 @@ describe("prisma project repository", () => {
 
     expect(prisma.project.findMany).toHaveBeenCalledWith({
       where: { ownerId: "user_123" },
-      orderBy: { updatedAt: "desc" },
+      orderBy: [{ position: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
       select: {
         id: true,
         name: true,
@@ -515,6 +515,84 @@ describe("prisma project repository", () => {
         _count: { select: { timers: true, spaces: true } },
       },
     })
+  })
+
+  it("orders projects by manual position, then createdAt, then id", async () => {
+    const { prismaProjectRepository } = await import("./prisma-project-repository.server")
+    const prisma = prismaMock()
+    const user = { id: "user_123", role: "user" as const }
+    prisma.project.findMany.mockResolvedValue([])
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+
+    await prismaProjectRepository.listUserProjects?.({ user })
+
+    expect(prisma.project.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ position: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
+      }),
+    )
+  })
+
+  it("persists a full manual ordering without bumping project timestamps", async () => {
+    const { prismaProjectRepository } = await import("./prisma-project-repository.server")
+    const prisma = prismaMock()
+    const updatedAtA = new Date("2026-06-05T21:11:37.795Z")
+    const updatedAtB = new Date("2026-06-06T21:11:37.795Z")
+    prisma.project.findMany.mockResolvedValue([
+      { id: "a", updatedAt: updatedAtA },
+      { id: "b", updatedAt: updatedAtB },
+    ])
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+
+    await expect(
+      prismaProjectRepository.reorderUserProjects?.({
+        user: { id: "user_123", role: "user" },
+        projectIds: ["b", "a"],
+      }),
+    ).resolves.toBe(true)
+
+    expect(prisma.$transaction).toHaveBeenCalledWith([
+      {
+        model: "project",
+        args: { where: { id: "b" }, data: { position: 0, updatedAt: updatedAtB } },
+      },
+      {
+        model: "project",
+        args: { where: { id: "a" }, data: { position: 1, updatedAt: updatedAtA } },
+      },
+    ])
+  })
+
+  it("rejects a project ordering containing a foreign or unknown id", async () => {
+    const { prismaProjectRepository } = await import("./prisma-project-repository.server")
+    const prisma = prismaMock()
+    prisma.project.findMany.mockResolvedValue([{ id: "a", updatedAt: new Date("2026-06-05T21:11:37.795Z") }])
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+
+    await expect(
+      prismaProjectRepository.reorderUserProjects?.({
+        user: { id: "user_123", role: "user" },
+        projectIds: ["a", "foreign"],
+      }),
+    ).resolves.toBe(false)
+
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("rejects a project ordering containing duplicate ids", async () => {
+    const { prismaProjectRepository } = await import("./prisma-project-repository.server")
+    const prisma = prismaMock()
+    prisma.project.findMany.mockResolvedValue([{ id: "a", updatedAt: new Date("2026-06-05T21:11:37.795Z") }])
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+
+    await expect(
+      prismaProjectRepository.reorderUserProjects?.({
+        user: { id: "user_123", role: "user" },
+        projectIds: ["a", "a"],
+      }),
+    ).resolves.toBe(false)
+
+    expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 
   describe("admin session tenant scoping", () => {

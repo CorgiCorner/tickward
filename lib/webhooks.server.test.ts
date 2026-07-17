@@ -7,14 +7,17 @@ import {
   WebhookEndpointLimitError,
   createWebhookDeliveryPayload,
   createWebhookEndpointForUser,
+  dispatchDueWebhookEvents,
   deliverDueWebhooks,
   isUnsafeWebhookAddress,
   isUnsafeWebhookHostname,
   removeWebhookEndpointForUser,
+  scheduleTimerEndedEvent,
   signWebhookPayload,
   webhookAutoDisableFailureThreshold,
   webhookMaxEndpointsPerUser,
 } from "@/lib/webhooks.server"
+import { makeTimer } from "@/test/factories"
 import { syntheticSecret } from "@/test/security-fixtures"
 
 const prismaMocks = vi.hoisted(() => ({
@@ -115,6 +118,118 @@ describe("webhook signing", () => {
         },
       },
     })
+  })
+})
+
+describe("timer milestone webhook scheduling", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    prismaMocks.requirePrismaClient.mockReset()
+  })
+
+  it("schedules the next milestone and never schedules timer.ended for since timers", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-04-01T00:00:00.000Z"))
+    const webhookEvent = {
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      upsert: vi.fn().mockResolvedValue({}),
+    }
+    const timer = makeTimer({
+      id: "timer_123",
+      mode: "since",
+      targetDate: "2026-01-01T10:00:00.000Z",
+      timezone: "UTC",
+      milestones: { rules: [{ unit: "days", every: 100 }] },
+    })
+
+    await scheduleTimerEndedEvent({ webhookEvent } as never, {
+      project: { id: "project_123", name: "Main", ownerId: "user_123" },
+      timer,
+    })
+
+    expect(webhookEvent.upsert).toHaveBeenCalledTimes(1)
+    expect(webhookEvent.upsert).toHaveBeenCalledWith({
+      create: expect.objectContaining({
+        availableAt: new Date("2026-04-11T10:00:00.000Z"),
+        type: "timer.milestone",
+        payload: expect.objectContaining({
+          anchor_date: "2026-01-01T10:00:00.000Z",
+          milestone_count: 100,
+          milestone_unit: "days",
+          occurred_at: "2026-04-11T10:00:00.000Z",
+          timezone: "UTC",
+        }),
+      }),
+      update: expect.objectContaining({ status: "pending" }),
+      where: {
+        dedupeKey: "timer.milestone:user_123:project_123:timer_123:2026-04-11T10:00:00.000Z",
+      },
+    })
+    expect(webhookEvent.upsert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ create: expect.objectContaining({ type: "timer.ended" }) }),
+    )
+  })
+
+  it("re-arms the following milestone after dispatch", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-04-11T10:00:01.000Z"))
+    const event = {
+      id: "evt_123",
+      userId: "user_123",
+      type: "timer.milestone",
+      aggregateType: "timer",
+      aggregateId: "timer_123",
+      projectId: "project_123",
+      timerId: "timer_123",
+      shareId: null,
+      payload: { occurred_at: "2026-04-11T10:00:00.000Z" },
+      availableAt: new Date("2026-04-11T10:00:00.000Z"),
+      occurredAt: new Date("2026-04-11T10:00:00.000Z"),
+      attemptCount: 0,
+    }
+    const webhookEvent = {
+      findMany: vi.fn().mockResolvedValue([event]),
+      update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      upsert: vi.fn().mockResolvedValue({}),
+    }
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: event.id }]),
+      webhookEvent,
+      webhookEndpoint: { findMany: vi.fn().mockResolvedValue([]) },
+      webhookDelivery: { upsert: vi.fn() },
+      timer: {
+        findFirst: vi.fn().mockResolvedValue({
+          data: makeTimer({
+            id: "timer_123",
+            mode: "since",
+            targetDate: "2026-01-01T10:00:00.000Z",
+            timezone: "UTC",
+            milestones: { rules: [{ unit: "days", every: 100 }] },
+          }),
+          project: { id: "project_123", name: "Main", ownerId: "user_123" },
+        }),
+      },
+    }
+    const prisma = {
+      ...tx,
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
+    }
+    prismaMocks.requirePrismaClient.mockReturnValue(prisma)
+
+    await expect(dispatchDueWebhookEvents(1)).resolves.toEqual({ completed: 1, failed: 0, picked: 1 })
+
+    expect(webhookEvent.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          availableAt: new Date("2026-07-20T10:00:00.000Z"),
+          type: "timer.milestone",
+        }),
+        where: {
+          dedupeKey: "timer.milestone:user_123:project_123:timer_123:2026-07-20T10:00:00.000Z",
+        },
+      }),
+    )
   })
 })
 

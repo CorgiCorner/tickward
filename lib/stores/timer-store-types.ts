@@ -47,8 +47,8 @@ export type TimerActions = {
     occurrenceKey: string,
     unpin: boolean,
   ) => Promise<boolean>
-  unacknowledgeCountUps: (keys: string[]) => void
-  unacknowledgeCountUpsForProject: (projectId: string, keys: string[]) => void
+  unacknowledgeCountUps: (keys: string[], atMs?: number) => void
+  unacknowledgeCountUpsForProject: (projectId: string, keys: string[], atMs?: number) => void
   deferCountUps: (keys: string[], untilMs: number | null) => void
   deferCountUpsForProject: (projectId: string, keys: string[], untilMs: number | null) => void
   syncCountUpOccurrences: () => Promise<void>
@@ -83,6 +83,7 @@ export type TimerActions = {
   clearTimerFilters: () => void
 
   createProject: (name?: string) => void
+  reorderProjects: (fromIndex: number, toIndex: number) => void
   switchProject: (projectId: string) => void
   renameActiveProject: (name: string) => void
   removeActiveProjectFromDevice: () => void

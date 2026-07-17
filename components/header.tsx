@@ -1,11 +1,11 @@
 "use client"
 
-import { MoonIcon, SunIcon, TimerIcon } from "lucide-react"
-import Link from "next/link"
+import { MoonIcon, SunIcon } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useSyncExternalStore } from "react"
 
 import { AccountButton } from "@/components/account-button"
+import { AppBrandLink } from "@/components/app-brand-link"
 import { CountUpNotificationRouter } from "@/components/count-up-indicator"
 import { GitHubRepoButton } from "@/components/github-repo-button"
 import { NotificationBell } from "@/components/notification-bell"
@@ -35,14 +35,7 @@ export function Header() {
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
       <div className="mx-auto flex w-full max-w-[640px] flex-wrap items-center gap-2.5 px-4 py-3">
         <div className="min-w-0 shrink-0">
-          <Link
-            href="/"
-            aria-label={formatMessage("header.goHome")}
-            className="flex items-center gap-1 truncate text-sm font-semibold tracking-tight"
-          >
-            <TimerIcon className="size-4 shrink-0" strokeWidth={2.5} />
-            tickward
-          </Link>
+          <AppBrandLink />
         </div>
 
         <div className="flex min-w-0 flex-1 items-center gap-1.5">

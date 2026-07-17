@@ -7,6 +7,7 @@ import type {
   TimerReminderDeliveryCommand,
 } from "@/lib/notification-delivery"
 import type { NotificationChannel } from "@/lib/notification-preferences"
+import { milestoneNotificationCopy } from "@/lib/milestone-notification"
 
 export type NotificationChannelProvider = {
   channel: NotificationChannel
@@ -102,11 +103,20 @@ export function createInAppNotificationChannelProvider(): NotificationChannelPro
       const delegate = inAppDelegate(prisma)
       if (!delegate) return skipped("provider_not_configured")
 
+      const copy = command.milestone
+        ? milestoneNotificationCopy({
+            label: command.label,
+            milestone: command.milestone,
+            offsetMinutes: command.offsetMinutes,
+          })
+        : null
       const payload = {
         label: command.label,
         offsetMinutes: command.offsetMinutes,
         occurrenceAt: command.occurrenceAt,
         timezone: command.timezone,
+        ...(command.milestone ? { milestone: command.milestone } : {}),
+        ...(copy ? { title: copy.subject, body: copy.body } : {}),
       }
       const row = await delegate.upsert({
         where: {

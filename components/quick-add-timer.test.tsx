@@ -52,13 +52,11 @@ function getFormAddButtons() {
 }
 
 function getPlusAddButton() {
-  const [button] = getFormAddButtons()
-  if (!button) throw new Error("Expected the quick-add plus submit button to render.")
-  return button
+  return screen.getByRole("button", { name: "+ New Timer" })
 }
 
 function getEnterHintAddButton() {
-  const [, button] = getFormAddButtons()
+  const [button] = getFormAddButtons()
   if (!button) throw new Error("Expected the quick-add enter hint submit button to render.")
   return button
 }
@@ -102,7 +100,7 @@ describe("QuickAddTimer", () => {
     const user = userEvent.setup()
     renderQuickAddTimer()
 
-    const addButton = getPlusAddButton()
+    const addButton = getEnterHintAddButton()
     expect(addButton).toBeEnabled()
 
     await user.type(screen.getByPlaceholderText("Timer 1"), " Launch ")
@@ -149,7 +147,7 @@ describe("QuickAddTimer", () => {
     const user = userEvent.setup()
     renderQuickAddTimer()
 
-    const addButton = getPlusAddButton()
+    const addButton = getEnterHintAddButton()
     await waitFor(() => expect(addButton).toBeEnabled())
     await user.click(addButton)
 
@@ -173,6 +171,32 @@ describe("QuickAddTimer", () => {
     await userEvent.setup().type(input, "!")
 
     expect(onLabelChange).toHaveBeenLastCalledWith("Trip to Tokyo!")
+  })
+
+  it("opens the full creation form from the template menu", async () => {
+    const user = userEvent.setup()
+    renderQuickAddTimer()
+
+    const newTimerButton = getPlusAddButton()
+    await user.hover(newTimerButton)
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+
+    await user.click(newTimerButton)
+
+    expect(screen.getByRole("menuitem", { name: "Blank" })).toBeVisible()
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "Birthday" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "Deadline" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "Anniversary" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "Monthiversary" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "Recovery ladder" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "Streak" })).toBeVisible()
+
+    await user.click(screen.getByRole("menuitem", { name: "Anniversary" }))
+
+    expect(screen.getByRole("dialog", { name: "New timer" })).toBeVisible()
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Count up since a date" })).toHaveAttribute("aria-pressed", "true")
   })
 
   it("keeps quick add visible but disables submit at the timer limit", async () => {
@@ -229,7 +253,7 @@ describe("QuickAddTimer", () => {
 
     renderQuickAddTimer()
 
-    const addButton = getPlusAddButton()
+    const addButton = getEnterHintAddButton()
     await user.type(screen.getByPlaceholderText("Timer 1"), "Launch")
     await waitFor(() => expect(addButton).toBeEnabled())
     await user.click(addButton)

@@ -427,7 +427,7 @@ export const prismaProjectRepository: ProjectRepository = {
 
     const projects = await prisma.project.findMany({
       where: ownedProjectsWhere(args.user),
-      orderBy: { updatedAt: "desc" },
+      orderBy: [{ position: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
       select: {
         id: true,
         name: true,
@@ -462,6 +462,29 @@ export const prismaProjectRepository: ProjectRepository = {
         overLimitPurgeAt,
       }
     })
+  },
+
+  async reorderUserProjects(args) {
+    const prisma = requirePrismaClient()
+    const owned = await prisma.project.findMany({
+      where: ownedProjectsWhere(args.user),
+      select: { id: true, updatedAt: true },
+    })
+    const ownedById = new Map(owned.map((row) => [row.id, row]))
+    if (new Set(args.projectIds).size !== args.projectIds.length) return false
+    if (!args.projectIds.every((id) => ownedById.has(id))) return false
+
+    await prisma.$transaction(
+      args.projectIds.map((id, index) =>
+        prisma.project.update({
+          where: { id },
+          // Explicit updatedAt prevents the @updatedAt auto-bump: a reorder is
+          // not a content change and must not trip remote-conflict detection.
+          data: { position: index, updatedAt: ownedById.get(id)!.updatedAt },
+        }),
+      ),
+    )
+    return true
   },
 
   async loadUserProject(args) {

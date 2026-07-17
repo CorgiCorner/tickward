@@ -47,6 +47,16 @@ describe("timer filters", () => {
   it("matches type, pinned, and recurring filters", () => {
     expect(timerFilterType(makeTimer({ targetDate: "2026-05-25T12:00:00.000Z" }), NOW_MS)).toBe("countdown")
     expect(timerFilterType(makeTimer({ targetDate: "2026-05-20T12:00:00.000Z" }), NOW_MS)).toBe("countUp")
+    expect(
+      timerFilterType(
+        makeTimer({
+          mode: "since",
+          targetDate: "2020-01-01T12:00:00.000Z",
+          milestones: { rules: [{ unit: "years", every: 1 }] },
+        }),
+        NOW_MS,
+      ),
+    ).toBe("countUp")
     expect(timerIsRecurring(makeTimer({ recurrence: { enabled: true, type: "daily" } }))).toBe(true)
     expect(timerMatchesFilters(makeTimer({ pinned: true }), filters({ pinned: true }), NOW_MS)).toBe(true)
     expect(

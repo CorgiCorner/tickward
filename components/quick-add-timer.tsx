@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/time-picker"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { TimezoneSelect } from "@/components/timezone-select"
+import { TimerForm, type TimerFormSubmitValue } from "@/components/timer-form"
 import { useBrowserTimeZone, useDefaultTimeZone } from "@/lib/default-timezone.client"
 import { canCreateTimer, getEntitlements, timerLimitMessage, timerSpaceLimitMessage } from "@/lib/entitlements"
 import { getActiveLocale } from "@/lib/i18n/active-locale"
@@ -373,6 +374,18 @@ export function QuickAddTimer(props: Readonly<QuickAddTimerProps>) {
     setScheduleOpen(false)
   }
 
+  function handleTemplateSubmit(timer: TimerFormSubmitValue) {
+    const added = addTimer(timer)
+    if (!added) {
+      toast.error(limitMessage)
+      return
+    }
+    toast.success(formatMessage("timer.created"))
+    const warning = timerLimitWarningMessage(timers.length + 1, entitlements.maxTimers)
+    if (warning) toast(warning, { id: "timer-limit-warn" })
+    setLabel("")
+  }
+
   const chipLabel =
     scheduleMode === "in"
       ? formatMessage("quickAdd.durationChip", { duration: formatDurationCompact(durationValue) })
@@ -384,25 +397,43 @@ export function QuickAddTimer(props: Readonly<QuickAddTimerProps>) {
       onSubmit={form.handleSubmit(handleSubmit)}
       className="mb-5 flex min-w-0 items-center gap-1.5 rounded-[12px] border border-border bg-card py-1 pl-1.5 pr-2"
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-flex">
+      {atLimit ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                disabled
+                aria-label={formatMessage("timer.form.newTimerButton")}
+                className="grid size-8 shrink-0 place-items-center text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <PlusIcon className="size-4" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top" sideOffset={8} className="max-w-[240px] text-center">
+            {limitMessage}
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        <TimerForm
+          mode="create"
+          onSubmit={handleTemplateSubmit}
+          trigger={
             <Button
-              type="submit"
+              type="button"
               variant="ghost"
               size="icon-sm"
-              disabled={submitDisabled}
-              aria-label={formatMessage("common.add")}
+              aria-label={formatMessage("timer.form.newTimerButton")}
               className="grid size-8 shrink-0 place-items-center text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <PlusIcon className="size-4" />
             </Button>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="top" sideOffset={8} className="max-w-[240px] text-center">
-          {atLimit ? limitMessage : formatMessage("common.add")}
-        </TooltipContent>
-      </Tooltip>
+          }
+        />
+      )}
       <Input
         aria-label={formatMessage("timer.form.label")}
         placeholder={defaultLabel}

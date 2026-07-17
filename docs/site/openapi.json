@@ -1553,12 +1553,107 @@
               "$ref": "#/components/schemas/TimerCreateRequest"
             },
             "examples": {
-              "timer": {
+              "anniversary": {
                 "value": {
-                  "label": "Flight to Tokyo",
-                  "target_date": "2026-10-10T09:30:00.000Z",
-                  "timezone": "Asia/Tokyo",
-                  "space_id": "travel"
+                  "label": "Wedding anniversary",
+                  "mode": "since",
+                  "target_date": "2021-09-18T14:00:00.000Z",
+                  "timezone": "Europe/Warsaw",
+                  "milestones": {
+                    "rules": [
+                      {
+                        "unit": "years",
+                        "every": 1
+                      }
+                    ]
+                  },
+                  "reminders": [
+                    {
+                      "offset_minutes": 0
+                    },
+                    {
+                      "offset_minutes": 1440
+                    }
+                  ]
+                }
+              },
+              "monthiversary": {
+                "value": {
+                  "label": "Together",
+                  "mode": "since",
+                  "target_date": "2024-01-31T08:00:00.000Z",
+                  "timezone": "Europe/Warsaw",
+                  "milestones": {
+                    "rules": [
+                      {
+                        "unit": "months",
+                        "every": 1
+                      },
+                      {
+                        "unit": "years",
+                        "every": 1
+                      }
+                    ]
+                  },
+                  "reminders": [
+                    {
+                      "offset_minutes": 0
+                    }
+                  ]
+                }
+              },
+              "recovery-ladder": {
+                "value": {
+                  "label": "Smoke-free",
+                  "mode": "since",
+                  "target_date": "2026-01-10T07:30:00.000Z",
+                  "timezone": "Europe/Warsaw",
+                  "milestones": {
+                    "rules": [
+                      {
+                        "unit": "days",
+                        "at": [1, 3]
+                      },
+                      {
+                        "unit": "weeks",
+                        "at": [1]
+                      },
+                      {
+                        "unit": "months",
+                        "at": [1, 3]
+                      },
+                      {
+                        "unit": "years",
+                        "at": [1]
+                      }
+                    ]
+                  },
+                  "reminders": [
+                    {
+                      "offset_minutes": 0
+                    }
+                  ]
+                }
+              },
+              "streak": {
+                "value": {
+                  "label": "Training streak",
+                  "mode": "since",
+                  "target_date": "2026-03-02T06:00:00.000Z",
+                  "timezone": "Europe/Warsaw",
+                  "milestones": {
+                    "rules": [
+                      {
+                        "unit": "weeks",
+                        "every": 1
+                      }
+                    ]
+                  },
+                  "reminders": [
+                    {
+                      "offset_minutes": 0
+                    }
+                  ]
                 }
               }
             }
@@ -2769,6 +2864,8 @@
           "space_id",
           "shared_at",
           "notify",
+          "mode",
+          "milestones",
           "recurrence",
           "pinned",
           "image",
@@ -2795,11 +2892,11 @@
           },
           "target_date": {
             "$ref": "#/components/schemas/IsoDateTime",
-            "description": "Original timer target date. For recurring timers this is the schedule anchor, not necessarily the current countdown date."
+            "description": "Original timer target or since anchor. For recurring and since timers this is the unchanged schedule anchor, not necessarily the current derived occurrence."
           },
           "effective_target_date": {
             "$ref": "#/components/schemas/IsoDateTime",
-            "description": "Current countdown date. For one-off timers this equals target_date. For recurring timers this is the next occurrence after the current server time."
+            "description": "Current derived occurrence. For one-off until timers this equals target_date; for recurring timers it is the next slot, and for since timers it is the next milestone."
           },
           "timezone": {
             "$ref": "#/components/schemas/Timezone"
@@ -2829,6 +2926,21 @@
           "notify": {
             "type": "boolean"
           },
+          "mode": {
+            "type": "string",
+            "enum": ["until", "since"],
+            "description": "until counts down to target_date. since counts up from a past target_date anchor and celebrates derived milestones."
+          },
+          "milestones": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimerMilestones"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "recurrence": {
             "anyOf": [
               {
@@ -2855,7 +2967,7 @@
           "reminders": {
             "type": "array",
             "maxItems": 5,
-            "description": "Reminder offsets configured on this timer.",
+            "description": "Reminder offsets configured on this timer. For recurring timers and since milestones, an offset at least as long as the gap between consecutive occurrences may be skipped because its scheduled time is already past when the next occurrence is armed.",
             "items": {
               "$ref": "#/components/schemas/TimerReminder"
             }
@@ -2878,6 +2990,8 @@
           "space_id": "travel",
           "shared_at": null,
           "notify": true,
+          "mode": "until",
+          "milestones": null,
           "recurrence": null,
           "pinned": false,
           "image": null,
@@ -2902,7 +3016,8 @@
             "maxLength": 200
           },
           "target_date": {
-            "$ref": "#/components/schemas/IsoDateTime"
+            "$ref": "#/components/schemas/IsoDateTime",
+            "description": "Countdown target for until timers. Anchor for since timers; a since anchor must not be more than 60 seconds in the future."
           },
           "timezone": {
             "$ref": "#/components/schemas/Timezone"
@@ -2922,8 +3037,18 @@
           "notify": {
             "type": "boolean"
           },
+          "mode": {
+            "type": "string",
+            "enum": ["until", "since"],
+            "description": "until is the default. since requires milestones and is mutually exclusive with recurrence."
+          },
+          "milestones": {
+            "$ref": "#/components/schemas/TimerMilestones",
+            "description": "Required when mode is since; invalid for until timers."
+          },
           "recurrence": {
-            "$ref": "#/components/schemas/Recurrence"
+            "$ref": "#/components/schemas/Recurrence",
+            "description": "Mutually exclusive with mode=since."
           },
           "pinned": {
             "type": "boolean"
@@ -2934,7 +3059,7 @@
           "reminders": {
             "type": "array",
             "maxItems": 5,
-            "description": "Reminder offsets for in-app delivery, and email delivery when enabled in account settings. Offsets must be unique.",
+            "description": "Reminder offsets for in-app delivery, and email delivery when enabled in account settings. Offsets must be unique. For recurring timers and since milestones, an offset at least as long as the gap between consecutive occurrences may be skipped because its scheduled time is already past when the next occurrence is armed.",
             "items": {
               "$ref": "#/components/schemas/TimerReminder"
             }
@@ -2950,7 +3075,8 @@
             "maxLength": 200
           },
           "target_date": {
-            "$ref": "#/components/schemas/IsoDateTime"
+            "$ref": "#/components/schemas/IsoDateTime",
+            "description": "Updated countdown target or since anchor. When updating a since timer, the anchor must not be more than 60 seconds in the future."
           },
           "timezone": {
             "$ref": "#/components/schemas/Timezone"
@@ -2973,8 +3099,18 @@
           "notify": {
             "type": "boolean"
           },
+          "mode": {
+            "type": "string",
+            "enum": ["until", "since"],
+            "description": "Timer mode is immutable in v1. Supplying this field cannot change the stored mode."
+          },
+          "milestones": {
+            "$ref": "#/components/schemas/TimerMilestones",
+            "description": "Patchable only on an existing since timer."
+          },
           "recurrence": {
-            "$ref": "#/components/schemas/Recurrence"
+            "$ref": "#/components/schemas/Recurrence",
+            "description": "Mutually exclusive with mode=since."
           },
           "pinned": {
             "type": "boolean"
@@ -2985,7 +3121,7 @@
           "reminders": {
             "type": "array",
             "maxItems": 5,
-            "description": "Reminder offsets for in-app delivery, and email delivery when enabled in account settings. Offsets must be unique.",
+            "description": "Reminder offsets for in-app delivery, and email delivery when enabled in account settings. Offsets must be unique. For recurring timers and since milestones, an offset at least as long as the gap between consecutive occurrences may be skipped because its scheduled time is already past when the next occurrence is armed.",
             "items": {
               "$ref": "#/components/schemas/TimerReminder"
             }
@@ -3252,6 +3388,73 @@
           },
           "lastDay": {
             "type": "boolean"
+          }
+        }
+      },
+      "MilestoneRule": {
+        "description": "A periodic rule uses every; a finite explicit ladder uses a strictly ascending, unique at array. The two shapes are mutually exclusive.",
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["unit", "every"],
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "type": "string",
+                "enum": ["days", "weeks", "months", "years"]
+              },
+              "every": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["unit", "at"],
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "type": "string",
+                "enum": ["days", "weeks", "months", "years"]
+              },
+              "at": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 12,
+                "description": "Strictly ascending, unique milestone amounts.",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10000
+                }
+              }
+            }
+          }
+        ]
+      },
+      "TimerMilestones": {
+        "type": "object",
+        "required": ["rules"],
+        "additionalProperties": false,
+        "description": "One to four unique derived milestone rules. Month and year stepping clamps to month end instead of skipping. If rules land on the same instant, the larger unit wins: years, months, weeks, then days. Explicit ladders end after their final amount; periodic rules continue.",
+        "example": {
+          "rules": [
+            { "unit": "days", "at": [1, 3] },
+            { "unit": "weeks", "at": [1] },
+            { "unit": "months", "at": [1, 3] },
+            { "unit": "years", "at": [1] }
+          ]
+        },
+        "properties": {
+          "rules": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/MilestoneRule"
+            }
           }
         }
       },
@@ -3627,7 +3830,8 @@
             "maxLength": 200
           },
           "target_date": {
-            "$ref": "#/components/schemas/IsoDateTime"
+            "$ref": "#/components/schemas/IsoDateTime",
+            "description": "Countdown target for until timers. Anchor for since timers; a since anchor must not be more than 60 seconds in the future."
           },
           "timezone": {
             "$ref": "#/components/schemas/Timezone"
@@ -3642,8 +3846,18 @@
           "notify": {
             "type": "boolean"
           },
+          "mode": {
+            "type": "string",
+            "enum": ["until", "since"],
+            "description": "until is the default. since requires milestones and is mutually exclusive with recurrence."
+          },
+          "milestones": {
+            "$ref": "#/components/schemas/TimerMilestones",
+            "description": "Required when mode is since; invalid for until timers."
+          },
           "recurrence": {
-            "$ref": "#/components/schemas/Recurrence"
+            "$ref": "#/components/schemas/Recurrence",
+            "description": "Mutually exclusive with mode=since."
           },
           "pinned": {
             "type": "boolean"
@@ -3654,7 +3868,7 @@
           "reminders": {
             "type": "array",
             "maxItems": 5,
-            "description": "Reminder offsets for in-app delivery, and email delivery when enabled in account settings. Offsets must be unique.",
+            "description": "Reminder offsets for in-app delivery, and email delivery when enabled in account settings. Offsets must be unique. For recurring timers and since milestones, an offset at least as long as the gap between consecutive occurrences may be skipped because its scheduled time is already past when the next occurrence is armed.",
             "items": {
               "$ref": "#/components/schemas/TimerReminder"
             }
@@ -3901,6 +4115,7 @@
           "timer.restored",
           "timer.deleted",
           "timer.ended",
+          "timer.milestone",
           "share.created",
           "share.deleted"
         ],

@@ -43,6 +43,7 @@ describe("mail provider", () => {
       offsetMinutes: 10,
       occurrenceAt: "2026-05-25T12:00:00.000Z",
       transactionId: "timer-reminder:timer_123:10m:2026-05-25T12:00:00.000Z",
+      mode: "until",
     }
 
     await expect(nullMailProvider.sendTimerReminderEmail(command)).resolves.toBeUndefined()

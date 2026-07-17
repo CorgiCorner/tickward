@@ -19,6 +19,7 @@ export function timerIsRecurring(timer: Timer) {
 }
 
 export function timerFilterType(timer: Timer, nowMs = Date.now()): Exclude<TimerFilterType, "all"> {
+  if (timer.mode === "since") return "countUp"
   return new Date(effectiveTargetDate(timer, nowMs)).getTime() < nowMs ? "countUp" : "countdown"
 }
 

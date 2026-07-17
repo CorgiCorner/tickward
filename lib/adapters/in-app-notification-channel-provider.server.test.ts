@@ -22,6 +22,7 @@ const command: TimerReminderDeliveryCommand = {
   recipient: { subscriberId: "user_123" },
   offsetMinutes: 10,
   occurrenceAt: "2026-07-10T12:00:00.000Z",
+  mode: "until",
 }
 
 describe("in-app notification channel provider", () => {
@@ -75,6 +76,38 @@ describe("in-app notification channel provider", () => {
       where: { userId: "user_123" },
       select: { inAppNotifications: true },
     })
+  })
+
+  it.each([
+    [0, "1000 days since Launch", "It's been 1000 days since Launch."],
+    [1_440, "1000 days since Launch coming up", "Your 1000 days milestone since Launch is coming up."],
+  ])("stores milestone celebration copy for offset %i", async (offsetMinutes, title, body) => {
+    const delegate = {
+      upsert: vi.fn().mockResolvedValue({ id: "inbox_123" }),
+      findMany: vi.fn().mockResolvedValue([]),
+      deleteMany: vi.fn(),
+    }
+    mocks.requirePrismaClient.mockReturnValue({ inAppNotification: delegate })
+    const provider = createInAppNotificationChannelProvider()
+
+    await provider.sendTimerReminder?.({
+      ...command,
+      mode: "since",
+      milestone: { unit: "days", count: 1000 },
+      offsetMinutes,
+    })
+
+    expect(delegate.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          payload: expect.objectContaining({
+            title,
+            body,
+            milestone: { unit: "days", count: 1000 },
+          }),
+        }),
+      }),
+    )
   })
 
   it("skips the preference lookup when the command carries the resolved flag", async () => {

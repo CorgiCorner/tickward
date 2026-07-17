@@ -1,0 +1,132 @@
+---
+title: "Since timer recipes"
+description: "Canonical payloads for anniversary, monthiversary, recovery-ladder, and streak timers."
+---
+
+These four stable recipe IDs are the canonical starting points for common
+count-up timers. Web templates, desktop quick-add chips, and MCP prompts
+implement the same recipes by ID. A surface may localize the visible label,
+but it must compile `mode`, `milestones`, and `reminders` exactly as shown.
+
+Every recipe needs a past `target_date` and an IANA `timezone`. The examples
+below are complete request bodies for
+`POST /api/v1/projects/{project_id}/timers`; replace the label, date, and
+timezone with the event you are tracking.
+
+See [Since timers and milestones](/concepts/milestones) for calendar clamping,
+timezone behavior, rule limits, and webhook delivery.
+
+## Anniversary
+
+Recipe ID: `anniversary`
+
+Use this for a yearly personal or professional anniversary. It celebrates
+every elapsed year and also sends a heads-up one day before each anniversary.
+
+<!-- recipe:anniversary -->
+
+```json
+{
+  "label": "Wedding anniversary",
+  "mode": "since",
+  "target_date": "2021-09-18T14:00:00.000Z",
+  "timezone": "Europe/Warsaw",
+  "milestones": {
+    "rules": [{ "unit": "years", "every": 1 }]
+  },
+  "reminders": [{ "offset_minutes": 0 }, { "offset_minutes": 1440 }]
+}
+```
+
+At each anniversary, the celebration says “It's been 5 years since Wedding
+anniversary.” One day earlier, the advance reminder says that the 5-year
+milestone is coming up. The periodic rule continues for as long as the timer
+exists.
+
+## Monthiversary
+
+Recipe ID: `monthiversary`
+
+Use this when every elapsed month matters while yearly anniversaries should
+still be labeled in years. If the monthly and yearly rules land on the same
+instant, the larger-unit tie-break labels it as a year.
+
+<!-- recipe:monthiversary -->
+
+```json
+{
+  "label": "Together",
+  "mode": "since",
+  "target_date": "2024-01-31T08:00:00.000Z",
+  "timezone": "Europe/Warsaw",
+  "milestones": {
+    "rules": [
+      { "unit": "months", "every": 1 },
+      { "unit": "years", "every": 1 }
+    ]
+  },
+  "reminders": [{ "offset_minutes": 0 }]
+}
+```
+
+The timer celebrates every month at the anchor's local time. A January 31
+anchor celebrates February at month end rather than skipping it. At the yearly
+collision, the notification says “It's been 1 year since Together.” Both
+periodic rules continue indefinitely.
+
+## Recovery ladder
+
+Recipe ID: `recovery-ladder`
+
+Use this for recovery or habit-change journeys where early milestones are
+deliberately close together and later ones spread out.
+
+<!-- recipe:recovery-ladder -->
+
+```json
+{
+  "label": "Smoke-free",
+  "mode": "since",
+  "target_date": "2026-01-10T07:30:00.000Z",
+  "timezone": "Europe/Warsaw",
+  "milestones": {
+    "rules": [
+      { "unit": "days", "at": [1, 3] },
+      { "unit": "weeks", "at": [1] },
+      { "unit": "months", "at": [1, 3] },
+      { "unit": "years", "at": [1] }
+    ]
+  },
+  "reminders": [{ "offset_minutes": 0 }]
+}
+```
+
+Celebrations fire at 1 day, 3 days, 1 week, 1 month, 3 months, and 1 year. For
+example, the first notification says “It's been 1 day since Smoke-free.” This
+recipe uses only finite rules, so the ladder ends after the one-year
+celebration while the timer itself keeps counting elapsed time.
+
+## Streak
+
+Recipe ID: `streak`
+
+Use this for a continuing weekly streak whose main number should never reset.
+
+<!-- recipe:streak -->
+
+```json
+{
+  "label": "Training streak",
+  "mode": "since",
+  "target_date": "2026-03-02T06:00:00.000Z",
+  "timezone": "Europe/Warsaw",
+  "milestones": {
+    "rules": [{ "unit": "weeks", "every": 1 }]
+  },
+  "reminders": [{ "offset_minutes": 0 }]
+}
+```
+
+The timer celebrates every elapsed week, such as “It's been 12 weeks since
+Training streak.” The weekly milestone rule continues indefinitely while the
+main counter keeps showing total time since the anchor.

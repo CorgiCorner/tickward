@@ -4,6 +4,7 @@ import { deriveEmbedState, type EmbedState } from "@/lib/embed-state"
 import { checkRateLimit } from "@/lib/rate-limit.server"
 import { isRoutableShareId } from "@/lib/share-model"
 import { resolveTimerShare } from "@/lib/share-service.server"
+import type { Timer } from "@/lib/types"
 
 export const runtime = "nodejs"
 
@@ -26,6 +27,8 @@ type EmbedStateResponse = {
     timezone: string
     color?: string
     description?: string
+    mode?: Timer["mode"]
+    milestones?: Timer["milestones"]
   }
 }
 
@@ -81,6 +84,8 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
       timezone: resolved.timer.timezone,
       ...(resolved.timer.color ? { color: resolved.timer.color } : {}),
       ...(resolved.timer.description ? { description: resolved.timer.description } : {}),
+      ...(resolved.timer.mode ? { mode: resolved.timer.mode } : {}),
+      ...(resolved.timer.milestones ? { milestones: resolved.timer.milestones } : {}),
     },
   })
 }

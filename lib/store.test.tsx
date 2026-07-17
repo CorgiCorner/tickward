@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createTimerStore, type TimerStoreInit } from "@/lib/store"
 import { dismissProjectClaim } from "@/lib/project-claim-dismissal.client"
 import { getEntitlements } from "@/lib/entitlements"
+import { projectCloudClient } from "@/lib/project-client"
 import type { ProjectMeta, UserProjectSummary } from "@/lib/project-model"
 import {
   TD_ACTIVE_PROJECT_STORAGE_KEY,
@@ -476,6 +477,84 @@ describe("timer store", () => {
         },
       }),
     )
+  })
+
+  describe("project ordering", () => {
+    it("moves a project and persists the new order", () => {
+      const projects = [
+        makeLocalProjectMeta({ id: "project-a", name: "A" }),
+        makeLocalProjectMeta({ id: "project-b", name: "B" }),
+        makeLocalProjectMeta({ id: "project-c", name: "C" }),
+      ]
+      const store = createHydratedStore()
+      store.setState({ projects })
+
+      store.getState().reorderProjects(2, 0)
+
+      expect(store.getState().projects.map((project) => project.id)).toEqual(["project-c", "project-a", "project-b"])
+      expect(
+        (JSON.parse(localStorage.getItem(TD_PROJECTS_STORAGE_KEY) ?? "[]") as ProjectMeta[]).map(
+          (project) => project.id,
+        ),
+      ).toEqual(["project-c", "project-a", "project-b"])
+    })
+
+    it("persists cloud project ids in their new order", () => {
+      const reorderUserProjects = vi
+        .spyOn(projectCloudClient, "reorderUserProjects")
+        .mockResolvedValue({ status: "ok" })
+      const projects = [
+        makeAccountProjectMeta({ id: "project-a", cloudProjectId: "project_cloud_a" }),
+        makeLocalProjectMeta({ id: "project-local" }),
+        makeAccountProjectMeta({ id: "project-b", cloudProjectId: "project_cloud_b" }),
+      ]
+      const store = createHydratedStore()
+      store.setState({ projects })
+
+      store.getState().reorderProjects(2, 0)
+
+      expect(reorderUserProjects).toHaveBeenCalledWith(["project_cloud_b", "project_cloud_a"])
+    })
+
+    it("does not call the cloud client when reordering only local projects", () => {
+      const reorderUserProjects = vi
+        .spyOn(projectCloudClient, "reorderUserProjects")
+        .mockResolvedValue({ status: "ok" })
+      const projects = [
+        makeLocalProjectMeta({ id: "project-a", name: "A" }),
+        makeLocalProjectMeta({ id: "project-b", name: "B" }),
+      ]
+      const store = createHydratedStore()
+      store.setState({ projects })
+
+      store.getState().reorderProjects(1, 0)
+
+      expect(reorderUserProjects).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      [-1, 0],
+      [0, -1],
+      [2, 0],
+      [0, 2],
+    ])("ignores out-of-bounds indexes %i -> %i", (fromIndex, toIndex) => {
+      const reorderUserProjects = vi
+        .spyOn(projectCloudClient, "reorderUserProjects")
+        .mockResolvedValue({ status: "ok" })
+      const projects = [
+        makeAccountProjectMeta({ id: "project-a", cloudProjectId: "project_cloud_a" }),
+        makeAccountProjectMeta({ id: "project-b", cloudProjectId: "project_cloud_b" }),
+      ]
+      const store = createHydratedStore()
+      store.setState({ projects })
+      localStorage.setItem(TD_PROJECTS_STORAGE_KEY, JSON.stringify(projects))
+
+      store.getState().reorderProjects(fromIndex, toIndex)
+
+      expect(store.getState().projects).toEqual(projects)
+      expect(reorderUserProjects).not.toHaveBeenCalled()
+      expect(JSON.parse(localStorage.getItem(TD_PROJECTS_STORAGE_KEY) ?? "[]")).toEqual(projects)
+    })
   })
 
   it("removes the last local project without creating a replacement", () => {
@@ -1575,9 +1654,11 @@ describe("attention policy initialization", () => {
           targetAtMs,
           crossedAt: targetAtMs,
           firstSeenAt: null,
+          reviewExpiresAt: null,
           acknowledgedAt: null,
           deferredUntil: null,
           policy: { mode: "after-seen-5m", minutes: null },
+          usesDefaultPolicy: true,
         },
       ],
     })
@@ -1599,6 +1680,92 @@ describe("attention policy initialization", () => {
       sectionSize: 0,
     })
   })
+
+  it("re-arms only active seen default-policy occurrences when the effective policy changes", () => {
+    const nowMs = Date.parse(FIXED_NOW)
+    const targetAtMs = nowMs - 60_000
+    const timers = ["active", "unseen", "deferred", "override"].map((id) =>
+      makeTimer({
+        id,
+        targetDate: new Date(targetAtMs).toISOString(),
+        createdAt: new Date(targetAtMs - 60_000).toISOString(),
+      }),
+    )
+    const occurrence = (timerId: string, overrides: Partial<CountUpOccurrence> = {}): CountUpOccurrence => ({
+      key: `${timerId}|${targetAtMs}`,
+      timerId,
+      targetAtMs,
+      crossedAt: targetAtMs,
+      firstSeenAt: nowMs - 30_000,
+      reviewExpiresAt: nowMs + 15 * 60_000,
+      acknowledgedAt: null,
+      deferredUntil: null,
+      policy: { mode: "after-seen-15m", minutes: null },
+      usesDefaultPolicy: true,
+      ...overrides,
+    })
+    const store = createTimerStore({
+      timers,
+      countUpPolicy: { mode: "after-seen-15m", minutes: null },
+      countUpOccurrences: [
+        occurrence("active"),
+        occurrence("unseen", { firstSeenAt: null, reviewExpiresAt: null }),
+        occurrence("deferred", { deferredUntil: nowMs + 60 * 60_000 }),
+        occurrence("override", {
+          usesDefaultPolicy: false,
+          policy: { mode: "after-seen-1d", minutes: null },
+          reviewExpiresAt: nowMs + 24 * 60 * 60_000,
+        }),
+      ],
+    })
+
+    store.getState().setCountUpPolicy({ mode: "after-seen-5m", minutes: null })
+
+    const byTimer = new Map(store.getState().countUpOccurrences.map((item) => [item.timerId, item]))
+    expect(byTimer.get("active")?.reviewExpiresAt).toBe(nowMs + 5 * 60_000)
+    expect(byTimer.get("unseen")?.reviewExpiresAt).toBeNull()
+    expect(byTimer.get("deferred")?.reviewExpiresAt).toBe(nowMs + 15 * 60_000)
+    expect(byTimer.get("override")?.reviewExpiresAt).toBe(nowMs + 24 * 60 * 60_000)
+
+    vi.setSystemTime(new Date(nowMs + 60_000))
+    store.getState().setCountUpPolicy({ mode: "after-seen-5m", minutes: null })
+    expect(store.getState().countUpOccurrences.find((item) => item.timerId === "active")?.reviewExpiresAt).toBe(
+      nowMs + 5 * 60_000,
+    )
+  })
+
+  it("gives an unacknowledged custom-policy occurrence a fresh full countdown", () => {
+    const nowMs = Date.parse(FIXED_NOW)
+    const targetAtMs = nowMs - 60_000
+    const timer = makeTimer({ targetDate: new Date(targetAtMs).toISOString() })
+    const key = `${timer.id}|${targetAtMs}`
+    const store = createTimerStore({
+      timers: [timer],
+      countUpOccurrences: [
+        {
+          key,
+          timerId: timer.id,
+          targetAtMs,
+          crossedAt: targetAtMs,
+          firstSeenAt: null,
+          reviewExpiresAt: nowMs - 30_000,
+          acknowledgedAt: nowMs - 30_000,
+          deferredUntil: nowMs + 60_000,
+          policy: { mode: "custom", minutes: 2 },
+          usesDefaultPolicy: true,
+        },
+      ],
+    })
+
+    store.getState().unacknowledgeCountUps([key], nowMs)
+
+    expect(store.getState().countUpOccurrences[0]).toMatchObject({
+      firstSeenAt: nowMs,
+      acknowledgedAt: null,
+      deferredUntil: null,
+      reviewExpiresAt: nowMs + 2 * 60_000,
+    })
+  })
 })
 
 describe("global count-up persistence", () => {
@@ -1617,9 +1784,11 @@ describe("global count-up persistence", () => {
       targetAtMs,
       crossedAt: targetAtMs,
       firstSeenAt: null,
+      reviewExpiresAt: null,
       acknowledgedAt: null,
       deferredUntil: null,
       policy: { mode: "until-i-move-it", minutes: null },
+      usesDefaultPolicy: true,
     }
   }
 
@@ -1631,6 +1800,7 @@ describe("global count-up persistence", () => {
           targetAtMs: String(event.targetAtMs),
           crossedAt: new Date(event.crossedAt).toISOString(),
           firstSeenAt: event.firstSeenAt === null ? null : new Date(event.firstSeenAt).toISOString(),
+          reviewExpiresAt: event.reviewExpiresAt === null ? null : new Date(event.reviewExpiresAt).toISOString(),
           acknowledgedAt: event.acknowledgedAt === null ? null : new Date(event.acknowledgedAt).toISOString(),
           deferredUntil: event.deferredUntil === null ? null : new Date(event.deferredUntil).toISOString(),
         })),

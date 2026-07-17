@@ -22,9 +22,16 @@ import { getEntitlementsForActor } from "@/lib/entitlements.server"
 import type { Prisma } from "@/lib/generated/prisma/client"
 import { getMcpRemoteUrl } from "@/lib/mcp-config.server"
 import type { McpOAuthScope } from "@/lib/mcp-oauth"
+import {
+  duplicateMilestoneRuleIndexes,
+  MAX_TIMER_MILESTONE_RULES,
+  milestoneRuleSchema,
+  type MilestoneRule,
+} from "@/lib/milestones"
 import { timerNotificationsEnabled } from "@/lib/notification-preferences"
 import { isProjectReadOnly } from "@/lib/project-lock"
 import { type ProjectSnapshotV2, createProjectSnapshot, isProjectSnapshot } from "@/lib/project-model"
+import { projectReorderRequestSchema } from "@/lib/project-reorder"
 import { checkRateLimit } from "@/lib/rate-limit.server"
 import { stableShareId } from "@/lib/static-share-id.server"
 import { tenantDb } from "@/lib/tenant-db.server"
@@ -57,6 +64,7 @@ import {
   REMINDER_OFFSET_MAX_MINUTES,
   colorSchema,
   recurrenceSchema,
+  timerSchema,
   targetDateSchema,
   timezoneSchema,
   unsplashImageSchema,
@@ -517,6 +525,8 @@ function timerObject(project: Pick<ProjectRow, "id" | "name">, timer: Timer) {
     recurrence: timer.recurrence ?? null,
     pinned: timer.pinned ?? false,
     image: timer.image ?? null,
+    mode: timer.mode ?? "until",
+    milestones: timer.milestones ?? null,
   }
 }
 
@@ -656,6 +666,7 @@ function requiredMcpScopes(method: string, path: string[]): McpOAuthScope[] {
     return ["projects:read", "spaces:read", "timers:read"]
   if (resource === "webhooks") return [`webhooks:${action}` as McpOAuthScope]
   if (resource === "projects" && projectId === "preview" && path.length === 2) return ["projects:write"]
+  if (resource === "projects" && path.length === 2 && path[1] === "reorder") return ["projects:write"]
   if (resource === "projects" && path.length <= 2) return [`projects:${action}` as McpOAuthScope]
   if (resource === "projects" && projectId && child === "timers") return [`timers:${action}` as McpOAuthScope]
   if (resource === "projects" && projectId && child === "spaces") return [`spaces:${action}` as McpOAuthScope]
@@ -804,6 +815,14 @@ const publicTimerReminderSchema = z
   })
   .strict()
 
+const publicMilestoneRuleSchema = milestoneRuleSchema
+
+const publicTimerMilestonesSchema = z
+  .object({
+    rules: z.array(publicMilestoneRuleSchema).min(1).max(MAX_TIMER_MILESTONE_RULES),
+  })
+  .strict()
+
 function addDuplicatePublicReminderIssue(
   reminders: Array<{ offset_minutes: number }> | undefined,
   ctx: z.RefinementCtx,
@@ -819,6 +838,43 @@ function addDuplicatePublicReminderIssue(
   })
 }
 
+type PublicSinceTimerFields = {
+  mode?: "until" | "since"
+  milestones?: { rules: MilestoneRule[] }
+  recurrence?: z.infer<typeof recurrenceSchema>
+}
+
+function addSinceTimerIssues(timer: PublicSinceTimerFields, ctx: z.RefinementCtx, partial = false) {
+  if (timer.milestones) {
+    for (const index of duplicateMilestoneRuleIndexes(timer.milestones.rules)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Milestone rules must be unique.",
+        path: ["milestones", "rules", index],
+      })
+    }
+  }
+
+  if (timer.mode === "since") {
+    if (!partial && !timer.milestones) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Since timers need at least one milestone rule.",
+        path: ["milestones"],
+      })
+    }
+    if (timer.recurrence) {
+      ctx.addIssue({ code: "custom", message: "Since timers cannot recur.", path: ["recurrence"] })
+    }
+  } else if (timer.milestones && (!partial || timer.mode !== undefined)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Only since timers can define milestones.",
+      path: ["milestones"],
+    })
+  }
+}
+
 const timerCreateBaseSchema = z.object({
   color: colorSchema,
   description: z.string().trim().max(200).optional(),
@@ -828,6 +884,8 @@ const timerCreateBaseSchema = z.object({
     .optional(),
   image: unsplashImageSchema.optional(),
   label: z.string().trim().min(1).max(200),
+  milestones: publicTimerMilestonesSchema.optional(),
+  mode: z.enum(["until", "since"]).optional(),
   notification: z.never().optional(),
   notify: z.boolean().optional(),
   pinned: z.boolean().optional(),
@@ -840,6 +898,7 @@ const timerCreateBaseSchema = z.object({
 
 const timerCreateSchema = timerCreateBaseSchema.strict().superRefine((timer, ctx) => {
   addDuplicatePublicReminderIssue(timer.reminders, ctx)
+  addSinceTimerIssues(timer, ctx)
 })
 
 const timerPatchSchema = timerCreateBaseSchema
@@ -854,6 +913,7 @@ const timerPatchSchema = timerCreateBaseSchema
   .strict()
   .superRefine((timer, ctx) => {
     addDuplicatePublicReminderIssue(timer.reminders, ctx)
+    addSinceTimerIssues(timer, ctx, true)
   })
 
 const spaceCreateSchema = z.object({
@@ -873,6 +933,7 @@ const projectNestedTimerCreateSchema = timerCreateBaseSchema
   .strict()
   .superRefine((timer, ctx) => {
     addDuplicatePublicReminderIssue(timer.reminders, ctx)
+    addSinceTimerIssues(timer, ctx)
   })
 
 const projectNestedSpaceCreateSchema = spaceCreateSchema.extend({
@@ -919,11 +980,44 @@ const webhookTestSchema = z
   })
   .strict()
 
-function validationResponse(error: z.ZodError) {
+function validationResponse(error: z.ZodError, status = 400) {
   return apiError("validation_error", "We found an error with one or more fields in the request.", {
     details: error.issues.map((issue) => ({ message: issue.message, path: issue.path })),
-    status: 400,
+    status,
   })
+}
+
+const SINCE_TIMER_VALIDATION_MESSAGES = new Set([
+  "Milestone rules must be unique.",
+  "Only since timers can define milestones.",
+  "Since timers cannot recur.",
+  "Since timers need at least one milestone rule.",
+])
+
+function timerValidationResponse(error: z.ZodError) {
+  const status = error.issues.some((issue) => SINCE_TIMER_VALIDATION_MESSAGES.has(issue.message)) ? 422 : 400
+  return validationResponse(error, status)
+}
+
+function sinceAnchorValidation(inputs: PublicSinceTimerFields & { target_date: string }): Response | null {
+  if (inputs.mode !== "since") return null
+  const anchorMs = new Date(inputs.target_date).getTime()
+  if (!Number.isNaN(anchorMs) && anchorMs <= Date.now() + 60_000) return null
+  return apiError("validation_error", "Anchor must be in the past.", { status: 422 })
+}
+
+function projectSinceAnchorValidation(input: z.infer<typeof projectCreateSchema>): Response | null {
+  for (const timer of input.timers ?? []) {
+    const invalid = sinceAnchorValidation(timer)
+    if (invalid) return invalid
+  }
+  for (const space of input.spaces ?? []) {
+    for (const timer of space.timers ?? []) {
+      const invalid = sinceAnchorValidation(timer)
+      if (invalid) return invalid
+    }
+  }
+  return null
 }
 
 function timerFromCreate(input: z.infer<typeof timerCreateSchema>): Timer {
@@ -938,6 +1032,8 @@ function timerFromCreate(input: z.infer<typeof timerCreateSchema>): Timer {
     color: nonEmptyOrUndefined(input.color),
     description: nonEmptyOrUndefined(input.description),
     image: input.image,
+    mode: input.mode,
+    milestones: input.milestones,
     notify: input.notify ?? true,
     pinned: input.pinned,
     recurrence: input.recurrence,
@@ -959,6 +1055,8 @@ function timerFromPatch(timer: Timer, input: z.infer<typeof timerPatchSchema>): 
     description: input.description === undefined ? timer.description : nextDescription,
     image: input.image ?? timer.image,
     label: input.label ?? timer.label,
+    mode: input.mode ?? timer.mode,
+    milestones: input.milestones ?? timer.milestones,
     notify: input.notify ?? timer.notify,
     pinned: input.pinned ?? timer.pinned,
     recurrence: input.recurrence ?? timer.recurrence,
@@ -989,6 +1087,8 @@ function timerPlanInput(input: z.infer<typeof timerCreateSchema>) {
     id: input.id ?? null,
     image: input.image ?? null,
     label: input.label,
+    mode: input.mode ?? "until",
+    milestones: input.milestones ?? null,
     notify: input.notify ?? true,
     pinned: input.pinned ?? false,
     recurrence: input.recurrence ?? null,
@@ -1363,9 +1463,20 @@ async function listProjects(ctx: PublicApiContext, req: Request) {
 
   const projects = projectDelegateForContext(ctx)
   const cursorId = params.after ?? params.before
+  const orderBy = params.before
+    ? [
+        { position: { sort: "desc" as const, nulls: "last" as const } },
+        { createdAt: "asc" as const },
+        { id: "asc" as const },
+      ]
+    : [
+        { position: { sort: "asc" as const, nulls: "first" as const } },
+        { createdAt: "desc" as const },
+        { id: "desc" as const },
+      ]
   const rows = await projects.findMany({
     cursor: cursorId ? { id: cursorId } : undefined,
-    orderBy: { createdAt: params.before ? "asc" : "desc" },
+    orderBy,
     skip: cursorId ? 1 : 0,
     take: params.limit + 1,
     ...(ctx.visibility === "all" ? { where: {} } : {}),
@@ -1379,7 +1490,7 @@ async function listProjects(ctx: PublicApiContext, req: Request) {
 async function syncPublicApi(ctx: PublicApiContext, req: Request) {
   const projects = tenantDb(ctx.apiKey.user).project
   const rows = await projects.findMany({
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    orderBy: [{ position: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
   })
   const payload = syncCollections(rows)
   if (isResponse(payload)) return payload
@@ -1408,7 +1519,9 @@ async function createProject(ctx: PublicApiContext, req: Request) {
   if (isResponse(body)) return body
 
   const parsed = projectCreateSchema.safeParse(body)
-  if (!parsed.success) return validationResponse(parsed.error)
+  if (!parsed.success) return timerValidationResponse(parsed.error)
+  const invalidSinceAnchor = projectSinceAnchorValidation(parsed.data)
+  if (invalidSinceAnchor) return invalidSinceAnchor
 
   const expectedPlanHash = parsed.data.expected_plan_hash
   const planHash = projectCreatePlanHash(parsed.data)
@@ -1506,12 +1619,48 @@ async function createProject(ctx: PublicApiContext, req: Request) {
   return isResponse(row) ? row : apiJson(projectCreateResult(row, planned.spaces, planned.timers), { status: 201 })
 }
 
+async function reorderProjectsPublicApi(ctx: PublicApiContext, req: Request) {
+  const denied = validateProjectWriteAccess(ctx)
+  if (denied) return denied
+
+  const body = await readJson(req)
+  if (isResponse(body)) return body
+
+  const parsed = projectReorderRequestSchema.safeParse(body)
+  if (!parsed.success) return validationResponse(parsed.error)
+
+  const prisma = requirePrismaClient()
+  const projects = tenantDb(ctx.apiKey.user).project
+  const owned = await projects.findMany({ select: { id: true, updatedAt: true } })
+  const ownedById = new Map(owned.map((row) => [row.id, row]))
+  const projectIds = parsed.data.projectIds
+  if (new Set(projectIds).size !== projectIds.length || !projectIds.every((id) => ownedById.has(id))) {
+    return apiError("validation_error", "One or more projects do not belong to this account.", { status: 400 })
+  }
+
+  const updates = projectIds.map((id, index) =>
+    prisma.project.update({
+      where: { id },
+      data: { position: index, updatedAt: ownedById.get(id)!.updatedAt },
+    }),
+  )
+  if (typeof (prisma as { $transaction?: unknown }).$transaction === "function") {
+    await prisma.$transaction(updates)
+  } else {
+    for (const update of updates) await update
+  }
+
+  return apiJson({ object: "list", reordered: projectIds.length })
+}
+
 async function previewProjectCreate(ctx: PublicApiContext, req: Request) {
   const body = await readJson(req)
   if (isResponse(body)) return body
 
   const parsed = projectCreateSchema.safeParse(body)
-  if (!parsed.success) return validationResponse(parsed.error)
+  if (!parsed.success) return timerValidationResponse(parsed.error)
+  const invalidSinceAnchor = projectSinceAnchorValidation(parsed.data)
+  if (invalidSinceAnchor) return invalidSinceAnchor
 
   const entitlements = await getEntitlementsForActor({ kind: "user", user: ctx.apiKey.user })
   const planned = projectFromCreate(parsed.data, entitlements)
@@ -1656,7 +1805,9 @@ async function createTimer(ctx: PublicApiContext, projectId: string, req: Reques
   if (isResponse(body)) return body
 
   const parsed = timerCreateSchema.safeParse(body)
-  if (!parsed.success) return validationResponse(parsed.error)
+  if (!parsed.success) return timerValidationResponse(parsed.error)
+  const invalidSinceAnchor = sinceAnchorValidation(parsed.data)
+  if (invalidSinceAnchor) return invalidSinceAnchor
 
   const entitlements = await getEntitlementsForActor({ kind: "user", user: ctx.apiKey.user })
   const prisma = requirePrismaClient()
@@ -1731,7 +1882,7 @@ async function updateTimer(ctx: PublicApiContext, projectId: string, timerId: st
   if (isResponse(body)) return body
 
   const parsed = timerPatchSchema.safeParse(body)
-  if (!parsed.success) return validationResponse(parsed.error)
+  if (!parsed.success) return timerValidationResponse(parsed.error)
 
   const prisma = requirePrismaClient()
   const result = await prisma.$transaction(async (tx) => {
@@ -1747,7 +1898,20 @@ async function updateTimer(ctx: PublicApiContext, projectId: string, timerId: st
     if (index === -1) return apiError("not_found", "Timer not found.", { status: 404 })
 
     const previousTimer = snapshot.timers[index]
+    const previousMode = previousTimer.mode ?? "until"
+    if (parsed.data.mode !== undefined && parsed.data.mode !== previousMode) {
+      return apiError("validation_error", "Timer mode cannot be changed.", { status: 422 })
+    }
+    if (parsed.data.milestones !== undefined && previousMode !== "since") {
+      return apiError("validation_error", "Only since timers can define milestones.", { status: 422 })
+    }
+    if (previousMode === "since" && parsed.data.target_date !== undefined) {
+      const invalidAnchor = sinceAnchorValidation({ mode: "since", target_date: parsed.data.target_date })
+      if (invalidAnchor) return invalidAnchor
+    }
     const timer = timerFromPatch(previousTimer, parsed.data)
+    const parsedTimer = timerSchema.safeParse(timer)
+    if (!parsedTimer.success) return validationResponse(parsedTimer.error, 422)
     const invalidSpace = assertTimerCanUseSpace(snapshot, timer)
     if (invalidSpace) return invalidSpace
 
@@ -2576,6 +2740,9 @@ function routeWebhooksApi(method: string, ctx: PublicApiContext, req: Request, p
 
 function routeProjectsApi(method: string, ctx: PublicApiContext, req: Request, path: string[]) {
   const [, projectId, child, childId] = path
+  if (method === "POST" && path.length === 2 && path[0] === "projects" && path[1] === "reorder") {
+    return reorderProjectsPublicApi(ctx, req)
+  }
   if (projectId === "preview" && path.length === 2) return routeProjectPreview(method, ctx, req)
   if (path.length === 1) return routeProjectsCollection(method, ctx, req)
   if (!projectId) return apiError("not_found", "The requested endpoint does not exist.", { status: 404 })

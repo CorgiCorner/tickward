@@ -208,9 +208,11 @@ function countUpOccurrence(
     targetAtMs,
     crossedAt: targetAtMs,
     firstSeenAt: null,
+    reviewExpiresAt: null,
     acknowledgedAt: null,
     deferredUntil: null,
     policy: { mode: "until-i-move-it", minutes: null },
+    usesDefaultPolicy: true,
     ...overrides,
   }
 }

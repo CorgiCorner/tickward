@@ -96,6 +96,32 @@ curl "https://tickward.com/api/v1/projects/project_123/timers" \
 The public API uses snake_case fields. Dates are ISO 8601 strings and should
 include a timezone offset or `Z`.
 
+To count upward from a past date and celebrate each 100-day milestone:
+
+```bash
+curl "https://tickward.com/api/v1/projects/project_123/timers" \
+  -X POST \
+  -H "Authorization: Bearer tw_your_api_key" \
+  -H "Idempotency-Key: since-timer-create-2026-07-16" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "label": "Product journey",
+    "mode": "since",
+    "target_date": "2024-01-01T10:00:00.000Z",
+    "timezone": "Europe/Warsaw",
+    "milestones": { "rules": [{ "unit": "days", "every": 100 }] },
+    "reminders": [{ "offset_minutes": 0 }, { "offset_minutes": 1440 }]
+  }'
+```
+
+See [Since timers and milestones](/concepts/milestones) for calendar clamping,
+timezone behavior, and webhook details. A since timer never emits
+`timer.ended`; each derived crossing emits `timer.milestone` while the elapsed
+counter continues growing from its anchor.
+
+For ready-made anniversary, monthiversary, recovery, and streak payloads, use
+the stable IDs in the [canonical since timer recipe registry](/guides/recipes).
+
 ## Safe retries
 
 For `POST`, `PATCH`, and `DELETE` requests, send an `Idempotency-Key` header

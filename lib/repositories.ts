@@ -23,6 +23,9 @@ export interface ProjectRepository {
   clear(restoreKey: string): Promise<void>
   claimAnonymousProject?(args: { restoreKey: string; user: UserRef; claimedAt: string }): Promise<ClaimedProject | null>
   listUserProjects?(args: { user: UserRef }): Promise<UserProjectSummary[]>
+  // Persists a full manual ordering of the user's owned projects.
+  // Returns false when any submitted id is not owned by the user.
+  reorderUserProjects?(args: { user: UserRef; projectIds: string[] }): Promise<boolean>
   loadUserProject?(args: { projectId: string; user: UserRef }): Promise<ProjectRestoreResponse | null>
   saveUserProject?(args: { projectId: string; user: UserRef; project: ProjectSnapshotV2 }): Promise<boolean>
   clearUserProject?(args: { projectId: string; user: UserRef }): Promise<boolean>

@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.14.0 - 2026-07-17
+
+### Added
+
+- Added count-up timers that celebrate derived day, week, month, and year milestones with reminders and `timer.milestone` webhooks.
+- Added non-blocking form warnings when a reminder offset may be skipped because it exceeds the spacing between recurring or milestone occurrences.
+- Added finite milestone ladders for irregular celebrations such as 1 day, 3 days, 1 week, and 1 month since an anchor.
+- Added manual project ordering that stays synchronized across the web and desktop apps.
+- Added guided timer creation with countdown and count-up templates, confirmed direction suggestions, and live schedule previews.
+- Added a guided edit action that starts a new count-up timer from a past countdown, with optional archival and Undo.
+
+### Changed
+
+- Changed the OpenAPI milestone-rule schema to a `oneOf` of periodic `{ unit, every }` rules and explicit `{ unit, at }` ladders; clients may need regenerated types.
+
+### Fixed
+
+- Clarified milestone rule modes with concise labels, plain-language guidance, and tooltips explaining regular intervals and specific milestones.
+- Kept unseen finished timers in Review until first shown, made Review countdowns survive restarts and policy changes, and clarified the Review settings.
+- Improved timer creation with direction-aware date shortcuts, recoverable at-the-moment reminders, clearer milestone choices, and visible automatic naming for presets.
+
 ## 0.13.1 - 2026-07-16
 
 ### Fixed

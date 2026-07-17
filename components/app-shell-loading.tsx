@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 
+import { AppBrandLink } from "@/components/app-brand-link"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatMessage } from "@/lib/i18n/messages"
 import { cn } from "@/lib/utils"
@@ -36,9 +37,8 @@ export function AppHeaderLoadingSkeleton() {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
       <div className="mx-auto flex w-full max-w-[640px] items-center justify-between gap-2 px-4 py-3">
-        <div className="flex min-w-0 shrink-0 items-center gap-1">
-          <Skeleton className="size-4 rounded-sm" />
-          <Skeleton className="h-4 w-16" />
+        <div className="min-w-0 shrink-0">
+          <AppBrandLink />
         </div>
 
         <div className="ml-2 min-w-0 flex-1">

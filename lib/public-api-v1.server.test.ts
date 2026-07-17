@@ -295,7 +295,36 @@ describe("public API v1", () => {
       object: "list",
       data: [{ object: "project", id: "project_123", timer_count: 1 }],
     })
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ownerId: "user_123" }, take: 101 }))
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ position: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
+        take: 101,
+        where: { ownerId: "user_123" },
+      }),
+    )
+  })
+
+  it("reverses every project ordering column for before pagination", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const findMany = vi.fn().mockResolvedValue([])
+    mocks.requirePrismaClient.mockReturnValue({ project: { findMany } })
+
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://tickward.test/api/v1/projects?before=project_123&limit=10", {
+        headers: { authorization: "Bearer tw_read" },
+      }),
+      ["projects"],
+    )
+
+    expect(res.status).toBe(200)
+    expect(findMany).toHaveBeenCalledWith({
+      cursor: { id: "project_123" },
+      orderBy: [{ position: { sort: "desc", nulls: "last" } }, { createdAt: "asc" }, { id: "asc" }],
+      skip: 1,
+      take: 11,
+      where: { ownerId: "user_123" },
+    })
   })
 
   it("owner-scopes admin keys when listing projects", async () => {
@@ -429,6 +458,8 @@ describe("public API v1", () => {
           recurrence: null,
           pinned: false,
           image: null,
+          mode: "until",
+          milestones: null,
         },
         {
           object: "timer",
@@ -451,11 +482,13 @@ describe("public API v1", () => {
           recurrence: null,
           pinned: false,
           image: null,
+          mode: "until",
+          milestones: null,
         },
       ],
     })
     expect(findMany).toHaveBeenCalledWith({
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      orderBy: [{ position: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
       where: { ownerId: "user_123" },
     })
   })
@@ -520,7 +553,7 @@ describe("public API v1", () => {
     expect(adminBody.spaces.map((space: { id: string }) => space.id)).toEqual(["space-admin"])
     expect(adminBody.timers.map((timer: { id: string }) => timer.id)).toEqual(["timer-admin"])
     expect(findMany).toHaveBeenNthCalledWith(1, {
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      orderBy: [{ position: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
       where: { ownerId: "user_admin" },
     })
 
@@ -537,7 +570,7 @@ describe("public API v1", () => {
     expect(otherBody.spaces.map((space: { id: string }) => space.id)).toEqual(["space-other"])
     expect(otherBody.timers.map((timer: { id: string }) => timer.id)).toEqual(["timer-other"])
     expect(findMany).toHaveBeenNthCalledWith(2, {
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      orderBy: [{ position: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }, { id: "desc" }],
       where: { ownerId: "user_other" },
     })
   })
@@ -872,6 +905,108 @@ describe("public API v1", () => {
       },
     })
     expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  it("blocks MCP project reorder requests without the projects write scope", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce({
+      ...fullKey,
+      kind: "mcp_connection",
+      scopes: ["projects:read"],
+    })
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/projects/reorder", { projectIds: ["project_one"] }),
+      ["projects", "reorder"],
+    )
+
+    expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        details: {
+          granted_scopes: ["projects:read"],
+          required_scope: "projects:write",
+        },
+        type: "insufficient_scope",
+      },
+    })
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  it("routes POST /projects/reorder to request validation instead of a project resource", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+
+    const res = await handlePublicApiV1Request("POST", publicApiRequest("POST", "/projects/reorder", {}), [
+      "projects",
+      "reorder",
+    ])
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toMatchObject({ error: { type: "validation_error" } })
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  it("reorders projects through the public API without bumping their timestamps", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const updatedAtOne = new Date("2026-06-05T21:11:37.795Z")
+    const updatedAtTwo = new Date("2026-06-06T21:11:37.795Z")
+    const findMany = vi.fn().mockResolvedValue([
+      { id: "project_one", updatedAt: updatedAtOne },
+      { id: "project_two", updatedAt: updatedAtTwo },
+    ])
+    const update = vi.fn().mockResolvedValue({})
+    const transaction = vi.fn(async (updates: Array<Promise<unknown>>) => Promise.all(updates))
+    mocks.requirePrismaClient.mockReturnValue({ $transaction: transaction, project: { findMany, update } })
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/projects/reorder", { projectIds: ["project_two", "project_one"] }),
+      ["projects", "reorder"],
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ object: "list", reordered: 2 })
+    expect(findMany).toHaveBeenCalledWith({
+      select: { id: true, updatedAt: true },
+      where: { ownerId: "user_123" },
+    })
+    expect(update).toHaveBeenNthCalledWith(1, {
+      data: { position: 0, updatedAt: updatedAtTwo },
+      where: { id: "project_two" },
+    })
+    expect(update).toHaveBeenNthCalledWith(2, {
+      data: { position: 1, updatedAt: updatedAtOne },
+      where: { id: "project_one" },
+    })
+    expect(transaction).toHaveBeenCalledOnce()
+  })
+
+  it("rejects foreign project ids in public API reorder requests", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const findMany = vi.fn().mockResolvedValue([{ id: "project_one", updatedAt: new Date("2026-06-05T21:11:37.795Z") }])
+    const update = vi.fn()
+    const transaction = vi.fn()
+    mocks.requirePrismaClient.mockReturnValue({ $transaction: transaction, project: { findMany, update } })
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/projects/reorder", { projectIds: ["project_one", "project_foreign"] }),
+      ["projects", "reorder"],
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        message: "One or more projects do not belong to this account.",
+        type: "validation_error",
+      },
+    })
+    expect(update).not.toHaveBeenCalled()
+    expect(transaction).not.toHaveBeenCalled()
   })
 
   it("blocks MCP webhook writes without the webhooks write scope", async () => {
@@ -1967,6 +2102,139 @@ describe("public API v1", () => {
     )
   })
 
+  it("creates and serializes since timers with milestone rules", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-16T12:00:00.000Z"))
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({ name: "Main", timers: [] })
+    const row = projectRow(snapshot)
+    const tx = {
+      $queryRaw: lockedProjectQuery(row),
+      project: { update: vi.fn().mockResolvedValue({}) },
+      timer: { create: vi.fn().mockResolvedValue({}) },
+      notificationOutboxItem: {
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      webhookEvent: {
+        create: vi.fn().mockResolvedValue({}),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        upsert: vi.fn().mockResolvedValue({}),
+      },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/projects/project_123/timers", {
+        label: "Together",
+        mode: "since",
+        target_date: "2020-07-16T10:00:00.000Z",
+        timezone: "UTC",
+        milestones: { rules: [{ unit: "years", at: [1, 3, 7] }] },
+        reminders: [{ offset_minutes: 0 }],
+      }),
+      ["projects", "project_123", "timers"],
+    )
+
+    expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({
+      mode: "since",
+      milestones: { rules: [{ unit: "years", at: [1, 3, 7] }] },
+    })
+    expect(tx.timer.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          data: expect.objectContaining({
+            mode: "since",
+            milestones: { rules: [{ unit: "years", at: [1, 3, 7] }] },
+          }),
+        }),
+      }),
+    )
+  })
+
+  it("rejects non-canonical explicit milestone ladders", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValue(fullKey)
+
+    for (const rule of [
+      { unit: "days", at: [3, 1] },
+      { unit: "days", at: [1, 1] },
+      { unit: "days", every: 7, at: [7] },
+    ]) {
+      const response = await handlePublicApiV1Request(
+        "POST",
+        publicApiRequest("POST", "/projects/project_123/timers", {
+          label: "Invalid ladder",
+          mode: "since",
+          target_date: "2020-07-16T10:00:00.000Z",
+          timezone: "UTC",
+          milestones: { rules: [rule] },
+        }),
+        ["projects", "project_123", "timers"],
+      )
+
+      expect(response.status).toBe(400)
+    }
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  it("rejects future since anchors and recurrence combinations with 422", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-16T12:00:00.000Z"))
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValue(fullKey)
+
+    const future = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/projects/project_123/timers", {
+        label: "Future anchor",
+        mode: "since",
+        target_date: "2026-07-16T12:01:01.000Z",
+        timezone: "UTC",
+        milestones: { rules: [{ unit: "days", every: 100 }] },
+      }),
+      ["projects", "project_123", "timers"],
+    )
+    expect(future.status).toBe(422)
+    await expect(future.text()).resolves.toContain("Anchor must be in the past.")
+
+    const recurring = await handlePublicApiV1Request(
+      "POST",
+      publicApiRequest("POST", "/projects/project_123/timers", {
+        label: "Invalid since",
+        mode: "since",
+        target_date: "2020-07-16T12:00:00.000Z",
+        timezone: "UTC",
+        milestones: { rules: [{ unit: "days", every: 100 }] },
+        recurrence: { enabled: true, type: "yearly" },
+      }),
+      ["projects", "project_123", "timers"],
+    )
+    expect(recurring.status).toBe(422)
+    expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
+  })
+
+  it("serializes legacy timers with explicit until defaults", async () => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const snapshot = makeProjectSnapshot({ timers: [makeTimer({ id: "timer-a", mode: undefined })] })
+    mocks.requirePrismaClient.mockReturnValue({
+      project: { findFirst: vi.fn().mockResolvedValue(projectRow(snapshot)) },
+    })
+
+    const res = await handlePublicApiV1Request("GET", publicApiRequest("GET", "/projects/project_123/timers/timer-a"), [
+      "projects",
+      "project_123",
+      "timers",
+      "timer-a",
+    ])
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ mode: "until", milestones: null })
+  })
+
   it("rejects timer creates over the total limit even when existing timers are archived", async () => {
     vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_TIMERS", "1")
     const { handlePublicApiV1Request } = await import("./public-api-v1.server")
@@ -2277,6 +2545,76 @@ describe("public API v1", () => {
         ],
       }),
     )
+  })
+
+  it.each([
+    [
+      "changing mode",
+      { mode: "since", milestones: { rules: [{ unit: "years", every: 1 }] } },
+      "Timer mode cannot be changed.",
+    ],
+    [
+      "adding milestones to an until timer",
+      { milestones: { rules: [{ unit: "years", every: 1 }] } },
+      "Only since timers can define milestones.",
+    ],
+  ])("rejects %s in PATCH", async (_case, body, message) => {
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({ timers: [makeTimer({ id: "timer-a", mode: undefined })] })
+    const row = projectRow(snapshot)
+    const tx = {
+      $queryRaw: lockedProjectQuery(row),
+      project: { update: vi.fn() },
+      timer: { updateMany: vi.fn() },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "PATCH",
+      publicApiRequest("PATCH", "/projects/project_123/timers/timer-a", body),
+      ["projects", "project_123", "timers", "timer-a"],
+    )
+
+    expect(res.status).toBe(422)
+    await expect(res.text()).resolves.toContain(message)
+    expect(tx.timer.updateMany).not.toHaveBeenCalled()
+  })
+
+  it("rejects moving a since anchor into the future in PATCH", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-16T12:00:00.000Z"))
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
+    const snapshot = makeProjectSnapshot({
+      timers: [
+        makeTimer({
+          id: "timer-a",
+          mode: "since",
+          targetDate: "2020-07-16T12:00:00.000Z",
+          milestones: { rules: [{ unit: "years", every: 1 }] },
+        }),
+      ],
+    })
+    const row = projectRow(snapshot)
+    const tx = {
+      $queryRaw: lockedProjectQuery(row),
+      project: { update: vi.fn() },
+      timer: { updateMany: vi.fn() },
+    }
+    mockTransaction(tx)
+
+    const res = await handlePublicApiV1Request(
+      "PATCH",
+      publicApiRequest("PATCH", "/projects/project_123/timers/timer-a", {
+        target_date: "2026-07-16T12:01:01.000Z",
+      }),
+      ["projects", "project_123", "timers", "timer-a"],
+    )
+
+    expect(res.status).toBe(422)
+    await expect(res.text()).resolves.toContain("Anchor must be in the past.")
+    expect(tx.timer.updateMany).not.toHaveBeenCalled()
   })
 
   it("archives timers by cancelling timer-ended and reminder schedules", async () => {

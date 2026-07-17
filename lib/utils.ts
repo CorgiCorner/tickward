@@ -2,6 +2,7 @@ import { clsx, type ClassValue } from "clsx"
 import { fromZonedTime, formatInTimeZone } from "date-fns-tz"
 import { twMerge } from "tailwind-merge"
 
+import { nextMilestoneAfter, upcomingMilestones, type MilestoneUnit } from "@/lib/milestones"
 import { isSupportedTimeZone, normalizeTimeZone } from "@/lib/timezones"
 import type { Timer } from "@/lib/types"
 
@@ -209,16 +210,72 @@ export function nextSlotOccurrence(slot: RecurrenceSlot, tz: string, afterMs: nu
 }
 
 /**
- * The instant a recurring timer should currently count down to: the next slot
- * occurrence strictly after `nowMs` (never before the anchor). Non-recurring
- * timers just return their target. Nothing is mutated.
+ * The next instant this timer points at strictly after `afterMs`, or null when
+ * it points at nothing beyond its own targetDate. Recurrence and milestones are
+ * two derived occurrence generators behind one shared resolver.
  */
+export type TimerOccurrence = {
+  at: string
+  milestone?: { unit: MilestoneUnit; count: number }
+}
+
+export function nextOccurrenceAfter(timer: Timer, afterMs: number): TimerOccurrence | null {
+  if (timer.mode === "since" && timer.milestones) {
+    const milestone = nextMilestoneAfter(timer.targetDate, timer.milestones.rules, timer.timezone, afterMs)
+    return milestone ? { at: milestone.at, milestone: { unit: milestone.unit, count: milestone.count } } : null
+  }
+  if (timer.recurrence?.enabled) {
+    const anchorMs = new Date(timer.targetDate).getTime()
+    const slot = recurrenceSlot(timer.targetDate, timer.recurrence.type, timer.timezone, timer.recurrence.lastDay)
+    const at = nextSlotOccurrence(slot, timer.timezone, Math.max(afterMs, anchorMs - 1))
+    return at ? { at } : null
+  }
+  return null
+}
+
+/**
+ * Reminder offsets that are at least as long as the smallest observed gap
+ * between upcoming occurrences. At re-arm time those reminders would already
+ * be in the past and are therefore skipped by the delivery pipeline.
+ */
+export function reminderOffsetsAtRisk(timer: Timer, nowMs: number, horizonCount = 12): number[] {
+  const count = Math.max(0, Math.floor(horizonCount))
+  if (count < 2 || !timer.reminders?.length) return []
+
+  let occurrences: string[] = []
+  if (timer.mode === "since" && timer.milestones) {
+    occurrences = upcomingMilestones(timer.targetDate, timer.milestones.rules, timer.timezone, nowMs, count).map(
+      (occurrence) => occurrence.at,
+    )
+  } else if (timer.recurrence?.enabled) {
+    const first = nextOccurrenceAfter(timer, nowMs)
+    if (first) {
+      occurrences = upcomingOccurrences(
+        first.at,
+        timer.recurrence.type,
+        timer.timezone,
+        count,
+        timer.recurrence.lastDay,
+      )
+    }
+  }
+
+  if (occurrences.length < 2) return []
+  let smallestGapMs = Number.POSITIVE_INFINITY
+  for (let index = 1; index < occurrences.length; index++) {
+    const gapMs = new Date(occurrences[index]).getTime() - new Date(occurrences[index - 1]).getTime()
+    if (gapMs > 0 && gapMs < smallestGapMs) smallestGapMs = gapMs
+  }
+  if (!Number.isFinite(smallestGapMs)) return []
+
+  return timer.reminders
+    .filter((reminder) => reminder.offsetMinutes * 60_000 >= smallestGapMs)
+    .map((reminder) => reminder.offsetMinutes)
+}
+
+/** The instant a timer should currently point at, derived without mutation. */
 export function effectiveTargetDate(timer: Timer, nowMs: number): string {
-  if (!timer.recurrence?.enabled) return timer.targetDate
-  const anchorMs = new Date(timer.targetDate).getTime()
-  const slot = recurrenceSlot(timer.targetDate, timer.recurrence.type, timer.timezone, timer.recurrence.lastDay)
-  const from = Math.max(nowMs, anchorMs - 1)
-  return nextSlotOccurrence(slot, timer.timezone, from) ?? timer.targetDate
+  return nextOccurrenceAfter(timer, nowMs)?.at ?? timer.targetDate
 }
 
 /**

@@ -10,6 +10,7 @@ export const WEBHOOK_EVENT_TYPES = [
   "timer.restored",
   "timer.deleted",
   "timer.ended",
+  "timer.milestone",
   "share.created",
   "share.deleted",
 ] as const

@@ -48,6 +48,7 @@ describe("notification delivery provider", () => {
       },
       offsetMinutes: 10,
       occurrenceAt: "2026-05-25T12:00:00.000Z",
+      mode: "until",
     }
 
     await expect(nullNotificationDeliveryProvider.sendTimerReminder(command)).resolves.toEqual([

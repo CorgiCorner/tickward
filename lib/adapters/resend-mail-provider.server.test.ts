@@ -22,6 +22,7 @@ const reminderCommand: TimerReminderEmailCommand = {
   offsetMinutes: 10,
   occurrenceAt: "2026-06-05T21:37:00.000Z",
   transactionId: "timer-reminder:timer-a:10m:2026-06-05T21:37:00.000Z",
+  mode: "until",
 }
 
 describe("resend mail provider", () => {
@@ -128,6 +129,33 @@ describe("resend mail provider", () => {
       subject: "Reminder: Deploy <script>",
       html: '<h1>Timer reminder</h1><p>This is your 10 minutes before reminder for <strong>Deploy &lt;script&gt;</strong>. Target: 2026-06-05T21:37:00.000Z (Europe/Warsaw).</p><p><a href="https://example.test/en/settings#alerts">Manage reminder emails</a></p>',
     })
+  })
+
+  it.each([
+    [0, "1000 days since Deploy <script>", "It's been 1000 days since <strong>Deploy &lt;script&gt;</strong>."],
+    [
+      1_440,
+      "1000 days since Deploy <script> coming up",
+      "Your 1000 days milestone since <strong>Deploy &lt;script&gt;</strong> is coming up.",
+    ],
+  ])("renders milestone email copy for offset %i", async (offsetMinutes, subject, milestoneBody) => {
+    process.env.RESEND_API_KEY = "rk_test"
+    process.env.RESEND_FROM = "Tickward <noreply@example.com>"
+    process.env.SITE_URL = "https://example.test"
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await resendMailProvider.sendTimerReminderEmail({
+      ...reminderCommand,
+      mode: "since",
+      milestone: { unit: "days", count: 1000 },
+      offsetMinutes,
+    })
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit
+    const body = JSON.parse(String(init.body))
+    expect(body.subject).toBe(subject)
+    expect(body.html).toContain(`<p>${milestoneBody}</p>`)
   })
 
   it("sends escaped OTP email HTML through Resend", async () => {

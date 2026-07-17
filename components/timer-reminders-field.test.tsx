@@ -10,7 +10,9 @@ function isoDateDaysFromNow(days: number) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
-function RemindersProbe(props: Readonly<{ date?: string; repeatEnabled?: boolean }>) {
+function RemindersProbe(
+  props: Readonly<{ date?: string; reminders?: Array<{ offsetMinutes: number }>; repeatEnabled?: boolean }>,
+) {
   const form = useForm<TimerFormValues>({
     defaultValues: {
       label: "",
@@ -20,7 +22,7 @@ function RemindersProbe(props: Readonly<{ date?: string; repeatEnabled?: boolean
       time: "09:00",
       timezone: "UTC",
       notify: true,
-      reminders: [],
+      reminders: props.reminders ?? [],
       repeatEnabled: props.repeatEnabled ?? false,
       repeatType: "yearly",
       lastDay: false,
@@ -43,6 +45,16 @@ describe("TimerRemindersField", () => {
     await user.click(screen.getByRole("button", { name: "Remove 10 minutes before" }))
 
     expect(screen.queryByRole("button", { name: "Remove 10 minutes before" })).not.toBeInTheDocument()
+  })
+
+  it("can restore an at-the-moment reminder after removing it", async () => {
+    const user = userEvent.setup()
+    render(<RemindersProbe reminders={[{ offsetMinutes: 0 }]} />)
+
+    await user.click(screen.getByRole("button", { name: "Remove when it is due" }))
+    await user.click(screen.getByRole("button", { name: "when it is due" }))
+
+    expect(screen.getByRole("button", { name: "Remove when it is due" })).toBeVisible()
   })
 
   it("shows duplicate and limit messages inline", async () => {

@@ -11,6 +11,7 @@ let signedIn = false
 let preferences: AccountPreferencesRecord
 const updatePreferences = vi.fn()
 const setCountUpPolicy = vi.fn()
+const syncCountUpOccurrences = vi.fn()
 const analyticsTrack = vi.hoisted(() => vi.fn())
 
 vi.mock("@/components/plausible-analytics", () => ({ trackCountUpAnalyticsEvent: analyticsTrack }))
@@ -26,7 +27,8 @@ vi.mock("@/components/account-preferences-provider", () => ({
 }))
 
 vi.mock("@/lib/store", () => ({
-  useTimerStore: <T,>(selector: (store: TimerStore) => T) => selector({ setCountUpPolicy } as unknown as TimerStore),
+  useTimerStore: <T,>(selector: (store: TimerStore) => T) =>
+    selector({ setCountUpPolicy, syncCountUpOccurrences } as unknown as TimerStore),
 }))
 
 describe("CountUpPolicySettings", () => {
@@ -36,6 +38,8 @@ describe("CountUpPolicySettings", () => {
     updatePreferences.mockReset()
     updatePreferences.mockResolvedValue(DEFAULT_ACCOUNT_PREFERENCES)
     setCountUpPolicy.mockReset()
+    syncCountUpOccurrences.mockReset()
+    syncCountUpOccurrences.mockResolvedValue(undefined)
     analyticsTrack.mockReset()
   })
 
@@ -43,14 +47,20 @@ describe("CountUpPolicySettings", () => {
     const user = userEvent.setup()
     render(<CountUpPolicySettings />)
 
-    expect(screen.getByLabelText("When a countdown reaches zero")).toBeVisible()
-    expect(screen.getByText("The time starts after the timer is first shown to you.")).toBeVisible()
+    expect(screen.getByLabelText("Keep in Review")).toBeVisible()
+    expect(screen.getByText("Timers stay in Review until you acknowledge them.")).toBeVisible()
     expect(
       screen.getByText("Applies to one-off timers. Repeating timers continue to their next occurrence."),
     ).toBeVisible()
 
-    await user.click(screen.getByRole("combobox", { name: "When a countdown reaches zero" }))
-    await user.click(screen.getByRole("option", { name: "Move to Counting up after 15 minutes" }))
+    await user.click(screen.getByRole("combobox", { name: "Keep in Review" }))
+    await user.click(screen.getByRole("option", { name: "Keep for 15 minutes" }))
+
+    expect(
+      screen.getByText(
+        "The 15 minutes start when the timer is first shown to you — timers you haven't seen yet stay in Review. Changing this restarts the countdown for timers already counting.",
+      ),
+    ).toBeVisible()
 
     const expected = { mode: "after-seen-15m", minutes: null }
     expect(setCountUpPolicy).toHaveBeenCalledWith(expected)
@@ -66,8 +76,8 @@ describe("CountUpPolicySettings", () => {
     const user = userEvent.setup()
     render(<CountUpPolicySettings />)
 
-    await user.click(screen.getByRole("combobox", { name: "When a countdown reaches zero" }))
-    await user.click(screen.getByRole("option", { name: "Move to Counting up after a custom time" }))
+    await user.click(screen.getByRole("combobox", { name: "Keep in Review" }))
+    await user.click(screen.getByRole("option", { name: "Keep for a custom time" }))
     setCountUpPolicy.mockClear()
     const minutes = screen.getByLabelText("Minutes")
     await user.clear(minutes)
@@ -96,8 +106,8 @@ describe("CountUpPolicySettings", () => {
     view.rerender(<CountUpPolicySettings />)
     expect(screen.getByLabelText("Minutes")).toHaveValue(4)
 
-    await user.click(screen.getByRole("combobox", { name: "When a countdown reaches zero" }))
-    await user.click(screen.getByRole("option", { name: "Move to Counting up after 1 hour" }))
+    await user.click(screen.getByRole("combobox", { name: "Keep in Review" }))
+    await user.click(screen.getByRole("option", { name: "Keep for 1 hour" }))
 
     await waitFor(() =>
       expect(updatePreferences).toHaveBeenCalledWith({
@@ -105,6 +115,7 @@ describe("CountUpPolicySettings", () => {
       }),
     )
     expect(setCountUpPolicy).toHaveBeenCalledWith({ mode: "after-seen-1h", minutes: null })
+    expect(syncCountUpOccurrences).toHaveBeenCalled()
     expect(analyticsTrack).toHaveBeenCalledWith("transition_policy_changed", {
       policy: "after-seen-1h",
       sectionSize: 0,

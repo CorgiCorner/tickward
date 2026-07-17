@@ -33,6 +33,7 @@
               "concepts/countdown-accuracy",
               "concepts/started-counting-up",
               "concepts/recurrence",
+              "concepts/milestones",
               "concepts/notifications-and-alarms",
               "concepts/where-timers-live",
               "concepts/plans-and-limits",
@@ -43,6 +44,7 @@
           {
             "group": "Recipes",
             "pages": [
+              "guides/recipes",
               "guides/recipes/retry-safe-mutation",
               "guides/recipes/create-project-with-timers",
               "guides/recipes/preview-and-delete-project"

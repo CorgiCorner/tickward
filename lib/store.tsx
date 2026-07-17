@@ -18,6 +18,7 @@ import {
 import { accountProjectMemberships, isProjectReadOnly } from "./project-lock"
 import { runInBackground } from "./background-task"
 import { logClientError, safeClientErrorMessage } from "./client-errors"
+import { countUpPolicyDurationMs, normalizeCountUpPolicy, type CountUpPolicy } from "./count-up-policy"
 import { formatMessage } from "./i18n/messages"
 import { readLocalCountUpPolicy, subscribeLocalCountUpPolicy } from "./local-count-up-policy.client"
 import { isProjectClaimDismissed } from "./project-claim-dismissal.client"
@@ -92,6 +93,15 @@ export type {
 } from "./stores/timer-store-types"
 
 const INITIAL_COUNT_UP_PROJECT_ID = "__initial_count_up_project__"
+
+function reviewExpiryFrom(startedAt: number, policy: CountUpPolicy | undefined) {
+  const durationMs = countUpPolicyDurationMs(normalizeCountUpPolicy(policy))
+  return durationMs === null ? null : startedAt + durationMs
+}
+
+function countUpPoliciesEqual(left: CountUpPolicy, right: CountUpPolicy) {
+  return left.mode === right.mode && left.minutes === right.minutes
+}
 
 function canAddTimerToSpace(timers: Timer[], spaceId: string | null | undefined, { archived = false } = {}) {
   const entitlements = getEntitlements()
@@ -871,6 +881,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             for (const occurrence of s.countUpOccurrences) {
               if (occurrence.projectId === projectId && keySet.has(occurrence.key) && occurrence.firstSeenAt === null) {
                 occurrence.firstSeenAt = atMs
+                occurrence.reviewExpiresAt = reviewExpiryFrom(atMs, occurrence.policy)
                 firstSeenTransitions.push({
                   crossedAt: occurrence.crossedAt,
                   policyMode: occurrence.policy?.mode,
@@ -897,6 +908,7 @@ export function createTimerStore(init?: TimerStoreInit) {
             for (const occurrence of s.countUpOccurrences) {
               if (occurrence.projectId === projectId && keySet.has(occurrence.key) && occurrence.firstSeenAt === null) {
                 occurrence.firstSeenAt = atMs
+                occurrence.reviewExpiresAt = reviewExpiryFrom(atMs, occurrence.policy)
               }
             }
           })
@@ -984,14 +996,19 @@ export function createTimerStore(init?: TimerStoreInit) {
           return true
         },
 
-        unacknowledgeCountUps: (keys) => {
+        unacknowledgeCountUps: (keys, atMs = Date.now()) => {
           const keySet = new Set(keys)
           if (keySet.size === 0) return
           const projectId = countUpProjectContext()?.identity
           if (!projectId) return
           set((s) => {
             for (const occurrence of s.countUpOccurrences) {
-              if (occurrence.projectId === projectId && keySet.has(occurrence.key)) occurrence.acknowledgedAt = null
+              if (occurrence.projectId === projectId && keySet.has(occurrence.key)) {
+                occurrence.firstSeenAt ??= atMs
+                occurrence.acknowledgedAt = null
+                occurrence.deferredUntil = null
+                occurrence.reviewExpiresAt = reviewExpiryFrom(atMs, occurrence.policy)
+              }
             }
           })
           persistCountUpState()
@@ -999,12 +1016,17 @@ export function createTimerStore(init?: TimerStoreInit) {
           sendCountUpAction({ action: "unacknowledge", keys: [...keySet], projectId }, "store.countUp.unacknowledge")
         },
 
-        unacknowledgeCountUpsForProject: (projectId, keys) => {
+        unacknowledgeCountUpsForProject: (projectId, keys, atMs = Date.now()) => {
           const keySet = new Set(keys)
           if (!projectId || keySet.size === 0) return
           set((s) => {
             for (const occurrence of s.countUpOccurrences) {
-              if (occurrence.projectId === projectId && keySet.has(occurrence.key)) occurrence.acknowledgedAt = null
+              if (occurrence.projectId === projectId && keySet.has(occurrence.key)) {
+                occurrence.firstSeenAt ??= atMs
+                occurrence.acknowledgedAt = null
+                occurrence.deferredUntil = null
+                occurrence.reviewExpiresAt = reviewExpiryFrom(atMs, occurrence.policy)
+              }
             }
           })
           persistCountUpIdentity(projectId)
@@ -1024,7 +1046,10 @@ export function createTimerStore(init?: TimerStoreInit) {
             for (const occurrence of s.countUpOccurrences) {
               if (occurrence.projectId === projectId && keySet.has(occurrence.key)) {
                 occurrence.deferredUntil = untilMs
-                if (untilMs === null) occurrence.policy = { mode: "until-i-move-it", minutes: null }
+                if (untilMs === null) {
+                  occurrence.policy = { mode: "until-i-move-it", minutes: null }
+                  occurrence.reviewExpiresAt = null
+                }
               }
             }
           })
@@ -1040,7 +1065,10 @@ export function createTimerStore(init?: TimerStoreInit) {
             for (const occurrence of s.countUpOccurrences) {
               if (occurrence.projectId !== projectId || !keySet.has(occurrence.key)) continue
               occurrence.deferredUntil = untilMs
-              if (untilMs === null) occurrence.policy = { mode: "until-i-move-it", minutes: null }
+              if (untilMs === null) {
+                occurrence.policy = { mode: "until-i-move-it", minutes: null }
+                occurrence.reviewExpiresAt = null
+              }
             }
           })
           persistCountUpIdentity(projectId)
@@ -1087,7 +1115,29 @@ export function createTimerStore(init?: TimerStoreInit) {
         },
 
         setCountUpPolicy: (policy) => {
+          if (countUpPoliciesEqual(countUpPolicy, policy)) return
           countUpPolicy = policy
+          if (policy.mode === "move-directly-to-past") return
+
+          const rearmedAt = Date.now()
+          const changedProjectIds = new Set<string>()
+          set((s) => {
+            for (const occurrence of s.countUpOccurrences) {
+              if (
+                !occurrence.usesDefaultPolicy ||
+                occurrence.firstSeenAt === null ||
+                occurrence.acknowledgedAt !== null ||
+                occurrence.deferredUntil !== null
+              ) {
+                continue
+              }
+              occurrence.policy = { ...policy }
+              occurrence.reviewExpiresAt = reviewExpiryFrom(rearmedAt, policy)
+              if (occurrence.projectId) changedProjectIds.add(occurrence.projectId)
+            }
+          })
+          for (const projectId of changedProjectIds) persistCountUpIdentity(projectId)
+          scheduleCountUpExpiry()
         },
 
         openCountUpProject: (projectId) => {
@@ -1542,6 +1592,25 @@ export function createTimerStore(init?: TimerStoreInit) {
           })
           persistAndSchedule(true)
           loadCountUpForProject(project.id)
+        },
+
+        reorderProjects: (fromIndex, toIndex) => {
+          const projects = get().projects
+          if (fromIndex === toIndex) return
+          if (fromIndex < 0 || toIndex < 0 || fromIndex >= projects.length || toIndex >= projects.length) return
+
+          const next = [...projects]
+          const [moved] = next.splice(fromIndex, 1)
+          next.splice(toIndex, 0, moved)
+          set((s) => {
+            s.projects = next
+          })
+          writeBrowserState(get())
+
+          const cloudIds = next.flatMap((project) => (project.cloudProjectId ? [project.cloudProjectId] : []))
+          if (cloudIds.length === 0) return
+          // Fire-and-forget: on failure the next account refresh restores server order.
+          runInBackground("store.reorderProjects", projectCloudClient.reorderUserProjects(cloudIds))
         },
 
         switchProject: (projectId) => {

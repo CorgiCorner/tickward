@@ -7,6 +7,7 @@ import {
   normalizeCountUpPolicy,
   policyForTimer,
   timerAfterZeroSchema,
+  type CountUpPolicy,
 } from "@/lib/count-up-policy"
 import { apiError, apiJson, isResponse } from "@/lib/api-response"
 import {
@@ -47,9 +48,11 @@ const wireOccurrenceSchema = z
     targetAtMs: targetAtMsSchema,
     crossedAt: isoDateSchema,
     firstSeenAt: isoDateSchema.nullable(),
+    reviewExpiresAt: isoDateSchema.nullable().optional(),
     acknowledgedAt: isoDateSchema.nullable(),
     deferredUntil: isoDateSchema.nullable(),
     policy: countUpPolicySchema,
+    usesDefaultPolicy: z.boolean().optional(),
   })
   .strict()
 
@@ -122,9 +125,11 @@ function wireOccurrence(occurrence: NonNullable<CountUpOccurrenceRow>, projectNa
     targetAtMs: occurrence.targetAtMs.toString(),
     crossedAt: occurrence.crossedAt.toISOString(),
     firstSeenAt: occurrence.firstSeenAt?.toISOString() ?? null,
+    reviewExpiresAt: occurrence.reviewExpiresAt?.toISOString() ?? null,
     acknowledgedAt: occurrence.acknowledgedAt?.toISOString() ?? null,
     deferredUntil: occurrence.deferredUntil?.toISOString() ?? null,
     policy: normalizeCountUpPolicy({ mode: occurrence.policyMode, minutes: occurrence.policyMinutes }),
+    usesDefaultPolicy: occurrence.usesDefaultPolicy,
   }
 }
 
@@ -164,6 +169,18 @@ function timerPayload(row: TimerRow) {
     targetDate?: unknown
     afterZero?: unknown
   }
+}
+
+function timerUsesDefaultPolicy(row: TimerRow) {
+  const parsed = timerAfterZeroSchema.safeParse(timerPayload(row)?.afterZero ?? { mode: "use-default" })
+  return !parsed.success || parsed.data.mode === "use-default"
+}
+
+function reviewExpiryFrom(firstSeenAt: Date | null, deferredUntil: Date | null, policy: CountUpPolicy) {
+  if (!firstSeenAt) return null
+  if (deferredUntil) return deferredUntil
+  const durationMs = countUpPolicyDurationMs(policy)
+  return durationMs === null ? null : new Date(firstSeenAt.getTime() + durationMs)
 }
 
 function timerMatchesOccurrence(row: TimerRow, targetAtMs: bigint, nowMs: number) {
@@ -272,10 +289,12 @@ async function discoverMissingOccurrences(
         targetAtMs: BigInt(targetAtMs),
         crossedAt: new Date(targetAtMs),
         firstSeenAt: null,
+        reviewExpiresAt: null,
         acknowledgedAt: null,
         deferredUntil: null,
         policyMode: policy.mode,
         policyMinutes: policy.minutes,
+        usesDefaultPolicy: timerUsesDefaultPolicy(row),
       },
     ]
   })
@@ -302,10 +321,7 @@ async function activeState(prisma: CountUpPrisma, actor: UserActor) {
       if (occurrence.acknowledgedAt) return false
       if (!occurrence.firstSeenAt) return false
       if (occurrence.deferredUntil) return occurrence.deferredUntil.getTime() <= now.getTime()
-      const durationMs = countUpPolicyDurationMs(
-        normalizeCountUpPolicy({ mode: occurrence.policyMode, minutes: occurrence.policyMinutes }),
-      )
-      return durationMs !== null && occurrence.firstSeenAt.getTime() + durationMs <= now.getTime()
+      return occurrence.reviewExpiresAt !== null && occurrence.reviewExpiresAt.getTime() <= now.getTime()
     })
     .map((occurrence) => occurrence.id)
   if (expiredIds.length > 0) {
@@ -352,12 +368,6 @@ function dateFromWire(value: string | null) {
   return value === null ? null : new Date(value)
 }
 
-function earliestDate(left: Date | null, right: Date | null) {
-  if (!left) return right
-  if (!right) return left
-  return left <= right ? left : right
-}
-
 function latestDate(left: Date | null, right: Date | null) {
   if (!left) return right
   if (!right) return left
@@ -379,9 +389,11 @@ async function createOccurrences(prisma: CountUpPrisma, actor: UserActor, occurr
     if (!timer || !timerMatchesOccurrence(timer, targetAtMs, nowMs)) continue
 
     const firstSeenAt = dateFromWire(occurrence.firstSeenAt)
+    const requestedReviewExpiresAt = dateFromWire(occurrence.reviewExpiresAt ?? null)
     const acknowledgedAt = dateFromWire(occurrence.acknowledgedAt)
     const deferredUntil = dateFromWire(occurrence.deferredUntil)
     const policy = normalizeCountUpPolicy(occurrence.policy)
+    const reviewExpiresAt = requestedReviewExpiresAt ?? reviewExpiryFrom(firstSeenAt, deferredUntil, policy)
     if (policy.mode === "move-directly-to-past") continue
     const identity = { userId: actor.user.id, projectId: occurrence.projectId, timerId: occurrence.timerId, targetAtMs }
     const existing = await prisma.countUpOccurrence.findFirst({ where: identity })
@@ -395,13 +407,15 @@ async function createOccurrences(prisma: CountUpPrisma, actor: UserActor, occurr
         targetAtMs,
         crossedAt: new Date(Number(targetAtMs)),
         firstSeenAt,
+        reviewExpiresAt,
         acknowledgedAt,
         deferredUntil,
         policyMode: policy.mode,
         policyMinutes: policy.minutes,
+        usesDefaultPolicy: timerUsesDefaultPolicy(timer),
       },
       update: {
-        ...(firstSeenAt ? { firstSeenAt: earliestDate(existing?.firstSeenAt ?? null, firstSeenAt) } : {}),
+        ...(firstSeenAt && !existing?.firstSeenAt ? { firstSeenAt, reviewExpiresAt } : {}),
         ...(acknowledgedAt ? { acknowledgedAt: latestDate(existing?.acknowledgedAt ?? null, acknowledgedAt) } : {}),
         ...(deferredUntil ? { deferredUntil } : {}),
       },
@@ -428,17 +442,42 @@ async function mutateOccurrences(
   const now = new Date()
 
   if (action.action === "markSeen") {
-    await prisma.countUpOccurrence.updateMany({ where: { ...where, firstSeenAt: null }, data: { firstSeenAt: now } })
+    const occurrences = await prisma.countUpOccurrence.findMany({ where: { ...where, firstSeenAt: null } })
+    await Promise.all(
+      occurrences.map((occurrence) => {
+        const policy = normalizeCountUpPolicy({ mode: occurrence.policyMode, minutes: occurrence.policyMinutes })
+        return prisma.countUpOccurrence.updateMany({
+          where: { id: occurrence.id, firstSeenAt: null },
+          data: { firstSeenAt: now, reviewExpiresAt: reviewExpiryFrom(now, null, policy) },
+        })
+      }),
+    )
   } else if (action.action === "acknowledge") {
     await prisma.countUpOccurrence.updateMany({ where, data: { acknowledgedAt: now } })
   } else if (action.action === "unacknowledge") {
-    await prisma.countUpOccurrence.updateMany({ where, data: { acknowledgedAt: null } })
+    const occurrences = await prisma.countUpOccurrence.findMany({ where })
+    await Promise.all(
+      occurrences.map((occurrence) => {
+        const policy = normalizeCountUpPolicy({ mode: occurrence.policyMode, minutes: occurrence.policyMinutes })
+        return prisma.countUpOccurrence.updateMany({
+          where: { id: occurrence.id },
+          data: {
+            firstSeenAt: occurrence.firstSeenAt ?? now,
+            acknowledgedAt: null,
+            deferredUntil: null,
+            reviewExpiresAt: reviewExpiryFrom(now, null, policy),
+          },
+        })
+      }),
+    )
   } else if (action.action === "defer") {
     await prisma.countUpOccurrence.updateMany({
       where,
       data: {
         deferredUntil: action.untilMs === null ? null : new Date(action.untilMs),
-        ...(action.untilMs === null ? { policyMode: "until-i-move-it", policyMinutes: null } : {}),
+        ...(action.untilMs === null
+          ? { policyMode: "until-i-move-it", policyMinutes: null, reviewExpiresAt: null }
+          : {}),
       },
     })
   } else {

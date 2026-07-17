@@ -1,0 +1,139 @@
+---
+title: "Since timers and milestones"
+description: "How count-up timers derive calendar milestones from a past anchor."
+---
+
+A since timer counts upward from a past anchor and can celebrate distances such
+as 100 days or 3 years. Set `mode` to `since`; an omitted mode remains an
+ordinary `until` countdown.
+
+## Choosing a direction
+
+Choose `until` when the event is ahead and the question is “how long until?”
+Choose `since` when the anchor is behind and the question is “how long so far?”
+The selected `mode` is explicit and cannot be changed after creation. For the
+guided recreate path, see [Switching direction](#switching-direction).
+
+Entering a past date in a countdown context may produce a suggestion to switch
+to `since`. Entering a future date in a since context may produce the mirror
+suggestion to switch to `until`. A suggestion always requires confirmation;
+Tickward never infers or flips the direction silently.
+
+```text
+until       now --------------------------> future event (0)
+since       past anchor (0) --------------> now (elapsed keeps growing)
+recurrence  slot 1: 3…2…1…0 | slot 2: 3…2…1…0 | slot 3: 3…2…1…0
+since       anchor: 0…1…2…3…4…5…6…7…8…9…10…11…12… -> never resets
+                             ^ milestone 5       ^ milestone 10
+```
+
+## How time flows
+
+The main counter behaves differently from recurrence. A recurring countdown
+resets to the next slot whenever it reaches zero. A since timer never resets:
+its elapsed counter keeps growing from the original anchor, while milestones
+fire alongside it as separate reminder and webhook events.
+
+| After an occurrence | Recurrence | Since timer |
+| --- | --- | --- |
+| Main counter | Resets toward the next slot | Keeps showing total elapsed time from the anchor |
+| Side effect | Emits `timer.ended` | Emits `timer.milestone` |
+| Next event | Derived from the recurrence slot | Derived from the unchanged anchor and milestone rules |
+
+```json
+{
+  "label": "Together",
+  "mode": "since",
+  "target_date": "2024-01-31T08:00:00.000Z",
+  "timezone": "Europe/Warsaw",
+  "milestones": {
+    "rules": [
+      { "unit": "months", "every": 1 },
+      { "unit": "years", "every": 1 }
+    ]
+  },
+  "reminders": [{ "offset_minutes": 0 }]
+}
+```
+
+Each timer has one to four unique rules. A rule uses `days`, `weeks`, `months`,
+or `years`. Milestones, recurrence, and an after-zero policy are mutually
+exclusive. Timer mode cannot be changed after creation; delete and recreate a
+timer to change its direction.
+
+### Switching direction
+
+When editing a past countdown, **Start counting up from this date** opens a
+confirmation that shows the exact anchor and the effects before anything
+happens. Tickward creates a new since timer with a chosen milestone preset and
+celebration reminder, then either archives the original countdown or keeps
+both. The original timer's mode never changes, and Undo removes the new timer
+and restores the original when it was archived.
+
+| Rule shape | Meaning | Does it end? |
+| --- | --- | --- |
+| `{ "unit": "days", "every": 100 }` | Celebrate every 100 days; `every` is 1–1000 | No |
+| `{ "unit": "days", "at": [1, 3, 7] }` | Celebrate only at the listed elapsed amounts; 1–12 strictly ascending, unique values from 1–10000 | Yes, after the final amount |
+
+Periodic rules keep producing milestones. Explicit ladders end after their
+last amount; when every rule on a timer is an exhausted ladder, no next reminder
+or webhook is armed and the timer continues showing elapsed time with a
+completed-ladder label.
+
+The recovery ladder preset compiles “1 day, 3 days, 1 week, 1 month, 3 months,
+1 year” into four explicit rules:
+
+```json
+{
+  "rules": [
+    { "unit": "days", "at": [1, 3] },
+    { "unit": "weeks", "at": [1] },
+    { "unit": "months", "at": [1, 3] },
+    { "unit": "years", "at": [1] }
+  ]
+}
+```
+
+## Derived, never stored
+
+The anchor and either rule shape fully define the schedule. Tickward derives each
+occurrence when it is needed, so there is no milestone table, backfill, or
+counter to update while the application is offline. `nextOccurrenceAfter`
+routes both recurrence slots and milestones through the same reminder and
+webhook scheduling path.
+
+Day and week rules step through local calendar days. Month and year rules
+shift the corresponding calendar component and clamp to the target month's
+last day. January 31 plus one month is February 28 or 29, and a February 29
+anniversary becomes February 28 in common years before returning to February
+29 in leap years. This differs deliberately from recurrence, which skips
+missing dates.
+
+All stepping preserves the anchor's local time in the timer's IANA timezone,
+including across daylight-saving changes. When rules land on the same instant,
+the larger unit labels the occurrence: years, then months, weeks, and days.
+
+## Reminders and webhooks
+
+A reminder with `offset_minutes: 0` is the celebration at the milestone. Other
+offsets provide advance notice and use the normal reminder delivery pipeline.
+Changing rules invalidates queued reminders that no longer match a derived
+occurrence.
+
+### Reminder offsets vs occurrence spacing
+
+An advance offset can be longer than the real gap between consecutive
+occurrences. For example, merged milestone ladders can briefly land only two
+days apart even when neither rule runs every two days. When the next occurrence
+is armed, a reminder whose offset is at least that gap would already be in the
+past, so Tickward skips it. The timer form warns about offsets at risk across
+the next derived occurrences without blocking the timer from being saved. The
+same behavior and warning apply to recurring countdowns.
+
+Subscribe to `timer.milestone` to receive each crossing. Its payload includes
+`milestone_unit`, `milestone_count`, `occurred_at`, `anchor_date`, and
+`timezone`. The next webhook delivery is derived and armed after the current
+one is dispatched, using the same occurrence source as reminders.
+
+Since timers never emit `timer.ended`: they continue counting upward from the
+anchor.

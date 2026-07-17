@@ -1,5 +1,6 @@
 import type { TimerNotificationSettings } from "@/lib/notification-preferences"
 import type { TimerAfterZero } from "@/lib/count-up-policy"
+import type { MilestoneRule } from "@/lib/milestones"
 
 export type TimerReminder = {
   offsetMinutes: number
@@ -21,6 +22,13 @@ export type Timer = {
   notification?: TimerNotificationSettings
   pinned?: boolean
   afterZero?: TimerAfterZero
+  // "until" (default) counts down to targetDate; "since" counts up from it
+  // (the anchor) and celebrates derived milestones. Mutually exclusive with
+  // recurrence and afterZero — see lib/milestones.ts for the derivation.
+  mode?: "until" | "since"
+  milestones?: {
+    rules: MilestoneRule[]
+  }
   recurrence?: {
     // Loops on a calendar cadence/slot, anchored to the set date (targetDate).
     // The slot (time, weekday, day-of-month, month) is read from targetDate in

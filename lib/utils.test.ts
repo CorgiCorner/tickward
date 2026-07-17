@@ -4,8 +4,10 @@ import {
   effectiveTargetDate,
   formatTargetInTimeZone,
   getCountdownParts,
+  nextOccurrenceAfter,
   pad2,
   recurrenceHistory,
+  reminderOffsetsAtRisk,
   upcomingOccurrences,
   wallClockToUtcIso,
 } from "@/lib/utils"
@@ -70,12 +72,32 @@ describe("recurring timer derivation (no mutation)", () => {
     expect(effectiveTargetDate(timer, nowMs)).toBe("2026-05-17T00:00:00.000Z")
   })
 
+  it("derives the next milestone for since timers", () => {
+    const timer = makeTimer({
+      mode: "since",
+      targetDate: "2026-01-01T10:00:00.000Z",
+      timezone: "UTC",
+      milestones: { rules: [{ unit: "days", every: 100 }] },
+    })
+    expect(effectiveTargetDate(timer, Date.parse("2026-04-01T10:00:00.000Z"))).toBe("2026-04-11T10:00:00.000Z")
+    expect(nextOccurrenceAfter(timer, Date.parse("2026-04-01T10:00:00.000Z"))).toEqual({
+      at: "2026-04-11T10:00:00.000Z",
+      milestone: { unit: "days", count: 100 },
+    })
+  })
+
+  it("returns no next occurrence for a plain countdown", () => {
+    const timer = makeTimer({ targetDate: "2026-05-25T00:00:00.000Z" })
+    expect(nextOccurrenceAfter(timer, nowMs)).toBeNull()
+  })
+
   it("returns the anchor while the first occurrence is still in the future", () => {
     const timer = makeTimer({
       targetDate: "2026-05-25T00:00:00.000Z",
       recurrence: { type: "weekly", enabled: true },
     })
     expect(effectiveTargetDate(timer, nowMs)).toBe("2026-05-25T00:00:00.000Z")
+    expect(nextOccurrenceAfter(timer, nowMs)).toEqual({ at: "2026-05-25T00:00:00.000Z" })
   })
 
   it("derives the next future occurrence and leaves the anchor untouched", () => {
@@ -176,5 +198,51 @@ describe("recurring timer derivation (no mutation)", () => {
       "2026-02-28T12:00:00.000Z",
       "2026-03-31T12:00:00.000Z",
     ])
+  })
+
+  it("flags a reminder whose offset matches a daily recurrence gap", () => {
+    const timer = makeTimer({
+      targetDate: "2026-05-22T09:00:00.000Z",
+      timezone: "UTC",
+      recurrence: { type: "daily", enabled: true },
+      reminders: [{ offsetMinutes: 1440 }, { offsetMinutes: 60 }],
+    })
+
+    expect(reminderOffsetsAtRisk(timer, nowMs)).toEqual([1440])
+  })
+
+  it("does not flag a one-day reminder for weekly milestones", () => {
+    const timer = makeTimer({
+      mode: "since",
+      targetDate: "2026-01-01T10:00:00.000Z",
+      timezone: "UTC",
+      milestones: { rules: [{ unit: "weeks", every: 1 }] },
+      reminders: [{ offsetMinutes: 1440 }],
+    })
+
+    expect(reminderOffsetsAtRisk(timer, nowMs)).toEqual([])
+  })
+
+  it("measures merged milestone gaps instead of nominal rule periods", () => {
+    const timer = makeTimer({
+      mode: "since",
+      targetDate: "2026-01-01T10:00:00.000Z",
+      timezone: "UTC",
+      milestones: {
+        rules: [
+          { unit: "days", every: 7 },
+          { unit: "days", every: 30 },
+        ],
+      },
+      reminders: [{ offsetMinutes: 4320 }],
+    })
+
+    expect(reminderOffsetsAtRisk(timer, Date.parse("2026-01-01T10:00:00.000Z"))).toEqual([4320])
+  })
+
+  it("does not flag reminders on a non-recurring countdown", () => {
+    const timer = makeTimer({ reminders: [{ offsetMinutes: 40320 }] })
+
+    expect(reminderOffsetsAtRisk(timer, nowMs)).toEqual([])
   })
 })

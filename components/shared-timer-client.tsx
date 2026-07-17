@@ -37,7 +37,7 @@ export function SharedTimerClient(props: Readonly<{ initial: ResolvedShareClient
       </div>
 
       <div className="mt-6">
-        <CountdownDisplay targetDateIsoUtc={timer.targetDate} nowMs={nowMs} />
+        <CountdownDisplay targetDateIsoUtc={timer.targetDate} nowMs={nowMs} timer={timer} />
       </div>
 
       <div className="mt-6 flex flex-wrap gap-2">
@@ -66,6 +66,8 @@ export function SharedTimerClient(props: Readonly<{ initial: ResolvedShareClient
                 targetDate: timer.targetDate,
                 timezone: timer.timezone,
                 color: timer.color,
+                mode: timer.mode,
+                milestones: timer.milestones,
               },
             })
             if (!saved) {

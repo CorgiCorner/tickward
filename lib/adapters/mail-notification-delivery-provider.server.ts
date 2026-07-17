@@ -67,6 +67,8 @@ async function sendReminderEmail(
       offsetMinutes: command.offsetMinutes,
       occurrenceAt: command.occurrenceAt,
       transactionId: command.transactionId,
+      mode: command.mode,
+      milestone: command.milestone,
     })
     return {
       channel: "email",

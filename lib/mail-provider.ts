@@ -21,6 +21,8 @@ export type TimerReminderEmailCommand = TimerFinishedEmailCommand & {
   offsetMinutes: number
   occurrenceAt: string
   transactionId: string
+  mode: "until" | "since"
+  milestone?: { unit: "days" | "weeks" | "months" | "years"; count: number }
 }
 
 export type EmailOtpType = "sign-in" | "email-verification" | "forget-password" | "change-email"

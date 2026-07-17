@@ -12,8 +12,17 @@ import {
   TimerFormStepper,
   TimerScheduleSection,
 } from "@/components/timer-form-sections"
+import { StartCountUpFromDate } from "@/components/start-count-up-from-date"
 import { useNow } from "@/components/use-now"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -28,15 +37,20 @@ import {
 } from "@/components/ui/dialog"
 import { authClient } from "@/lib/auth/auth-client"
 import { useBrowserTimeZone, useDefaultTimeZone } from "@/lib/default-timezone.client"
-import { formatMessage, nextDefaultTimerLabel, type MessageKey } from "@/lib/i18n/messages"
+import { formatMessage, formatPluralMessage, nextDefaultTimerLabel, type MessageKey } from "@/lib/i18n/messages"
+import { formatMilestoneDisplayLabel } from "@/lib/milestone-display"
 import { timerNotificationsEnabled } from "@/lib/notification-preferences"
+import { upcomingMilestones } from "@/lib/milestones"
 import {
+  SINCE_TIMER_RECIPE_IDS,
   durationTotalSeconds,
   isTimerFormStepValid,
   normalizeTimerUrl,
   timerFormSchema,
   timerFormStepFields,
   timerAfterZeroFromForm,
+  timerTemplateFormSeed,
+  type TimerCreationTemplateId,
   type TimerFormStep,
   type TimerFormSubmitValue,
   type TimerFormValues,
@@ -66,6 +80,16 @@ type TimerFormProps = {
   onSubmit: (timer: TimerFormSubmitValue) => void
 }
 
+const TIMER_TEMPLATE_LABEL_KEYS: Record<TimerCreationTemplateId, MessageKey> = {
+  blank: "timer.form.template.blank",
+  birthday: "timer.form.template.birthday",
+  deadline: "timer.form.template.deadline",
+  anniversary: "timer.form.template.anniversary",
+  monthiversary: "timer.form.template.monthiversary",
+  "recovery-ladder": "timer.form.template.recoveryLadder",
+  streak: "timer.form.template.streak",
+}
+
 function nextStep(step: TimerFormStep): TimerFormStep {
   return step < 3 ? ((step + 1) as TimerFormStep) : step
 }
@@ -78,7 +102,11 @@ function recurrenceForSubmit(parsed: TimerFormValues) {
   if (!parsed.repeatEnabled) return undefined
 
   const monthlyLastDay = parsed.repeatType === "monthly" && parsed.lastDay
-  return { type: parsed.repeatType, enabled: true, ...(monthlyLastDay ? { lastDay: true } : {}) }
+  return {
+    type: parsed.repeatType,
+    enabled: true,
+    ...(monthlyLastDay ? { lastDay: true } : {}),
+  }
 }
 
 function afterZeroFormDefaults(
@@ -107,6 +135,7 @@ function getDefaultValues(args: {
   activeSpaceId: string | null
   localTz: string
   nowMs: number
+  templateId: TimerCreationTemplateId
 }): TimerFormValues {
   const timezone = args.initial?.timezone ?? args.localTz
   const targetDate =
@@ -115,6 +144,8 @@ function getDefaultValues(args: {
       : args.initial?.targetDate
   const activeSpaceId =
     args.mode === "create" && args.activeSpaceId && args.activeSpaceId !== UNASSIGNED_SPACE_ID ? args.activeSpaceId : ""
+  const template = timerTemplateFormSeed(args.templateId)
+  const timerMode = args.initial?.mode ?? template.timerMode
 
   return {
     label: args.initial?.label ?? "",
@@ -128,10 +159,20 @@ function getDefaultValues(args: {
     durationHours: "00",
     durationMinutes: "10",
     durationSeconds: "00",
-    notify: args.initial ? timerNotificationsEnabled(args.initial.notification, args.initial.notify) : true,
-    reminders: args.initial?.reminders?.map((reminder) => ({ offsetMinutes: reminder.offsetMinutes })) ?? [],
-    repeatEnabled: args.initial?.recurrence?.enabled ?? false,
-    repeatType: args.initial?.recurrence?.type ?? "yearly",
+    notify:
+      timerMode === "since"
+        ? false
+        : args.initial
+          ? timerNotificationsEnabled(args.initial.notification, args.initial.notify)
+          : true,
+    timerMode,
+    milestoneRules: args.initial?.milestones?.rules ?? template.milestoneRules,
+    reminders:
+      args.initial?.reminders?.map((reminder) => ({
+        offsetMinutes: reminder.offsetMinutes,
+      })) ?? template.reminders,
+    repeatEnabled: args.initial?.recurrence?.enabled ?? template.repeatEnabled,
+    repeatType: args.initial?.recurrence?.type ?? template.repeatType,
     lastDay: args.initial?.recurrence?.lastDay ?? false,
     spaceId: args.initial?.spaceId ?? activeSpaceId,
     image: args.initial?.image ?? null,
@@ -204,16 +245,22 @@ function TimerStepContent(
     descriptionLength: number
     form: UseFormReturn<TimerFormValues>
     isPastDate: boolean
+    directionSuggestion?: "since" | "until"
+    focusDateOnMount?: boolean
     labelLength: number
     labelPlaceholder: string
     localTz: string
     onNotifyChange: (checked: boolean) => void
     repeatEnabled: boolean
     repeatPreview: string[]
+    timerMode: TimerFormValues["timerMode"]
+    milestonePreview: string[]
+    livePreview?: string
     repeatType: TimerFormValues["repeatType"]
     scheduleMode: TimerFormValues["scheduleMode"]
     spaces: ComponentProps<typeof TimerBasicsSection>["spaces"]
     timezone: string
+    onTimerModeChange: (mode: TimerFormValues["timerMode"]) => void
   }>,
 ) {
   if (props.currentStep === 1) {
@@ -241,10 +288,16 @@ function TimerStepContent(
           repeatEnabled={props.repeatEnabled}
           repeatType={props.repeatType}
           repeatPreview={props.repeatPreview}
+          timerMode={props.timerMode}
+          milestonePreview={props.milestonePreview}
           isPastDate={props.isPastDate}
+          directionSuggestion={props.directionSuggestion}
+          focusDateOnMount={props.focusDateOnMount}
+          livePreview={props.livePreview}
           onNotifyChange={props.onNotifyChange}
+          onTimerModeChange={props.onTimerModeChange}
         />
-        {!props.repeatEnabled ? <TimerAfterZeroField form={props.form} /> : null}
+        {!props.repeatEnabled && props.timerMode !== "since" ? <TimerAfterZeroField form={props.form} /> : null}
       </>
     )
   }
@@ -315,8 +368,14 @@ function TimerEditSections(
     repeatEnabled: boolean
     repeatType: TimerFormValues["repeatType"]
     repeatPreview: string[]
+    timerMode: TimerFormValues["timerMode"]
+    milestonePreview: string[]
+    livePreview?: string
     isPastDate: boolean
     onNotifyChange: (checked: boolean) => void
+    onTimerModeChange: (mode: TimerFormValues["timerMode"]) => void
+    timer: Timer
+    onStartCountUpComplete: () => void
   }>,
 ) {
   const [customizeOpen, setCustomizeOpen] = useState(false)
@@ -344,10 +403,16 @@ function TimerEditSections(
           repeatEnabled={props.repeatEnabled}
           repeatType={props.repeatType}
           repeatPreview={props.repeatPreview}
+          timerMode={props.timerMode}
+          milestonePreview={props.milestonePreview}
           isPastDate={props.isPastDate}
+          livePreview={props.livePreview}
           onNotifyChange={props.onNotifyChange}
+          onTimerModeChange={props.onTimerModeChange}
+          timerModeLocked
+          lockedDirectionAction={<StartCountUpFromDate timer={props.timer} onComplete={props.onStartCountUpComplete} />}
         />
-        {!props.repeatEnabled ? <TimerAfterZeroField form={props.form} /> : null}
+        {!props.repeatEnabled && props.timerMode !== "since" ? <TimerAfterZeroField form={props.form} /> : null}
       </section>
       <section className="grid gap-3 rounded-lg border p-4">
         <button
@@ -373,6 +438,8 @@ function TimerFormContent(
   props: Readonly<
     Omit<TimerFormProps, "onOpenChange" | "open" | "trigger"> & {
       onOpenChange: (open: boolean) => void
+      templateId: TimerCreationTemplateId
+      fromTemplateMenu: boolean
     }
   >,
 ) {
@@ -382,7 +449,9 @@ function TimerFormContent(
   const defaultTz = useDefaultTimeZone()
   const browserTz = useBrowserTimeZone()
   const nowMs = useNow()
-  const [step, setStep] = useState<TimerFormStep>(1)
+  const [step, setStep] = useState<TimerFormStep>(() =>
+    props.fromTemplateMenu && props.templateId !== "blank" ? 2 : 1,
+  )
   const session = authClient.useSession()
   const formId = useId()
 
@@ -394,8 +463,9 @@ function TimerFormContent(
         activeSpaceId,
         localTz: defaultTz,
         nowMs,
+        templateId: props.templateId,
       }),
-    [activeSpaceId, defaultTz, nowMs, props.initial, props.mode],
+    [activeSpaceId, defaultTz, nowMs, props.initial, props.mode, props.templateId],
   )
 
   const form = useForm<TimerFormValues>({
@@ -415,6 +485,8 @@ function TimerFormContent(
   const repeatEnabled = values.repeatEnabled ?? false
   const repeatType = values.repeatType ?? "yearly"
   const lastDay = values.lastDay ?? false
+  const timerMode = values.timerMode ?? "until"
+  const milestoneRules = values.milestoneRules
 
   const labelLength = label.trim().length
   const descriptionLength = description.trim().length
@@ -422,18 +494,29 @@ function TimerFormContent(
   const currentStepValid = isTimerFormStepValid(step, values)
   const scheduleValid = isTimerFormStepValid(2, values)
 
-  const isPastDate = useMemo(() => {
-    if (scheduleMode === "in") return false
-    if (!scheduleValid) return false
-    const targetDate = wallClockToUtcIso({ date, time, timezone })
-    return new Date(targetDate).getTime() < nowMs
-  }, [date, nowMs, scheduleMode, scheduleValid, time, timezone])
+  const selectedTargetMs = useMemo(() => {
+    if (scheduleMode === "in") return null
+    try {
+      const targetMs = new Date(wallClockToUtcIso({ date, time, timezone })).getTime()
+      return Number.isFinite(targetMs) ? targetMs : null
+    } catch {
+      return null
+    }
+  }, [date, scheduleMode, time, timezone])
+
+  const isPastDate = selectedTargetMs !== null && selectedTargetMs < nowMs
 
   const isEdit = props.mode === "edit"
-  const notifyBlockedByPastDate = notify && isPastDate
+  const notifyBlockedByPastDate = timerMode !== "since" && notify && isPastDate
   const currentStepReady = currentStepValid && !(step === 2 && notifyBlockedByPastDate)
   const basicsValid = isTimerFormStepValid(1, values)
   const editSaveDisabled = !basicsValid || !scheduleValid || notifyBlockedByPastDate
+  const directionSuggestion = useMemo(() => {
+    if (isEdit || scheduleMode !== "at" || typeof selectedTargetMs !== "number") return undefined
+    if (timerMode === "until" && selectedTargetMs < nowMs) return "since" as const
+    if (timerMode === "since" && selectedTargetMs > nowMs + 60_000) return "until" as const
+    return undefined
+  }, [isEdit, nowMs, scheduleMode, selectedTargetMs, timerMode])
 
   const firstOccurrence = useMemo(() => {
     if (scheduleMode === "in") return null
@@ -448,15 +531,84 @@ function TimerFormContent(
     return upcomingOccurrences(firstOccurrence, repeatType, timezone, 3, lastDay)
   }, [firstOccurrence, lastDay, repeatType, timezone])
 
+  const milestoneOccurrences = useMemo(() => {
+    const rules = milestoneRules ?? []
+    if (timerMode !== "since" || scheduleMode !== "at" || !scheduleValid || rules.length === 0) return []
+    const anchor = wallClockToUtcIso({ date, time, timezone })
+    return upcomingMilestones(anchor, rules, timezone, nowMs, 3)
+  }, [date, milestoneRules, nowMs, scheduleMode, scheduleValid, time, timerMode, timezone])
+  const milestonePreview = useMemo(
+    () => milestoneOccurrences.map((occurrence) => occurrence.at),
+    [milestoneOccurrences],
+  )
+
+  const livePreview = useMemo(() => {
+    if (scheduleMode !== "at" || typeof selectedTargetMs !== "number") return undefined
+    if (timerMode === "until") {
+      if (selectedTargetMs < nowMs) return undefined
+      const days = Math.ceil((selectedTargetMs - nowMs) / 86_400_000)
+      return formatMessage("timer.form.preview.until", {
+        count: days,
+        unit: formatPluralMessage("milestone.unit.days", days),
+      })
+    }
+    if (selectedTargetMs > nowMs + 60_000) return undefined
+    const elapsedDays = Math.max(0, Math.floor((nowMs - selectedTargetMs) / 86_400_000))
+    const elapsed = formatMessage("timer.form.preview.elapsed", {
+      count: elapsedDays,
+      unit: formatPluralMessage("milestone.unit.days", elapsedDays),
+    })
+    const nextMilestone = milestoneOccurrences[0]
+    if (nextMilestone) return `${elapsed} · ${formatMilestoneDisplayLabel("next", nextMilestone, timezone)}`
+    const rules = milestoneRules ?? []
+    if (rules.length > 0 && rules.every((rule) => "at" in rule)) {
+      return `${elapsed} · ${formatMessage("timer.display.ladderComplete")}`
+    }
+    return elapsed
+  }, [milestoneOccurrences, milestoneRules, nowMs, scheduleMode, selectedTargetMs, timerMode, timezone])
+
+  function handleTimerModeChange(mode: TimerFormValues["timerMode"]) {
+    if (props.mode === "edit") return
+    form.setValue("timerMode", mode, {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true,
+    })
+    if (mode === "since") {
+      form.setValue("scheduleMode", "at", { shouldDirty: true })
+      form.setValue("repeatEnabled", false, { shouldDirty: true })
+      form.setValue("notify", false, { shouldDirty: true })
+      if (form.getValues("milestoneRules").length === 0) {
+        form.setValue("milestoneRules", [{ unit: "years", every: 1 }], {
+          shouldDirty: true,
+        })
+      }
+      const reminders = form.getValues("reminders")
+      if (!reminders.some((reminder) => reminder.offsetMinutes === 0) && reminders.length < 5) {
+        form.setValue("reminders", [...reminders, { offsetMinutes: 0 }], {
+          shouldDirty: true,
+        })
+      }
+    } else {
+      form.setValue("milestoneRules", [], { shouldDirty: true })
+    }
+    void form.trigger(timerFormStepFields[2])
+  }
+
   async function handleNotifyChange(checked: boolean) {
     const result = await resolveNotifyToggle(checked, Boolean(session.data?.user))
     if (result.errorKey) toast.error(formatMessage(result.errorKey))
-    form.setValue("notify", result.checked, { shouldDirty: true, shouldValidate: true })
+    form.setValue("notify", result.checked, {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
   }
 
   async function handleNextStep(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault()
-    const valid = await form.trigger(timerFormStepFields[step], { shouldFocus: true })
+    const valid = await form.trigger(timerFormStepFields[step], {
+      shouldFocus: true,
+    })
     if (!valid) return
     if (step === 2 && notifyBlockedByPastDate) {
       toast.error(formatMessage("notifications.futureOnly"))
@@ -467,7 +619,7 @@ function TimerFormContent(
 
   function handleSubmit(values: TimerFormValues) {
     const parsed = timerFormSchema.parse(values)
-    if (parsed.notify && isPastDate) {
+    if (parsed.timerMode !== "since" && parsed.notify && isPastDate) {
       setStep(2)
       toast.error(formatMessage("notifications.futureOnly"))
       return
@@ -492,16 +644,28 @@ function TimerFormContent(
       timezone: submitTimezone,
       notify: parsed.notify,
       reminders: parsed.reminders.length > 0 ? parsed.reminders : undefined,
-      recurrence: durationMode ? undefined : recurrenceForSubmit(parsed),
+      recurrence: durationMode || parsed.timerMode === "since" ? undefined : recurrenceForSubmit(parsed),
       spaceId: parsed.spaceId || undefined,
       image: parsed.image ?? undefined,
-      afterZero: parsed.repeatEnabled ? undefined : timerAfterZeroFromForm(parsed),
+      afterZero: parsed.repeatEnabled || parsed.timerMode === "since" ? undefined : timerAfterZeroFromForm(parsed),
+      mode: parsed.timerMode,
+      milestones: parsed.timerMode === "since" ? { rules: parsed.milestoneRules } : undefined,
     })
     props.onOpenChange(false)
   }
 
   return (
-    <DialogContent sheetOnMobile>
+    <DialogContent
+      sheetOnMobile
+      onOpenAutoFocus={(event) => {
+        if (!props.fromTemplateMenu || props.templateId === "blank") return
+        event.preventDefault()
+        const field = document.querySelector<HTMLElement>("[role='dialog'] [data-timer-date-field]")
+        const desktop = globalThis.matchMedia?.("(min-width: 768px)").matches ?? false
+        const target = field?.querySelector<HTMLElement>(desktop ? "button" : "input")
+        target?.focus()
+      }}
+    >
       <DialogHeader>
         <DialogTitle>
           {formatMessage(props.mode === "create" ? "timer.form.createTitle" : "timer.form.editTitle")}
@@ -523,29 +687,55 @@ function TimerFormContent(
             repeatEnabled={repeatEnabled}
             repeatType={repeatType}
             repeatPreview={repeatPreview}
+            timerMode={timerMode}
+            milestonePreview={milestonePreview}
+            livePreview={livePreview}
             isPastDate={isPastDate}
             onNotifyChange={(checked) => void handleNotifyChange(checked)}
+            onTimerModeChange={handleTimerModeChange}
+            timer={props.initial!}
+            onStartCountUpComplete={() => props.onOpenChange(false)}
           />
         ) : (
           <>
             <TimerFormStepper step={step} />
 
             <div className="grid min-h-[280px] content-start gap-4">
+              {step === 2 && props.fromTemplateMenu ? (
+                <div className="grid gap-1.5 rounded-lg border bg-muted/30 px-3 py-2">
+                  <Label htmlFor={`${formId}-template-label`} className="text-xs text-muted-foreground">
+                    {formatMessage("timer.form.label")}
+                  </Label>
+                  <Input
+                    id={`${formId}-template-label`}
+                    maxLength={60}
+                    placeholder={labelPlaceholder}
+                    className="h-8 min-h-8 bg-background text-sm"
+                    {...form.register("label")}
+                  />
+                </div>
+              ) : null}
               <TimerStepContent
                 currentStep={step}
                 descriptionLength={descriptionLength}
                 form={form}
                 isPastDate={isPastDate}
+                directionSuggestion={directionSuggestion}
+                focusDateOnMount={props.fromTemplateMenu && props.templateId !== "blank"}
                 labelLength={labelLength}
                 labelPlaceholder={labelPlaceholder}
                 localTz={browserTz}
                 repeatEnabled={repeatEnabled}
                 repeatPreview={repeatPreview}
+                timerMode={timerMode}
+                milestonePreview={milestonePreview}
+                livePreview={livePreview}
                 repeatType={repeatType}
                 scheduleMode={scheduleMode}
                 spaces={spaces}
                 timezone={timezone}
                 onNotifyChange={(checked) => void handleNotifyChange(checked)}
+                onTimerModeChange={handleTimerModeChange}
               />
             </div>
           </>
@@ -576,9 +766,74 @@ function TimerFormContent(
 
 export function TimerForm(props: Readonly<TimerFormProps>) {
   const [internalOpen, setInternalOpen] = useState(false)
+  const [templateId, setTemplateId] = useState<TimerCreationTemplateId>("blank")
   const open = props.open ?? internalOpen
   const setOpen = props.onOpenChange ?? setInternalOpen
-  const contentKey = `${props.mode}-${props.initial?.id ?? "new"}-${props.initial?.updatedAt ?? "current"}`
+  const contentKey = `${props.mode}-${props.initial?.id ?? "new"}-${props.initial?.updatedAt ?? "current"}-${templateId}`
+
+  const content = open ? (
+    <TimerFormContent
+      key={contentKey}
+      mode={props.mode}
+      initial={props.initial}
+      templateId={templateId}
+      fromTemplateMenu={props.open === undefined && props.mode === "create"}
+      onOpenChange={setOpen}
+      onSubmit={props.onSubmit}
+    />
+  ) : null
+
+  if (props.open === undefined && props.mode === "create") {
+    return (
+      <>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            {props.trigger ?? <Button>{formatMessage("timer.form.newTimerButton")}</Button>}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-56" onCloseAutoFocus={(event) => event.preventDefault()}>
+            <DropdownMenuLabel>{formatMessage("timer.form.template.start")}</DropdownMenuLabel>
+            <DropdownMenuItem
+              onSelect={() => {
+                setTemplateId("blank")
+                setOpen(true)
+              }}
+            >
+              {formatMessage(TIMER_TEMPLATE_LABEL_KEYS.blank)}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>{formatMessage("timer.form.template.countdownGroup")}</DropdownMenuLabel>
+            {(["birthday", "deadline"] as const).map((id) => (
+              <DropdownMenuItem
+                key={id}
+                onSelect={() => {
+                  setTemplateId(id)
+                  setOpen(true)
+                }}
+              >
+                {formatMessage(TIMER_TEMPLATE_LABEL_KEYS[id])}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>{formatMessage("timer.form.template.sinceGroup")}</DropdownMenuLabel>
+            {SINCE_TIMER_RECIPE_IDS.map((id) => (
+              <DropdownMenuItem
+                key={id}
+                onSelect={() => {
+                  setTemplateId(id)
+                  setOpen(true)
+                }}
+              >
+                {formatMessage(TIMER_TEMPLATE_LABEL_KEYS[id])}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Dialog open={open} onOpenChange={setOpen}>
+          {content}
+        </Dialog>
+      </>
+    )
+  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -587,15 +842,7 @@ export function TimerForm(props: Readonly<TimerFormProps>) {
           {props.trigger ?? <Button>{formatMessage("timer.form.newTimerButton")}</Button>}
         </DialogTrigger>
       ) : null}
-      {open ? (
-        <TimerFormContent
-          key={contentKey}
-          mode={props.mode}
-          initial={props.initial}
-          onOpenChange={setOpen}
-          onSubmit={props.onSubmit}
-        />
-      ) : null}
+      {content}
     </Dialog>
   )
 }

@@ -94,6 +94,8 @@ describe("GET /api/embed/[token]", () => {
         color: "#e85d2a",
         description: "Countdown to the big day",
         refreshOnFinish: true,
+        mode: "since",
+        milestones: { rules: [{ unit: "days", every: 100 }] },
       },
     })
 
@@ -110,6 +112,8 @@ describe("GET /api/embed/[token]", () => {
         timezone: "Europe/Warsaw",
         color: "#e85d2a",
         description: "Countdown to the big day",
+        mode: "since",
+        milestones: { rules: [{ unit: "days", every: 100 }] },
       },
     })
     expect(body.timer).not.toHaveProperty("refreshOnFinish")

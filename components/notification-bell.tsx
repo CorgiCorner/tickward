@@ -20,7 +20,13 @@ function payloadRecord(item: InboxItem) {
 
 function itemLabel(item: InboxItem) {
   const payload = payloadRecord(item)
+  if (typeof payload.title === "string" && payload.title.trim()) return payload.title
   return typeof payload.label === "string" && payload.label.trim() ? payload.label : item.type
+}
+
+function itemBody(item: InboxItem) {
+  const body = payloadRecord(item).body
+  return typeof body === "string" && body.trim() ? body : null
 }
 
 function itemOffset(item: InboxItem) {
@@ -112,6 +118,7 @@ export function NotificationBell() {
             inbox.items.map((item) => {
               const unread = item.read_at === null
               const offset = itemOffset(item)
+              const body = itemBody(item)
               return (
                 <button
                   key={item.id}
@@ -129,7 +136,7 @@ export function NotificationBell() {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">{itemLabel(item)}</span>
                     <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                      {[offset, relativeCreatedAt(item.created_at)].filter(Boolean).join(" · ")}
+                      {[body ?? offset, relativeCreatedAt(item.created_at)].filter(Boolean).join(" · ")}
                     </span>
                   </span>
                 </button>

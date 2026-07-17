@@ -33,6 +33,8 @@ export type ListUserProjectsResult =
   | { status: "unsupported" }
   | { status: "not_found" }
 
+export type ReorderUserProjectsResult = { status: "ok" } | { status: "unauthenticated" } | { status: "unsupported" }
+
 /**
  * POST /api/projects/save. Mirrors the store's exact interpretation:
  * - 409 -> conflict with optional remote project + source (default "project")
@@ -122,6 +124,18 @@ export async function listUserProjects(): Promise<ListUserProjectsResult> {
   return { status: "ok", projects: Array.isArray(data.projects) ? data.projects : [] }
 }
 
+export async function reorderUserProjects(projectIds: string[]): Promise<ReorderUserProjectsResult> {
+  const res = await fetch("/api/projects/reorder", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectIds }),
+  })
+  if (res.status === 401) return { status: "unauthenticated" }
+  if (res.status === 501) return { status: "unsupported" }
+  if (!res.ok) throw await publicClientErrorFromResponse(res, "errors.saveFailed")
+  return { status: "ok" }
+}
+
 /**
  * DELETE /api/projects/clear?key=. Mirrors the store's exact interpretation:
  * - non-ok -> throws PublicClientError
@@ -157,6 +171,7 @@ export type ProjectCloudClient = {
   restoreProject: typeof restoreProject
   restoreUserProject: typeof restoreUserProject
   listUserProjects: typeof listUserProjects
+  reorderUserProjects: typeof reorderUserProjects
   clearProject: typeof clearProject
   clearUserProject: typeof clearUserProject
   claimProject: typeof claimProject
@@ -167,6 +182,7 @@ export const projectCloudClient: ProjectCloudClient = {
   restoreProject,
   restoreUserProject,
   listUserProjects,
+  reorderUserProjects,
   clearProject,
   clearUserProject,
   claimProject,

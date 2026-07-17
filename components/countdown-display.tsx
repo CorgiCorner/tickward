@@ -1,6 +1,9 @@
 "use client"
 
 import { formatMessage } from "@/lib/i18n/messages"
+import { formatMilestoneDisplayLabel } from "@/lib/milestone-display"
+import { lastMilestoneBefore, nextMilestoneAfter } from "@/lib/milestones"
+import type { Timer } from "@/lib/types"
 import { cn, getCountdownParts, pad2 } from "@/lib/utils"
 
 function Unit(
@@ -37,10 +40,23 @@ export function CountdownDisplay(
     unitValueClassName?: string
     sinceClassName?: string
     muted?: boolean
+    timer?: Pick<Timer, "mode" | "targetDate" | "timezone" | "milestones">
   }>,
 ) {
   const parts = getCountdownParts(props.targetDateIsoUtc, props.nowMs)
   const muted = props.muted ?? parts.isCountUp
+  const milestoneRules = props.timer?.mode === "since" ? props.timer.milestones?.rules : undefined
+  const nextMilestone = milestoneRules
+    ? nextMilestoneAfter(props.timer!.targetDate, milestoneRules, props.timer!.timezone, props.nowMs)
+    : null
+  const lastMilestone = milestoneRules
+    ? lastMilestoneBefore(props.timer!.targetDate, milestoneRules, props.timer!.timezone, props.nowMs)
+    : null
+  const ladderComplete =
+    milestoneRules !== undefined &&
+    milestoneRules.length > 0 &&
+    milestoneRules.every((rule) => "at" in rule) &&
+    !nextMilestone
   const display = (
     <div className={cn("grid grid-cols-4 gap-4 sm:gap-6", muted && "text-muted-foreground", props.className)}>
       <Unit
@@ -87,6 +103,18 @@ export function CountdownDisplay(
         {formatMessage("timer.countdown.since")}
       </div>
       {display}
+      {nextMilestone || lastMilestone || ladderComplete ? (
+        <div className="mt-4 grid gap-1 text-center text-xs text-muted-foreground">
+          {nextMilestone ? (
+            <div>{formatMilestoneDisplayLabel("next", nextMilestone, props.timer!.timezone)}</div>
+          ) : ladderComplete ? (
+            <div>{formatMessage("timer.display.ladderComplete")}</div>
+          ) : null}
+          {lastMilestone ? (
+            <div>{formatMilestoneDisplayLabel("last", lastMilestone, props.timer!.timezone)}</div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -40,10 +40,12 @@ const occurrence = {
   targetAtMs: BigInt(targetAtMs),
   crossedAt: new Date(targetAtMs),
   firstSeenAt: null,
+  reviewExpiresAt: null,
   acknowledgedAt: null,
   deferredUntil: null,
   policyMode: "until-i-move-it",
   policyMinutes: null,
+  usesDefaultPolicy: true,
 }
 const timer = {
   id: "timer_123",
@@ -69,9 +71,11 @@ function wire(overrides: Record<string, unknown> = {}) {
     targetAtMs: String(targetAtMs),
     crossedAt: occurrence.crossedAt.toISOString(),
     firstSeenAt: null,
+    reviewExpiresAt: null,
     acknowledgedAt: null,
     deferredUntil: null,
     policy: { mode: "until-i-move-it", minutes: null },
+    usesDefaultPolicy: true,
     ...overrides,
   }
 }
@@ -133,6 +137,16 @@ describe("/api/timer-attention", () => {
         "utf8",
       ),
     ).toContain('"userId", "projectId", "timerId", "targetAtMs"')
+
+    const reviewMigration = readFileSync(
+      join(process.cwd(), "prisma/migrations/20260717193000_count_up_review_deadlines/migration.sql"),
+      "utf8",
+    )
+    expect(reviewMigration).toContain('ADD COLUMN "reviewExpiresAt" TIMESTAMP(3)')
+    expect(reviewMigration).toContain('WHEN "firstSeenAt" IS NULL THEN NULL')
+    expect(reviewMigration).toContain('WHEN "deferredUntil" IS NOT NULL THEN "deferredUntil"')
+    expect(reviewMigration).toContain("\"firstSeenAt\" + INTERVAL '15 minutes'")
+    expect(reviewMigration).toContain('ADD COLUMN "usesDefaultPolicy" BOOLEAN NOT NULL DEFAULT true')
   })
 
   it("discovers only recent, naturally crossed timers across accessible projects", async () => {
@@ -315,13 +329,15 @@ describe("/api/timer-attention", () => {
     expect(mocks.prisma.countUpOccurrence.deleteMany).not.toHaveBeenCalled()
   })
 
-  it("merges firstSeenAt by earliest timestamp and acknowledgedAt by latest timestamp", async () => {
+  it("keeps the first-seen deadline stable and merges acknowledgedAt by latest timestamp", async () => {
     const existingFirstSeenAt = new Date("2026-07-16T10:00:00.000Z")
+    const existingReviewExpiresAt = new Date("2026-07-16T10:15:00.000Z")
     const incomingFirstSeenAt = "2026-07-16T10:30:00.000Z"
     const incomingAcknowledgedAt = "2026-07-16T11:30:00.000Z"
     mocks.prisma.countUpOccurrence.findFirst.mockResolvedValue({
       ...occurrence,
       firstSeenAt: existingFirstSeenAt,
+      reviewExpiresAt: existingReviewExpiresAt,
       acknowledgedAt: new Date("2026-07-16T11:00:00.000Z"),
     })
     const { POST } = await import("./route")
@@ -334,13 +350,10 @@ describe("/api/timer-attention", () => {
     )
 
     expect(mocks.prisma.countUpOccurrence.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        update: expect.objectContaining({
-          firstSeenAt: existingFirstSeenAt,
-          acknowledgedAt: new Date(incomingAcknowledgedAt),
-        }),
-      }),
+      expect.objectContaining({ update: { acknowledgedAt: new Date(incomingAcknowledgedAt) } }),
     )
+    expect(existingFirstSeenAt).toEqual(new Date("2026-07-16T10:00:00.000Z"))
+    expect(existingReviewExpiresAt).toEqual(new Date("2026-07-16T10:15:00.000Z"))
   })
 
   it("stores a colliding stable key independently in each project", async () => {
@@ -377,6 +390,9 @@ describe("/api/timer-attention", () => {
   })
 
   it("scopes markSeen, acknowledge, unacknowledge, defer, and close mutations to the session user", async () => {
+    mocks.prisma.countUpOccurrence.findMany.mockImplementation(({ where }: { where?: { OR?: unknown } }) =>
+      Promise.resolve(where?.OR ? [occurrence] : []),
+    )
     const { POST } = await import("./route")
     const actions = [
       { action: "markSeen", keys: [key], projectId: project.id },
@@ -389,13 +405,26 @@ describe("/api/timer-attention", () => {
     for (const action of actions) await POST(post(action))
 
     expect(mocks.prisma.countUpOccurrence.updateMany).toHaveBeenCalledTimes(4)
-    for (const [args] of mocks.prisma.countUpOccurrence.updateMany.mock.calls) {
-      expect(args.where).toMatchObject({
+    expect(mocks.prisma.countUpOccurrence.findMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
         userId: user.id,
         projectId: project.id,
         OR: [{ timerId: occurrence.timerId, targetAtMs: BigInt(targetAtMs) }],
-      })
-    }
+      }),
+    })
+    expect(mocks.prisma.countUpOccurrence.updateMany).toHaveBeenCalledWith({
+      where: { id: occurrence.id, firstSeenAt: null },
+      data: { firstSeenAt: new Date("2026-07-16T12:00:00.000Z"), reviewExpiresAt: null },
+    })
+    expect(mocks.prisma.countUpOccurrence.updateMany).toHaveBeenCalledWith({
+      where: { id: occurrence.id },
+      data: {
+        firstSeenAt: new Date("2026-07-16T12:00:00.000Z"),
+        acknowledgedAt: null,
+        deferredUntil: null,
+        reviewExpiresAt: null,
+      },
+    })
     expect(mocks.prisma.countUpOccurrence.deleteMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ userId: user.id, projectId: project.id }),
@@ -424,7 +453,37 @@ describe("/api/timer-attention", () => {
     expect(mocks.prisma.countUpOccurrence.updateMany).toHaveBeenCalledTimes(1)
     expect(mocks.prisma.countUpOccurrence.updateMany).toHaveBeenCalledWith({
       where: expect.objectContaining({ userId: user.id }),
-      data: { deferredUntil: null, policyMode: "until-i-move-it", policyMinutes: null },
+      data: { deferredUntil: null, policyMode: "until-i-move-it", policyMinutes: null, reviewExpiresAt: null },
+    })
+  })
+
+  it("re-arms an unacknowledged custom occurrence from the server clock", async () => {
+    mocks.prisma.countUpOccurrence.findMany.mockImplementation(({ where }: { where?: { OR?: unknown } }) =>
+      Promise.resolve(
+        where?.OR
+          ? [
+              {
+                ...occurrence,
+                firstSeenAt: new Date("2026-07-16T11:00:00.000Z"),
+                policyMode: "custom",
+                policyMinutes: 2,
+              },
+            ]
+          : [],
+      ),
+    )
+    const { POST } = await import("./route")
+
+    await POST(post({ action: "unacknowledge", keys: [key], projectId: project.id }))
+
+    expect(mocks.prisma.countUpOccurrence.updateMany).toHaveBeenCalledWith({
+      where: { id: occurrence.id },
+      data: {
+        firstSeenAt: new Date("2026-07-16T11:00:00.000Z"),
+        acknowledgedAt: null,
+        deferredUntil: null,
+        reviewExpiresAt: new Date("2026-07-16T12:02:00.000Z"),
+      },
     })
   })
 
@@ -432,6 +491,7 @@ describe("/api/timer-attention", () => {
     const seenExpired = {
       ...occurrence,
       firstSeenAt: new Date("2026-07-16T11:50:00.000Z"),
+      reviewExpiresAt: new Date("2026-07-16T11:55:00.000Z"),
       policyMode: "after-seen-5m",
     }
     const unseen = { ...occurrence, id: "count_up_456" }

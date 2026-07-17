@@ -1,11 +1,15 @@
 "use client"
 
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core"
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import {
   ArrowRightIcon,
   CheckIcon,
   ChevronDownIcon,
   CopyIcon,
   FolderIcon,
+  GripVerticalIcon,
   LayersIcon,
   PlusIcon,
   TimerIcon,
@@ -22,6 +26,7 @@ import { SettingsSheet } from "@/components/settings-sheet"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
 import { getEntitlements, projectLimitMessage } from "@/lib/entitlements"
 import { formatMessage } from "@/lib/i18n/messages"
+import type { ProjectMeta } from "@/lib/project-model"
 import { accountProjectMemberships, readOnlyProjectIds } from "@/lib/project-lock"
 import { useTimerStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
@@ -44,6 +49,156 @@ function projectSpaceCount(args: {
   return args.projectSpaceCount ?? (args.projectId === args.activeProjectId ? args.activeSpaceCount : 0)
 }
 
+function SortableProjectRow(
+  props: Readonly<{
+    project: ProjectMeta
+    selected: boolean
+    hasHydrated: boolean
+    countUpProjectId: string
+    newCountUpCount: number
+    waitingCountUpCount: number
+    timerCount: number
+    maxTimers: number
+    spaceCount: number
+    maxSpaces: number
+    readOnly: boolean
+    onSwitch: (projectId: string) => void
+  }>,
+) {
+  const { project } = props
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : undefined,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "flex min-w-0 items-center rounded-md transition-colors",
+        props.selected ? "bg-muted" : "hover:bg-muted",
+      )}
+    >
+      <button
+        type="button"
+        className="ml-1 shrink-0 cursor-grab touch-none rounded p-1 hover:bg-background active:cursor-grabbing"
+        aria-label={formatMessage("project.reorder.dragHandle", { name: project.name })}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVerticalIcon className="size-3.5 text-muted-foreground" />
+      </button>
+      <button
+        type="button"
+        aria-current={props.selected ? "true" : undefined}
+        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-2 text-left outline-none focus-visible:bg-muted focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+        onClick={() => props.onSwitch(project.id)}
+      >
+        <span className="grid size-7 shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground">
+          {props.selected ? <CheckIcon className="size-4 text-foreground" /> : <FolderIcon className="size-4" />}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate text-sm font-medium" title={project.name}>
+              {project.name}
+            </span>
+            {props.hasHydrated && props.newCountUpCount > 0 ? (
+              <span
+                data-count-up-project-indicator="new"
+                data-project-id={props.countUpProjectId}
+                className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums text-foreground"
+                aria-label={formatMessage("countUp.project.newCount", {
+                  count: props.newCountUpCount,
+                  project: project.name,
+                })}
+                title={formatMessage("countUp.project.newCount", {
+                  count: props.newCountUpCount,
+                  project: project.name,
+                })}
+              >
+                {props.newCountUpCount}
+              </span>
+            ) : props.hasHydrated && props.waitingCountUpCount > 0 ? (
+              <span
+                data-count-up-project-indicator="waiting-for-review"
+                data-project-id={props.countUpProjectId}
+                role="img"
+                className="size-2 shrink-0 rounded-full border border-foreground/60 bg-muted-foreground/35"
+                aria-label={formatMessage("countUp.project.waiting", { project: project.name })}
+                title={formatMessage("countUp.project.waiting", { project: project.name })}
+              />
+            ) : null}
+            {!project.cloudProjectId ? (
+              <span className="shrink-0 rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase leading-none text-muted-foreground">
+                {formatMessage("project.local")}
+              </span>
+            ) : null}
+            {project.cloudProjectId && props.readOnly ? (
+              <span
+                className="min-w-0 max-w-24 truncate rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase leading-none text-muted-foreground"
+                title={formatMessage("project.readOnly.badge")}
+              >
+                {formatMessage("project.readOnly.badge")}
+              </span>
+            ) : null}
+          </span>
+          <span className="mt-0.5 flex items-center gap-2.5 text-[11px] text-muted-foreground">
+            <span
+              className="inline-flex items-center gap-1"
+              aria-label={formatMessage("project.timerUsage", {
+                count: props.timerCount,
+                max: props.maxTimers,
+              })}
+            >
+              <TimerIcon className="size-3" />
+              <span className="tabular-nums">
+                {formatMessage("project.usageFraction", { count: props.timerCount, max: props.maxTimers })}
+              </span>
+            </span>
+            <span
+              className="inline-flex items-center gap-1"
+              aria-label={formatMessage("project.spaceUsage", {
+                count: props.spaceCount,
+                max: props.maxSpaces,
+              })}
+            >
+              <LayersIcon className="size-3" />
+              <span className="tabular-nums">
+                {formatMessage("project.usageFraction", { count: props.spaceCount, max: props.maxSpaces })}
+              </span>
+            </span>
+          </span>
+        </span>
+      </button>
+      {project.cloudProjectId ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="mr-1 size-7 shrink-0 text-muted-foreground hover:text-foreground"
+              aria-label={formatMessage("project.copyId")}
+              onClick={async () => {
+                if (!project.cloudProjectId) return
+                await navigator.clipboard.writeText(project.cloudProjectId)
+                toast.success(formatMessage("project.idCopied"))
+              }}
+            >
+              <CopyIcon className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{formatMessage("project.copyId")}</TooltipContent>
+        </Tooltip>
+      ) : null}
+    </div>
+  )
+}
+
 export function ProjectSwitcher() {
   const projects = useTimerStore((s) => s.projects)
   const activeProjectId = useTimerStore((s) => s.activeProjectId)
@@ -54,6 +209,9 @@ export function ProjectSwitcher() {
   const switchProject = useTimerStore((s) => s.switchProject)
   const createProject = useTimerStore((s) => s.createProject)
   const restoreProjectFromCloud = useTimerStore((s) => s.restoreProjectFromCloud)
+  const reorderProjects = useTimerStore((s) => s.reorderProjects)
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
   const [open, setOpen] = useState(false)
   const [restoreInput, setRestoreInput] = useState("")
@@ -83,6 +241,15 @@ export function ProjectSwitcher() {
     } finally {
       setRestoreLoading(false)
     }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const fromIndex = projects.findIndex((project) => project.id === active.id)
+    const toIndex = projects.findIndex((project) => project.id === over.id)
+    if (fromIndex === -1 || toIndex === -1) return
+    reorderProjects(fromIndex, toIndex)
   }
 
   return (
@@ -116,148 +283,50 @@ export function ProjectSwitcher() {
         {/* Negative margin + matching padding keep the focus-visible ring of
             the row buttons inside the horizontally clipped scrollport. */}
         <div className="-mx-1.5 grid max-h-56 gap-0.5 overflow-y-auto overflow-x-hidden px-1.5">
-          {projects.map((project) => {
-            const selected = project.id === activeProjectId
-            const countUpProjectId = project.cloudProjectId ?? project.id
-            const activeCountUpOccurrences = countUpOccurrences.filter(
-              (occurrence) => occurrence.projectId === countUpProjectId && occurrence.acknowledgedAt === null,
-            )
-            const newCountUpCount = activeCountUpOccurrences.filter(
-              (occurrence) => occurrence.firstSeenAt === null,
-            ).length
-            const waitingCountUpCount = activeCountUpOccurrences.length - newCountUpCount
-            const timerCount = projectTimerCount({
-              projectId: project.id,
-              activeProjectId,
-              projectTimerCount: project.timerCount,
-              activeTimerCount: timers.length,
-            })
-            const spaceCount = projectSpaceCount({
-              projectId: project.id,
-              activeProjectId,
-              projectSpaceCount: project.spaceCount,
-              activeSpaceCount: spaces.length,
-            })
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={projects.map((project) => project.id)} strategy={verticalListSortingStrategy}>
+              {projects.map((project) => {
+                const countUpProjectId = project.cloudProjectId ?? project.id
+                const activeCountUpOccurrences = countUpOccurrences.filter(
+                  (occurrence) => occurrence.projectId === countUpProjectId && occurrence.acknowledgedAt === null,
+                )
+                const newCountUpCount = activeCountUpOccurrences.filter(
+                  (occurrence) => occurrence.firstSeenAt === null,
+                ).length
 
-            return (
-              <div
-                key={project.id}
-                className={cn(
-                  "flex min-w-0 items-center rounded-md transition-colors",
-                  selected ? "bg-muted" : "hover:bg-muted",
-                )}
-              >
-                <button
-                  type="button"
-                  aria-current={selected ? "true" : undefined}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-2 text-left outline-none focus-visible:bg-muted focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-                  onClick={() => {
-                    switchProject(project.id)
-                    setOpen(false)
-                  }}
-                >
-                  <span className="grid size-7 shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground">
-                    {selected ? <CheckIcon className="size-4 text-foreground" /> : <FolderIcon className="size-4" />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="min-w-0 truncate text-sm font-medium" title={project.name}>
-                        {project.name}
-                      </span>
-                      {hasHydrated && newCountUpCount > 0 ? (
-                        <span
-                          data-count-up-project-indicator="new"
-                          data-project-id={countUpProjectId}
-                          className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums text-foreground"
-                          aria-label={formatMessage("countUp.project.newCount", {
-                            count: newCountUpCount,
-                            project: project.name,
-                          })}
-                          title={formatMessage("countUp.project.newCount", {
-                            count: newCountUpCount,
-                            project: project.name,
-                          })}
-                        >
-                          {newCountUpCount}
-                        </span>
-                      ) : hasHydrated && waitingCountUpCount > 0 ? (
-                        <span
-                          data-count-up-project-indicator="waiting-for-review"
-                          data-project-id={countUpProjectId}
-                          role="img"
-                          className="size-2 shrink-0 rounded-full border border-foreground/60 bg-muted-foreground/35"
-                          aria-label={formatMessage("countUp.project.waiting", { project: project.name })}
-                          title={formatMessage("countUp.project.waiting", {
-                            project: project.name,
-                          })}
-                        />
-                      ) : null}
-                      {!project.cloudProjectId ? (
-                        <span className="shrink-0 rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase leading-none text-muted-foreground">
-                          {formatMessage("project.local")}
-                        </span>
-                      ) : null}
-                      {project.cloudProjectId && readOnlyIds.has(project.cloudProjectId) ? (
-                        <span
-                          className="min-w-0 max-w-24 truncate rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase leading-none text-muted-foreground"
-                          title={formatMessage("project.readOnly.badge")}
-                        >
-                          {formatMessage("project.readOnly.badge")}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="mt-0.5 flex items-center gap-2.5 text-[11px] text-muted-foreground">
-                      <span
-                        className="inline-flex items-center gap-1"
-                        aria-label={formatMessage("project.timerUsage", {
-                          count: timerCount,
-                          max: entitlements.maxTimers,
-                        })}
-                      >
-                        <TimerIcon className="size-3" />
-                        <span className="tabular-nums">
-                          {formatMessage("project.usageFraction", { count: timerCount, max: entitlements.maxTimers })}
-                        </span>
-                      </span>
-                      <span
-                        className="inline-flex items-center gap-1"
-                        aria-label={formatMessage("project.spaceUsage", {
-                          count: spaceCount,
-                          max: entitlements.maxSpaces,
-                        })}
-                      >
-                        <LayersIcon className="size-3" />
-                        <span className="tabular-nums">
-                          {formatMessage("project.usageFraction", { count: spaceCount, max: entitlements.maxSpaces })}
-                        </span>
-                      </span>
-                    </span>
-                  </span>
-                </button>
-                {project.cloudProjectId ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="mr-1 size-7 shrink-0 text-muted-foreground hover:text-foreground"
-                        aria-label={formatMessage("project.copyId")}
-                        onClick={async () => {
-                          if (!project.cloudProjectId) return
-                          await navigator.clipboard.writeText(project.cloudProjectId)
-                          toast.success(formatMessage("project.idCopied"))
-                        }}
-                      >
-                        <CopyIcon className="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{formatMessage("project.copyId")}</TooltipContent>
-                  </Tooltip>
-                ) : null}
-              </div>
-            )
-          })}
+                return (
+                  <SortableProjectRow
+                    key={project.id}
+                    project={project}
+                    selected={project.id === activeProjectId}
+                    hasHydrated={hasHydrated}
+                    countUpProjectId={countUpProjectId}
+                    newCountUpCount={newCountUpCount}
+                    waitingCountUpCount={activeCountUpOccurrences.length - newCountUpCount}
+                    timerCount={projectTimerCount({
+                      projectId: project.id,
+                      activeProjectId,
+                      projectTimerCount: project.timerCount,
+                      activeTimerCount: timers.length,
+                    })}
+                    maxTimers={entitlements.maxTimers}
+                    spaceCount={projectSpaceCount({
+                      projectId: project.id,
+                      activeProjectId,
+                      projectSpaceCount: project.spaceCount,
+                      activeSpaceCount: spaces.length,
+                    })}
+                    maxSpaces={entitlements.maxSpaces}
+                    readOnly={Boolean(project.cloudProjectId && readOnlyIds.has(project.cloudProjectId))}
+                    onSwitch={(projectId) => {
+                      switchProject(projectId)
+                      setOpen(false)
+                    }}
+                  />
+                )
+              })}
+            </SortableContext>
+          </DndContext>
         </div>
 
         <Separator className="my-1.5" />

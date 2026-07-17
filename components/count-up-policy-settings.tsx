@@ -37,6 +37,32 @@ function policyForMode(mode: CountUpPolicyMode, customMinutes: string): CountUpP
   return result.success ? result.data : null
 }
 
+function durationLabel(policy: CountUpPolicy) {
+  if (policy.mode === "after-seen-5m") return formatMessage("settings.countUp.duration5m")
+  if (policy.mode === "after-seen-15m") return formatMessage("settings.countUp.duration15m")
+  if (policy.mode === "after-seen-1h") return formatMessage("settings.countUp.duration1h")
+  if (policy.mode === "after-seen-1d") return formatMessage("settings.countUp.duration1d")
+  if (policy.mode === "custom" && policy.minutes !== null) {
+    return formatMessage(
+      policy.minutes === 1 ? "settings.countUp.durationCustomOne" : "settings.countUp.durationCustomMany",
+      { minutes: policy.minutes },
+    )
+  }
+  return ""
+}
+
+function policyHelper(policy: CountUpPolicy) {
+  if (policy.mode === "until-i-move-it") return formatMessage("settings.countUp.helperUntilAcknowledged")
+  if (policy.mode === "move-directly-to-past") return formatMessage("settings.countUp.helperSkip")
+  const singular =
+    policy.mode === "after-seen-1h" ||
+    policy.mode === "after-seen-1d" ||
+    (policy.mode === "custom" && policy.minutes === 1)
+  return formatMessage(singular ? "settings.countUp.helperTimedSingular" : "settings.countUp.helperTimed", {
+    duration: durationLabel(policy),
+  })
+}
+
 function CountUpPolicyFields(
   props: Readonly<{
     disabled: boolean
@@ -66,7 +92,7 @@ function CountUpPolicyFields(
     >
       <div className="grid gap-1">
         <div className="text-sm font-medium">{formatMessage("settings.countUp.title")}</div>
-        <div className="text-xs text-muted-foreground">{formatMessage("settings.countUp.helper")}</div>
+        <div className="text-xs text-muted-foreground">{policyHelper(props.policy)}</div>
         <div className="text-xs text-muted-foreground">{formatMessage("settings.countUp.scope")}</div>
       </div>
 
@@ -157,12 +183,14 @@ function AnonymousCountUpPolicySettings() {
 function SignedInCountUpPolicySettings() {
   const { loading, preferences, saving, updatePreferences } = useAccountPreferences()
   const setCountUpPolicy = useTimerStore((state) => state.setCountUpPolicy)
+  const syncCountUpOccurrences = useTimerStore((state) => state.syncCountUpOccurrences)
   const sectionSize = useCountUpSectionSize()
 
   async function save(next: CountUpPolicy) {
     try {
       await updatePreferences({ count_up_policy: next })
       setCountUpPolicy(next)
+      await syncCountUpOccurrences()
       trackCountUpAnalyticsEvent("transition_policy_changed", { policy: next.mode, sectionSize })
     } catch {
       toast.error(formatMessage("settings.preferencesUnavailable"))

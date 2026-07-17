@@ -46,4 +46,17 @@ describe("DatePresetChips", () => {
 
     expect(onChange).toHaveBeenCalledWith(expectedDate)
   })
+
+  it.each([
+    ["Yesterday", "2026-06-04"],
+    ["7 days ago", "2026-05-29"],
+    ["14 days ago", "2026-05-22"],
+  ])("sets %s from the local current date for since timers", (label, expectedDate) => {
+    const onChange = vi.fn()
+    render(<DatePresetChips direction="past" onChange={onChange} />)
+
+    fireEvent.click(screen.getByRole("button", { name: label }))
+
+    expect(onChange).toHaveBeenCalledWith(expectedDate)
+  })
 })

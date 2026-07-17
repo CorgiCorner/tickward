@@ -172,9 +172,37 @@ describe("timer reminders", () => {
           timerId: "timer-a",
           scheduledFor: new Date("2026-07-10T11:50:00.000Z"),
           status: "scheduled",
+          payload: expect.objectContaining({ mode: "until" }),
         }),
       ],
     })
+  })
+
+  it("reconciles since reminders against the next milestone with occurrence context", async () => {
+    const tx = outboxTx()
+    const { reconcileTimerReminders } = await import("./timer-reminders.server")
+
+    await reconcileTimerReminders(tx as never, {
+      project: { id: "project_123", ownerId: "user_123" },
+      timer: makeTimer({
+        id: "timer-a",
+        mode: "since",
+        targetDate: "2026-01-01T10:00:00.000Z",
+        timezone: "UTC",
+        milestones: { rules: [{ unit: "days", every: 100 }] },
+        reminders: [{ offsetMinutes: 10 }],
+      }),
+    })
+
+    expect(tx.notificationOutboxItem.createMany.mock.calls[0][0].data[0]).toEqual(
+      expect.objectContaining({
+        transactionId: "timer-reminder:project_123:timer-a:10m:2026-07-20T10:00:00.000Z",
+        payload: expect.objectContaining({
+          mode: "since",
+          milestone: { unit: "days", count: 200 },
+        }),
+      }),
+    )
   })
 
   it("reactivates matching cancelled reminder intents without creating duplicates", async () => {
@@ -366,6 +394,7 @@ describe("timer reminders", () => {
         occurrenceAt: "2026-03-28T09:00:00.000Z",
         offsetMinutes: 10,
         inAppNotificationsEnabled: true,
+        mode: "until",
       }),
     )
     expect(prisma.notificationOutboxItem.createMany).toHaveBeenCalledWith({
@@ -375,6 +404,45 @@ describe("timer reminders", () => {
           transactionId: "timer-reminder:project_123:timer-a:10m:2026-03-29T08:00:00.000Z",
           scheduledFor: new Date("2026-03-29T07:50:00.000Z"),
           status: "scheduled",
+        }),
+      ],
+    })
+  })
+
+  it("delivers a milestone reminder and re-arms the following milestone", async () => {
+    vi.setSystemTime(new Date("2026-04-11T10:00:00.000Z"))
+    const item = dueItem({
+      transactionId: "timer-reminder:project_123:timer-a:0m:2026-04-11T10:00:00.000Z",
+      payload: { projectId: "project_123", offsetMinutes: 0, occurrenceAt: "2026-04-11T10:00:00.000Z" },
+    })
+    const prisma = deliveryPrisma({
+      items: [item],
+      timer: timerRow({
+        mode: "since",
+        targetDate: "2026-01-01T10:00:00.000Z",
+        timezone: "UTC",
+        milestones: { rules: [{ unit: "days", every: 100 }] },
+        reminders: [{ offsetMinutes: 0 }],
+      }),
+    })
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+    const { deliverDueTimerReminders } = await import("./timer-reminders.server")
+
+    await expect(deliverDueTimerReminders(1)).resolves.toMatchObject({ delivered: 1, picked: 1 })
+
+    expect(mocks.notificationDeliveryProvider.sendTimerReminder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: "since",
+        milestone: { unit: "days", count: 100 },
+        occurrenceAt: "2026-04-11T10:00:00.000Z",
+      }),
+    )
+    expect(prisma.notificationOutboxItem.createMany).toHaveBeenCalledWith({
+      skipDuplicates: true,
+      data: [
+        expect.objectContaining({
+          transactionId: "timer-reminder:project_123:timer-a:0m:2026-07-20T10:00:00.000Z",
+          scheduledFor: new Date("2026-07-20T10:00:00.000Z"),
         }),
       ],
     })
@@ -462,6 +530,37 @@ describe("timer reminders", () => {
 
   it("skips stale reminders when the offset is removed before delivery", async () => {
     const prisma = deliveryPrisma({ timer: timerRow({ reminders: [] }) })
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+    const { deliverDueTimerReminders } = await import("./timer-reminders.server")
+
+    await expect(deliverDueTimerReminders()).resolves.toMatchObject({ picked: 1, skipped: 1 })
+
+    expect(mocks.notificationDeliveryProvider.sendTimerReminder).not.toHaveBeenCalled()
+    expect(prisma.notificationOutboxItem.updateMany).toHaveBeenLastCalledWith({
+      where: { id: "outbox_123" },
+      data: {
+        status: "skipped",
+        error: "stale_reminder",
+        processedAt: expect.any(Date),
+        failedAt: undefined,
+      },
+    })
+  })
+
+  it("skips a milestone occurrence removed by a rules change before delivery", async () => {
+    const item = dueItem({
+      transactionId: "timer-reminder:project_123:timer-a:0m:2026-04-11T10:00:00.000Z",
+      payload: { projectId: "project_123", offsetMinutes: 0, occurrenceAt: "2026-04-11T10:00:00.000Z" },
+    })
+    const prisma = deliveryPrisma({
+      items: [item],
+      timer: timerRow({
+        mode: "since",
+        targetDate: "2026-01-01T10:00:00.000Z",
+        milestones: { rules: [{ unit: "days", every: 200 }] },
+        reminders: [{ offsetMinutes: 0 }],
+      }),
+    })
     mocks.requirePrismaClient.mockReturnValue(prisma)
     const { deliverDueTimerReminders } = await import("./timer-reminders.server")
 

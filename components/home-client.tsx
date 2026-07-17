@@ -239,6 +239,7 @@ function targetMs(timer: Timer, nowMs: number) {
 }
 
 function timerReclassificationBoundaryMs(timer: Timer, nowMs: number) {
+  if (timer.mode === "since") return null
   const target = targetMs(timer, nowMs)
   if (!Number.isFinite(target)) return null
   if (timer.recurrence?.enabled) return target >= nowMs ? target : null

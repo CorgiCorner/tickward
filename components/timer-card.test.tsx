@@ -28,12 +28,16 @@ const countUpOccurrence: CountUpOccurrence = {
   targetAtMs: Date.parse("2026-05-25T12:00:00.000Z"),
   crossedAt: Date.parse("2026-05-25T12:00:00.000Z"),
   firstSeenAt: null,
+  reviewExpiresAt: null,
   acknowledgedAt: null,
   deferredUntil: null,
   policy: { mode: "until-i-move-it", minutes: null },
+  usesDefaultPolicy: true,
 }
 
-vi.mock("@/components/plausible-analytics", () => ({ trackCountUpAnalyticsEvent: analyticsTrack }))
+vi.mock("@/components/plausible-analytics", () => ({
+  trackCountUpAnalyticsEvent: analyticsTrack,
+}))
 
 vi.mock("@/components/use-now", () => ({ useNow: () => Date.now() }))
 
@@ -89,7 +93,9 @@ function setViewportMobile(matches: boolean) {
 }
 
 async function openFirstTimerActions(user: ReturnType<typeof userEvent.setup>) {
-  const menuButton = screen.getAllByRole("button", { name: "Open timer actions" })[0]
+  const menuButton = screen.getAllByRole("button", {
+    name: "Open timer actions",
+  })[0]
   await user.click(menuButton)
   return menuButton
 }
@@ -106,7 +112,9 @@ describe("TimerCard", () => {
 
   beforeEach(() => {
     authMocks.useSession.mockReset()
-    authMocks.useSession.mockReturnValue({ data: { user: { id: "user_123", email: "ada@example.com" } } })
+    authMocks.useSession.mockReturnValue({
+      data: { user: { id: "user_123", email: "ada@example.com" } },
+    })
     localStorage.clear()
     document.body.style.overflow = ""
     Reflect.deleteProperty(globalThis, "Notification")
@@ -144,6 +152,39 @@ describe("TimerCard", () => {
     }
   })
 
+  it("counts up from a since anchor while showing the next milestone", () => {
+    render(
+      <TimerCard
+        timer={makeTimer({
+          targetDate: "2024-01-01T10:00:00.000Z",
+          mode: "since",
+          milestones: { rules: [{ unit: "years", every: 1 }] },
+          notify: false,
+        })}
+        nowMs={Date.parse("2026-06-01T00:00:00.000Z")}
+      />,
+    )
+
+    expect(screen.getAllByText("Since")[0]).toBeVisible()
+    expect(screen.getAllByText(/Next: 3 years/)[0]).toBeVisible()
+  })
+
+  it("labels an exhausted finite milestone ladder", () => {
+    render(
+      <TimerCard
+        timer={makeTimer({
+          targetDate: "2024-01-01T10:00:00.000Z",
+          mode: "since",
+          milestones: { rules: [{ unit: "days", at: [1, 3] }] },
+          notify: false,
+        })}
+        nowMs={Date.parse("2024-02-01T10:00:00.000Z")}
+      />,
+    )
+
+    expect(screen.getAllByText(/Milestone ladder complete/)[0]).toBeVisible()
+  })
+
   it("renders compact decision and scheduled-status controls beside the badge", () => {
     const nowMs = Date.parse("2026-05-25T13:00:00.000Z")
     vi.spyOn(Date, "now").mockReturnValue(nowMs)
@@ -151,7 +192,11 @@ describe("TimerCard", () => {
       <TimerCard
         timer={makeTimer()}
         nowMs={nowMs}
-        countUpOccurrence={{ ...countUpOccurrence, firstSeenAt: nowMs, deferredUntil: nowMs + 30 * 60 * 1000 }}
+        countUpOccurrence={{
+          ...countUpOccurrence,
+          firstSeenAt: nowMs,
+          deferredUntil: nowMs + 30 * 60 * 1000,
+        }}
         countUpPlacement="section"
       />,
     )
@@ -161,7 +206,9 @@ describe("TimerCard", () => {
     expect(badges[0]).toHaveClass("bg-muted", "text-foreground")
     expect(badges[0].className).not.toMatch(/red/)
     expect(screen.queryByText(/Started counting up at/)).not.toBeInTheDocument()
-    const acknowledge = screen.getAllByRole("button", { name: "Acknowledge" })[0]
+    const acknowledge = screen.getAllByRole("button", {
+      name: "Acknowledge",
+    })[0]
     expect(acknowledge).toHaveClass("h-[18px]", "text-[9px]")
     expect(acknowledge).toHaveTextContent("Acknowledge")
     expect(acknowledge.querySelector("svg")).toBeInTheDocument()
@@ -190,8 +237,38 @@ describe("TimerCard", () => {
       />,
     )
 
-    expect(screen.getAllByRole("img", { name: "Scheduled to acknowledge in about 60 minutes" })[0]).toBeInTheDocument()
-    expect(screen.queryByRole("img", { name: "Scheduled to acknowledge in about 65 minutes" })).not.toBeInTheDocument()
+    expect(
+      screen.getAllByRole("img", {
+        name: "Scheduled to acknowledge in about 60 minutes",
+      })[0],
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("img", {
+        name: "Scheduled to acknowledge in about 65 minutes",
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("renders the scheduled countdown from the persisted Review deadline", () => {
+    const liveNowMs = Date.parse("2026-05-25T13:05:00.000Z")
+    vi.spyOn(Date, "now").mockReturnValue(liveNowMs)
+
+    render(
+      <TimerCard
+        timer={makeTimer()}
+        nowMs={liveNowMs}
+        countUpOccurrence={{
+          ...countUpOccurrence,
+          firstSeenAt: liveNowMs - 10 * 60 * 1000,
+          reviewExpiresAt: liveNowMs + 5 * 60 * 1000,
+          policy: { mode: "after-seen-15m", minutes: null },
+        }}
+        countUpPlacement="section"
+      />,
+    )
+
+    expect(screen.getAllByRole("img", { name: "Scheduled to acknowledge in about 5 minutes" })[0]).toBeInTheDocument()
+    expect(screen.queryByRole("img", { name: "Scheduled to acknowledge in about 15 minutes" })).not.toBeInTheDocument()
   })
 
   it("exposes stable project, timer, and occurrence targets for attention navigation", () => {
@@ -222,7 +299,9 @@ describe("TimerCard", () => {
       />,
     )
 
-    const acknowledgeButton = screen.getAllByRole("button", { name: "Acknowledge" })[0]
+    const acknowledgeButton = screen.getAllByRole("button", {
+      name: "Acknowledge",
+    })[0]
     expect(acknowledgeButton).toHaveAttribute("aria-describedby")
     await user.hover(acknowledgeButton)
     expect(
@@ -238,7 +317,12 @@ describe("TimerCard", () => {
     })
     expect(toastMock).toHaveBeenCalledWith(
       "Moved to Counting up",
-      expect.objectContaining({ action: expect.objectContaining({ label: "Undo", onClick: expect.any(Function) }) }),
+      expect.objectContaining({
+        action: expect.objectContaining({
+          label: "Undo",
+          onClick: expect.any(Function),
+        }),
+      }),
     )
 
     const [, options] = toastMock.mock.calls[0] as [string, { action: { onClick: () => void } }]
@@ -311,7 +395,10 @@ describe("TimerCard", () => {
     expect(toastMock).toHaveBeenCalledWith(
       "Timer archived.",
       expect.objectContaining({
-        action: expect.objectContaining({ label: "Undo", onClick: expect.any(Function) }),
+        action: expect.objectContaining({
+          label: "Undo",
+          onClick: expect.any(Function),
+        }),
       }),
     )
 
@@ -336,7 +423,10 @@ describe("TimerCard", () => {
     expect(toastMock).toHaveBeenCalledWith(
       "Timer restored.",
       expect.objectContaining({
-        action: expect.objectContaining({ label: "Undo", onClick: expect.any(Function) }),
+        action: expect.objectContaining({
+          label: "Undo",
+          onClick: expect.any(Function),
+        }),
       }),
     )
 
@@ -362,7 +452,9 @@ describe("TimerCard", () => {
     const user = userEvent.setup()
     render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
 
-    const focusButton = screen.getAllByRole("button", { name: "Focus timer" })[0]
+    const focusButton = screen.getAllByRole("button", {
+      name: "Focus timer",
+    })[0]
     await user.click(focusButton)
 
     const dialog = await screen.findByRole("dialog", { name: "Launch" })
@@ -394,17 +486,23 @@ describe("TimerCard", () => {
 
     await user.click(screen.getAllByRole("button", { name: "Focus timer" })[0])
 
-    const exitButton = await screen.findByRole("button", { name: "Exit focus mode" })
+    const exitButton = await screen.findByRole("button", {
+      name: "Exit focus mode",
+    })
     await waitFor(() => expect(exitButton).toHaveFocus())
 
-    const lastThemeButton = screen.getByRole("button", { name: "Butter background" })
+    const lastThemeButton = screen.getByRole("button", {
+      name: "Butter background",
+    })
     fireEvent.keyDown(document, { key: "Tab", shiftKey: true })
     expect(lastThemeButton).toHaveFocus()
 
     fireEvent.keyDown(document, { key: "Tab" })
     expect(exitButton).toHaveFocus()
 
-    const outsideButton = screen.getByRole("button", { name: "After focus mode" })
+    const outsideButton = screen.getByRole("button", {
+      name: "After focus mode",
+    })
     outsideButton.focus()
     expect(outsideButton).toHaveFocus()
 
@@ -431,7 +529,9 @@ describe("TimerCard", () => {
     const user = userEvent.setup()
     render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
 
-    const focusButton = screen.getAllByRole("button", { name: "Focus timer" })[0]
+    const focusButton = screen.getAllByRole("button", {
+      name: "Focus timer",
+    })[0]
     await user.click(focusButton)
     await user.click(await screen.findByRole("button", { name: "Mint background" }))
 
@@ -507,14 +607,20 @@ describe("TimerCard", () => {
     expect(toastMock).toHaveBeenCalledWith(
       "Timer deleted.",
       expect.objectContaining({
-        action: expect.objectContaining({ label: "Undo", onClick: expect.any(Function) }),
+        action: expect.objectContaining({
+          label: "Undo",
+          onClick: expect.any(Function),
+        }),
       }),
     )
 
     const [, options] = toastMock.mock.calls[0] as [string, { action: { onClick: () => void } }]
     options.action.onClick()
     expect(storeState.addTimer).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "timer-a", afterZero: { mode: "keep-visible", minutes: 45 } }),
+      expect.objectContaining({
+        id: "timer-a",
+        afterZero: { mode: "keep-visible", minutes: 45 },
+      }),
     )
     expect(toastMock.error).not.toHaveBeenCalled()
   })
@@ -590,14 +696,19 @@ describe("TimerCard", () => {
 
     render(
       <TimerCard
-        timer={makeTimer({ targetDate: "2026-05-25T00:00:00.000Z", notify: false })}
+        timer={makeTimer({
+          targetDate: "2026-05-25T00:00:00.000Z",
+          notify: false,
+        })}
         nowMs={Date.parse("2026-05-24T00:00:00.000Z")}
       />,
     )
 
     await clickFirstTimerAction(user, "Enable notifications")
 
-    expect(storeState.updateTimer).toHaveBeenCalledWith("timer-a", { notify: true })
+    expect(storeState.updateTimer).toHaveBeenCalledWith("timer-a", {
+      notify: true,
+    })
     expect(toastMock.success).toHaveBeenCalledWith("Timer alarm enabled.")
     expect(toastMock.error).not.toHaveBeenCalled()
   })
@@ -606,14 +717,19 @@ describe("TimerCard", () => {
     const user = userEvent.setup()
     render(
       <TimerCard
-        timer={makeTimer({ targetDate: "2026-05-25T00:00:00.000Z", notify: true })}
+        timer={makeTimer({
+          targetDate: "2026-05-25T00:00:00.000Z",
+          notify: true,
+        })}
         nowMs={Date.parse("2026-05-24T00:00:00.000Z")}
       />,
     )
 
     await clickFirstTimerAction(user, "Disable notifications")
 
-    expect(storeState.updateTimer).toHaveBeenCalledWith("timer-a", { notify: false })
+    expect(storeState.updateTimer).toHaveBeenCalledWith("timer-a", {
+      notify: false,
+    })
     expect(toastMock.success).toHaveBeenCalledWith("Notifications disabled for this timer.")
     await waitFor(() => {
       expect(screen.queryByRole("menuitem", { name: "Disable notifications" })).not.toBeInTheDocument()
@@ -626,7 +742,10 @@ describe("TimerCard", () => {
 
     render(
       <TimerCard
-        timer={makeTimer({ targetDate: "2026-05-25T00:00:00.000Z", notify: false })}
+        timer={makeTimer({
+          targetDate: "2026-05-25T00:00:00.000Z",
+          notify: false,
+        })}
         nowMs={Date.parse("2026-05-24T00:00:00.000Z")}
       />,
     )
@@ -642,7 +761,10 @@ describe("TimerCard", () => {
 
     render(
       <TimerCard
-        timer={makeTimer({ targetDate: "2026-05-25T00:00:00.000Z", notify: false })}
+        timer={makeTimer({
+          targetDate: "2026-05-25T00:00:00.000Z",
+          notify: false,
+        })}
         nowMs={Date.parse("2026-05-24T00:00:00.000Z")}
       />,
     )

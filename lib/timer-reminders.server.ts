@@ -13,7 +13,7 @@ import { optionalServerEnv } from "@/lib/env.server"
 import { getServerAdapters } from "@/lib/server-adapters.server"
 import { timerSchema } from "@/lib/schemas/timer"
 import type { Timer } from "@/lib/types"
-import { effectiveTargetDate, nextSlotOccurrence, recurrenceSlot } from "@/lib/utils"
+import { effectiveTargetDate, nextOccurrenceAfter } from "@/lib/utils"
 
 const REMINDER_GRACE_MS = 60_000
 const LATE_WINDOW_MS = 30 * 60_000
@@ -94,6 +94,16 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }
 
+// The milestone crossed at `occurrenceIso`, or undefined when the current
+// rules no longer produce that instant (a stale scheduled intent).
+function occurrenceMilestone(timer: Timer, occurrenceIso: string) {
+  if (timer.mode !== "since" || !timer.milestones) return undefined
+  const occurrenceMs = new Date(occurrenceIso).getTime()
+  if (Number.isNaN(occurrenceMs)) return undefined
+  const next = nextOccurrenceAfter(timer, occurrenceMs - 1)
+  return next && new Date(next.at).getTime() === occurrenceMs ? next.milestone : undefined
+}
+
 function reminderPayload(args: {
   projectId: string
   timer: Timer
@@ -101,6 +111,7 @@ function reminderPayload(args: {
   occurrenceAt: string
   scheduledFor: Date
 }) {
+  const milestone = occurrenceMilestone(args.timer, args.occurrenceAt)
   return {
     projectId: args.projectId,
     timerId: args.timer.id,
@@ -109,6 +120,8 @@ function reminderPayload(args: {
     occurrenceAt: args.occurrenceAt,
     scheduledFor: args.scheduledFor.toISOString(),
     timezone: args.timer.timezone,
+    mode: args.timer.mode ?? "until",
+    ...(milestone ? { milestone } : {}),
   }
 }
 
@@ -433,30 +446,23 @@ async function trackReminderResults(command: TimerReminderDeliveryCommand, resul
   )
 }
 
-async function scheduleNextRecurringReminder(args: {
+async function scheduleNextOccurrenceReminder(args: {
   occurrenceAt: string
   offsetMinutes: number
   ownerId: string
   projectId: string
   timer: Timer
 }) {
-  if (!args.timer.recurrence?.enabled) return
   const occurrenceMs = new Date(args.occurrenceAt).getTime()
   if (Number.isNaN(occurrenceMs)) return
 
-  const slot = recurrenceSlot(
-    args.timer.targetDate,
-    args.timer.recurrence.type,
-    args.timer.timezone,
-    args.timer.recurrence.lastDay,
-  )
-  const nextOccurrence = nextSlotOccurrence(slot, args.timer.timezone, occurrenceMs)
+  const nextOccurrence = nextOccurrenceAfter(args.timer, occurrenceMs)
   if (!nextOccurrence) return
   const intent = desiredReminderIntent({
     projectId: args.projectId,
     timer: args.timer,
     offsetMinutes: args.offsetMinutes,
-    occurrenceIso: nextOccurrence,
+    occurrenceIso: nextOccurrence.at,
   })
   if (!intent) return
 
@@ -489,7 +495,9 @@ async function deliverTimerReminderIntent(item: ReminderOutboxRow): Promise<Remi
     const offsetStillExists = (timer.reminders ?? []).some(
       (reminder) => reminder.offsetMinutes === payload.offsetMinutes,
     )
-    if (timer.archivedAt || !offsetStillExists) {
+    const milestone = occurrenceMilestone(timer, payload.occurrenceAt)
+    const staleSinceMilestone = timer.mode === "since" && !milestone
+    if (timer.archivedAt || !offsetStillExists || staleSinceMilestone) {
       await markReminderIntentResult(item, { status: "skipped", error: "stale_reminder" })
       return "skipped"
     }
@@ -517,6 +525,8 @@ async function deliverTimerReminderIntent(item: ReminderOutboxRow): Promise<Remi
       },
       offsetMinutes: payload.offsetMinutes,
       occurrenceAt: payload.occurrenceAt,
+      mode: timer.mode ?? "until",
+      milestone,
       inAppNotificationsEnabled,
     }
 
@@ -527,11 +537,11 @@ async function deliverTimerReminderIntent(item: ReminderOutboxRow): Promise<Remi
     const status = intentStatusFromDeliveryResults(results)
 
     // Chain the next occurrence before marking this intent terminal, and
-    // regardless of the provider outcome: the timer still recurs, so a
-    // transient provider failure or skip must not end the chain. The write is
+    // regardless of the provider outcome: the timer still recurs or has future
+    // milestones, so a transient provider failure or skip must not end the chain. The write is
     // idempotent per transactionId, so a crash between the two steps leaves a
     // retryable intent instead of a silently dead recurrence.
-    await scheduleNextRecurringReminder({
+    await scheduleNextOccurrenceReminder({
       occurrenceAt: payload.occurrenceAt,
       offsetMinutes: payload.offsetMinutes,
       ownerId: owner.id,

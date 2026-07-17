@@ -1,5 +1,4 @@
 import {
-  countUpPolicyDurationMs,
   DEFAULT_COUNT_UP_POLICY,
   normalizeCountUpPolicy,
   policyForTimer,
@@ -22,6 +21,7 @@ export type ZeroCrossEvent = {
     pinned: boolean
   }
   policy: CountUpPolicy
+  usesDefaultPolicy: boolean
 }
 
 export type CountUpTrackerInput = {
@@ -43,12 +43,10 @@ export type CountUpTrackerResult = {
   autoAcknowledgedKeys: string[]
 }
 
-export function getCountUpExpiresAt(occurrence: CountUpOccurrence, durationMs?: number): number | null {
+export function getCountUpExpiresAt(occurrence: CountUpOccurrence): number | null {
   if (occurrence.acknowledgedAt !== null || occurrence.firstSeenAt === null) return null
   if (occurrence.deferredUntil !== null) return occurrence.deferredUntil
-  const effectiveDurationMs = durationMs ?? countUpPolicyDurationMs(normalizeCountUpPolicy(occurrence.policy))
-  if (effectiveDurationMs === null || !Number.isFinite(effectiveDurationMs) || effectiveDurationMs < 0) return null
-  return occurrence.firstSeenAt + effectiveDurationMs
+  return occurrence.reviewExpiresAt
 }
 
 function shouldCreateFromHistory(
@@ -67,6 +65,7 @@ function detectZeroCross(
   timer: Timer,
   targetAtMs: number,
   policy: CountUpPolicy,
+  usesDefaultPolicy: boolean,
   project?: { id?: string; name?: string },
 ): ZeroCrossEvent {
   return {
@@ -77,6 +76,7 @@ function detectZeroCross(
     ...(project?.name ? { projectName: project.name } : {}),
     timer: { label: timer.label, pinned: timer.pinned === true },
     policy,
+    usesDefaultPolicy,
   }
 }
 
@@ -90,9 +90,11 @@ function persistZeroCross(event: ZeroCrossEvent): CountUpOccurrence {
     targetAtMs: event.targetAtMs,
     crossedAt: event.crossedAt,
     firstSeenAt: null,
+    reviewExpiresAt: null,
     acknowledgedAt: null,
     deferredUntil: null,
     policy: event.policy,
+    usesDefaultPolicy: event.usesDefaultPolicy,
   }
 }
 
@@ -137,6 +139,7 @@ export class CountUpTracker {
       if (timer.archivedAt) continue
 
       const key = getCountUpOccurrenceKey(timer.id, targetAtMs)
+      const usesDefaultPolicy = !timer.afterZero || timer.afterZero.mode === "use-default"
       const policy = policyForTimer(timer.afterZero, args.policy ?? DEFAULT_COUNT_UP_POLICY)
       if (
         targetAtMs < args.nowMs &&
@@ -146,7 +149,10 @@ export class CountUpTracker {
         shouldCreateFromHistory(timer, targetAtMs, observationByTimer.get(timer.id), args.nowMs)
       ) {
         const occurrence = persistZeroCross(
-          detectZeroCross(timer, targetAtMs, policy, { id: args.projectId, name: args.projectName }),
+          detectZeroCross(timer, targetAtMs, policy, usesDefaultPolicy, {
+            id: args.projectId,
+            name: args.projectName,
+          }),
         )
         occurrences.push(occurrence)
         created.push(occurrence)

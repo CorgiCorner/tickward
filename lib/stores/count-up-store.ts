@@ -1,6 +1,6 @@
 "use client"
 
-import { normalizeCountUpPolicy, type CountUpPolicy } from "@/lib/count-up-policy"
+import { countUpPolicyDurationMs, normalizeCountUpPolicy, type CountUpPolicy } from "@/lib/count-up-policy"
 
 export type CountUpOccurrence = {
   key: string
@@ -14,9 +14,11 @@ export type CountUpOccurrence = {
   targetAtMs: number
   crossedAt: number
   firstSeenAt: number | null
+  reviewExpiresAt: number | null
   acknowledgedAt: number | null
   deferredUntil: number | null
   policy?: CountUpPolicy
+  usesDefaultPolicy: boolean
 }
 
 export type CountUpObservation = {
@@ -44,9 +46,11 @@ type CountUpWireOccurrence = {
   targetAtMs: string
   crossedAt: string
   firstSeenAt: string | null
+  reviewExpiresAt: string | null
   acknowledgedAt: string | null
   deferredUntil: string | null
   policy: CountUpPolicy
+  usesDefaultPolicy: boolean
 }
 
 export type CountUpActionBody =
@@ -100,6 +104,14 @@ function normalizeOccurrence(
   if (targetAtMs === null || crossedAt === null) return null
   const key = getCountUpOccurrenceKey(candidate.timerId, targetAtMs)
   const firstSeenAt = nullableTimestamp(candidate.firstSeenAt)
+  const deferredUntil = nullableTimestamp(candidate.deferredUntil)
+  const policy = normalizeCountUpPolicy(candidate.policy)
+  const storedReviewExpiresAt = nullableTimestamp(candidate.reviewExpiresAt)
+  const durationMs = countUpPolicyDurationMs(policy)
+  const reviewExpiresAt =
+    candidate.reviewExpiresAt === undefined && firstSeenAt !== null
+      ? (deferredUntil ?? (durationMs === null ? null : firstSeenAt + durationMs))
+      : storedReviewExpiresAt
   const projectId =
     typeof candidate.projectId === "string" && candidate.projectId ? candidate.projectId : project?.projectId
   const projectName =
@@ -120,9 +132,11 @@ function normalizeOccurrence(
     targetAtMs,
     crossedAt,
     firstSeenAt,
+    reviewExpiresAt,
     acknowledgedAt: nullableTimestamp(candidate.acknowledgedAt),
-    deferredUntil: nullableTimestamp(candidate.deferredUntil),
-    policy: normalizeCountUpPolicy(candidate.policy),
+    deferredUntil,
+    policy,
+    usesDefaultPolicy: candidate.usesDefaultPolicy !== false,
   }
 }
 
@@ -219,9 +233,11 @@ export function mergeCountUpOccurrences(local: CountUpOccurrence[], remote: Coun
       timer: occurrence.timer ?? existing.timer,
       crossedAt: Math.min(existing.crossedAt, occurrence.crossedAt),
       firstSeenAt: earliestNullable(existing.firstSeenAt, occurrence.firstSeenAt),
+      reviewExpiresAt: occurrence.reviewExpiresAt,
       acknowledgedAt: latestNullable(existing.acknowledgedAt, occurrence.acknowledgedAt),
       deferredUntil: latestNullable(existing.deferredUntil, occurrence.deferredUntil),
       policy: normalizeCountUpPolicy(occurrence.policy ?? existing.policy),
+      usesDefaultPolicy: occurrence.usesDefaultPolicy,
     })
   }
   return [...merged.values()]
@@ -241,9 +257,11 @@ export function countUpOccurrenceToWire(occurrence: CountUpOccurrence): CountUpW
     targetAtMs: String(occurrence.targetAtMs),
     crossedAt: new Date(occurrence.crossedAt).toISOString(),
     firstSeenAt: wireDate(occurrence.firstSeenAt),
+    reviewExpiresAt: wireDate(occurrence.reviewExpiresAt),
     acknowledgedAt: wireDate(occurrence.acknowledgedAt),
     deferredUntil: wireDate(occurrence.deferredUntil),
     policy: normalizeCountUpPolicy(occurrence.policy),
+    usesDefaultPolicy: occurrence.usesDefaultPolicy,
   }
 }
 
@@ -268,9 +286,11 @@ function occurrenceFromWire(value: unknown): CountUpOccurrence | null {
     targetAtMs,
     crossedAt,
     firstSeenAt: parseNullable(occurrence.firstSeenAt),
+    ...(occurrence.reviewExpiresAt === undefined ? {} : { reviewExpiresAt: parseNullable(occurrence.reviewExpiresAt) }),
     acknowledgedAt: parseNullable(occurrence.acknowledgedAt),
     deferredUntil: parseNullable(occurrence.deferredUntil),
     policy: occurrence.policy,
+    ...(occurrence.usesDefaultPolicy === undefined ? {} : { usesDefaultPolicy: occurrence.usesDefaultPolicy }),
   })
 }
 

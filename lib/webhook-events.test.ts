@@ -21,6 +21,7 @@ describe("webhook events v1 contract", () => {
       "timer.restored",
       "timer.deleted",
       "timer.ended",
+      "timer.milestone",
       "share.created",
       "share.deleted",
     ])

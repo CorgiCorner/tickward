@@ -11,6 +11,7 @@ import type {
 } from "@/lib/mail-provider"
 import { getResendConfig } from "@/lib/private-config.server"
 import { getSiteOrigin } from "@/lib/site-config"
+import { milestoneNotificationCopy } from "@/lib/milestone-notification"
 import { formatTimerReminderOffset } from "@/lib/timer-reminder-offset"
 
 function escapeHtml(value: string) {
@@ -33,12 +34,18 @@ function timerReminderEmailHtml(command: TimerReminderEmailCommand) {
   const offset = escapeHtml(formatTimerReminderOffset(command.offsetMinutes))
   const settingsUrl = escapeHtml(`${getSiteOrigin()}${localeHref(DEFAULT_LOCALE, "/settings")}#alerts`)
   const heading = formatMessage("email.timerReminder.heading")
-  const body = formatMessage("email.timerReminder.body", {
-    label: `<strong>${label}</strong>`,
-    occurrenceAt,
-    offset,
-    timezone,
-  })
+  const body = command.milestone
+    ? milestoneNotificationCopy({
+        label: `<strong>${label}</strong>`,
+        milestone: command.milestone,
+        offsetMinutes: command.offsetMinutes,
+      }).body
+    : formatMessage("email.timerReminder.body", {
+        label: `<strong>${label}</strong>`,
+        occurrenceAt,
+        offset,
+        timezone,
+      })
   const manage = formatMessage("email.timerReminder.manage")
   return `<h1>${heading}</h1><p>${body}</p><p><a href="${settingsUrl}">${manage}</a></p>`
 }
@@ -119,7 +126,13 @@ export const resendMailProvider: MailProvider = {
       body: JSON.stringify(
         resendPayload(config, {
           to: [command.to],
-          subject: formatMessage("email.timerReminder.subject", { label: command.label }),
+          subject: command.milestone
+            ? milestoneNotificationCopy({
+                label: command.label,
+                milestone: command.milestone,
+                offsetMinutes: command.offsetMinutes,
+              }).subject
+            : formatMessage("email.timerReminder.subject", { label: command.label }),
           html: timerReminderEmailHtml(command),
         }),
       ),

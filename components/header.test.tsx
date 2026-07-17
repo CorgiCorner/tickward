@@ -119,8 +119,10 @@ describe("Header", () => {
         targetAtMs: 1_000,
         crossedAt: 1_000,
         firstSeenAt: null,
+        reviewExpiresAt: null,
         acknowledgedAt: null,
         deferredUntil: null,
+        usesDefaultPolicy: true,
       },
     ]
 

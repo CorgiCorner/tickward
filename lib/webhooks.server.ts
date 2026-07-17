@@ -17,7 +17,7 @@ import { decryptSecret, encryptSecret, isEncryptedSecret } from "@/lib/secret-en
 import { getServerAdapters } from "@/lib/server-adapters.server"
 import { timerSchema } from "@/lib/schemas/timer"
 import type { Timer } from "@/lib/types"
-import { effectiveTargetDate } from "@/lib/utils"
+import { nextOccurrenceAfter } from "@/lib/utils"
 import {
   WEBHOOK_EVENT_TYPES,
   WEBHOOK_EVENT_VERSION,
@@ -527,8 +527,11 @@ export async function emitWebhookEvent(tx: WebhookTx, input: EmitWebhookEventInp
   })
 }
 
-function timerEndedDedupeKey(args: { projectId: string; timerId: string; occurrenceIso: string; userId: string }) {
-  return `timer.ended:${args.userId}:${args.projectId}:${args.timerId}:${args.occurrenceIso}`
+function timerOccurrenceDedupeKey(
+  type: "timer.ended" | "timer.milestone",
+  args: { projectId: string; timerId: string; occurrenceIso: string; userId: string },
+) {
+  return `${type}:${args.userId}:${args.projectId}:${args.timerId}:${args.occurrenceIso}`
 }
 
 function timerPayload(project: { id: string; name: string }, timer: Timer) {
@@ -552,6 +555,16 @@ export async function cancelPendingTimerEndedEvents(
       projectId: args.projectId,
       status: "pending",
       timerId: args.timerId,
+      type: "timer.milestone",
+      userId: args.userId,
+    },
+    data: { cancelledAt: new Date(), status: "cancelled" },
+  })
+  await delegate.updateMany({
+    where: {
+      projectId: args.projectId,
+      status: "pending",
+      timerId: args.timerId,
       type: "timer.ended",
       userId: args.userId,
     },
@@ -562,31 +575,57 @@ export async function cancelPendingTimerEndedEvents(
 export async function scheduleTimerEndedEvent(
   tx: WebhookTx,
   args: { project: { id: string; name: string; ownerId: string | null }; timer: Timer },
+  afterMs = Date.now(),
 ) {
-  if (!args.project.ownerId || args.timer.archivedAt) {
-    await cancelPendingTimerEndedEvents(tx, {
-      projectId: args.project.id,
-      timerId: args.timer.id,
-      userId: args.project.ownerId,
-    })
-    return null
-  }
-
-  const occurrenceIso = effectiveTargetDate(args.timer, Date.now())
-  const occurrenceAt = new Date(occurrenceIso)
-  if (Number.isNaN(occurrenceAt.getTime())) return null
-
   await cancelPendingTimerEndedEvents(tx, {
     projectId: args.project.id,
     timerId: args.timer.id,
     userId: args.project.ownerId,
   })
+  if (!args.project.ownerId || args.timer.archivedAt) return null
+
+  if (args.timer.mode === "since") {
+    if (!args.timer.milestones) return null
+    const occurrence = nextOccurrenceAfter(args.timer, afterMs)
+    if (!occurrence?.milestone) return null
+    const occurrenceIso = occurrence.at
+    const occurrenceAt = new Date(occurrenceIso)
+    if (Number.isNaN(occurrenceAt.getTime())) return null
+
+    return emitWebhookEvent(tx, {
+      aggregateId: args.timer.id,
+      aggregateType: "timer",
+      availableAt: occurrenceAt,
+      dedupeKey: timerOccurrenceDedupeKey("timer.milestone", {
+        occurrenceIso,
+        projectId: args.project.id,
+        timerId: args.timer.id,
+        userId: args.project.ownerId,
+      }),
+      payload: {
+        ...timerPayload(args.project, args.timer),
+        milestone_unit: occurrence.milestone.unit,
+        milestone_count: occurrence.milestone.count,
+        occurred_at: occurrenceIso,
+        anchor_date: args.timer.targetDate,
+        timezone: args.timer.timezone,
+      },
+      projectId: args.project.id,
+      timerId: args.timer.id,
+      type: "timer.milestone",
+      userId: args.project.ownerId,
+    })
+  }
+
+  const occurrenceIso = nextOccurrenceAfter(args.timer, afterMs)?.at ?? args.timer.targetDate
+  const occurrenceAt = new Date(occurrenceIso)
+  if (Number.isNaN(occurrenceAt.getTime())) return null
 
   return emitWebhookEvent(tx, {
     aggregateId: args.timer.id,
     aggregateType: "timer",
     availableAt: occurrenceAt,
-    dedupeKey: timerEndedDedupeKey({
+    dedupeKey: timerOccurrenceDedupeKey("timer.ended", {
       occurrenceIso,
       projectId: args.project.id,
       timerId: args.timer.id,
@@ -707,17 +746,32 @@ async function createDeliveriesForEvent(event: WebhookEventRow) {
       data: { processedAt: new Date(), status: "completed" },
     })
 
-    if (event.type === "timer.ended" && event.projectId && event.timerId) {
+    if ((event.type === "timer.ended" || event.type === "timer.milestone") && event.projectId && event.timerId) {
       const row = await tx.timer.findFirst({
         where: { id: event.timerId, projectId: event.projectId },
         include: { project: true },
       })
       const timer = timerSchema.safeParse(row?.data)
-      if (row?.project && timer.success && timer.data.recurrence?.enabled && !timer.data.archivedAt) {
-        await scheduleTimerEndedEvent(tx, {
-          project: { id: row.project.id, name: row.project.name, ownerId: row.project.ownerId },
-          timer: timer.data,
-        })
+      const shouldRearm =
+        timer.success &&
+        !timer.data.archivedAt &&
+        ((event.type === "timer.ended" && timer.data.recurrence?.enabled) ||
+          (event.type === "timer.milestone" && timer.data.mode === "since" && timer.data.milestones))
+      if (row?.project && shouldRearm && timer.success) {
+        const payload =
+          event.payload && typeof event.payload === "object" ? (event.payload as Record<string, unknown>) : {}
+        const occurredAt =
+          typeof payload.occurred_at === "string"
+            ? new Date(payload.occurred_at).getTime()
+            : event.availableAt.getTime()
+        await scheduleTimerEndedEvent(
+          tx,
+          {
+            project: { id: row.project.id, name: row.project.name, ownerId: row.project.ownerId },
+            timer: timer.data,
+          },
+          Number.isNaN(occurredAt) ? event.availableAt.getTime() : occurredAt,
+        )
       }
     }
 
