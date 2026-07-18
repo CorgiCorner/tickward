@@ -272,6 +272,7 @@ function TimerStepContent(
         labelLength={props.labelLength}
         descriptionLength={props.descriptionLength}
         labelPlaceholder={props.labelPlaceholder}
+        detailsCollapsed
       />
     )
   }

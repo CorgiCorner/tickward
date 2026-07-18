@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.14.1 - 2026-07-18
+
+### Changed
+
+- Made timer creation start with Name and keep optional description, link, and space controls in a compact Details section while editing keeps them directly available.
+
 ## 0.14.0 - 2026-07-17
 
 ### Added

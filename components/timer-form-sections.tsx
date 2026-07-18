@@ -1,6 +1,15 @@
 import { formatInTimeZone } from "date-fns-tz"
-import { BellIcon, BellRingIcon, CircleHelpIcon, ClockIcon, ImageIcon, LockIcon, PencilIcon } from "lucide-react"
-import { useEffect, useRef, type ComponentType, type ReactNode } from "react"
+import {
+  BellIcon,
+  BellRingIcon,
+  ChevronDownIcon,
+  CircleHelpIcon,
+  ClockIcon,
+  ImageIcon,
+  LockIcon,
+  PencilIcon,
+} from "lucide-react"
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react"
 import { Controller, useController, type Control, type UseFormRegister } from "react-hook-form"
 
 import { TimerRemindersField } from "@/components/timer-reminders-field"
@@ -304,9 +313,11 @@ export function TimerBasicsSection(
     labelLength: number
     descriptionLength: number
     labelPlaceholder: string
+    detailsCollapsed?: boolean
   }>,
 ) {
   const { control, register, spaces } = props
+  const [detailsOpen, setDetailsOpen] = useState(!props.detailsCollapsed)
 
   return (
     <>
@@ -316,85 +327,103 @@ export function TimerBasicsSection(
         <div className="text-xs text-muted-foreground">{props.labelLength}/60</div>
       </div>
 
-      <div className="grid gap-2">
-        <Label htmlFor="description">{formatMessage("timer.form.description")}</Label>
-        <textarea
-          id="description"
-          maxLength={200}
-          placeholder={formatMessage("timer.form.descriptionPlaceholder")}
-          rows={2}
-          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-          {...register("description")}
-        />
-        <div className="text-xs text-muted-foreground">{props.descriptionLength}/200</div>
-      </div>
+      {props.detailsCollapsed ? (
+        <button
+          type="button"
+          className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted/50"
+          aria-expanded={detailsOpen}
+          onClick={() => setDetailsOpen((open) => !open)}
+        >
+          {formatMessage("timer.form.details")}
+          <ChevronDownIcon
+            className={["size-4 text-muted-foreground transition-transform", detailsOpen ? "rotate-180" : ""].join(" ")}
+          />
+        </button>
+      ) : null}
 
-      <Controller
-        control={control}
-        name="url"
-        render={({ field, fieldState }) => (
+      {detailsOpen ? (
+        <div className="grid gap-4">
           <div className="grid gap-2">
-            <Label htmlFor="url">{formatMessage("timer.form.url")}</Label>
-            <Input
-              id="url"
-              type="url"
-              inputMode="url"
-              maxLength={2048}
-              placeholder={formatMessage("timer.form.urlPlaceholder")}
-              value={field.value ?? ""}
-              onChange={field.onChange}
-              onBlur={field.onBlur}
-              name={field.name}
-              ref={field.ref}
+            <Label htmlFor="description">{formatMessage("timer.form.description")}</Label>
+            <textarea
+              id="description"
+              maxLength={200}
+              placeholder={formatMessage("timer.form.descriptionPlaceholder")}
+              rows={2}
+              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              {...register("description")}
             />
-            {fieldState.error ? <div className="text-xs text-destructive">{fieldState.error.message}</div> : null}
+            <div className="text-xs text-muted-foreground">{props.descriptionLength}/200</div>
           </div>
-        )}
-      />
 
-      {spaces.length > 0 ? (
-        <Controller
-          control={control}
-          name="spaceId"
-          render={({ field }) => (
-            <div className="grid gap-2">
-              <Label>{formatMessage("timer.form.space")}</Label>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className={[
-                    "rounded-full border px-3 py-1 text-xs transition-colors",
-                    field.value
-                      ? "border-border text-muted-foreground hover:text-foreground"
-                      : "border-primary bg-primary text-primary-foreground",
-                  ].join(" ")}
-                  onClick={() => field.onChange("")}
-                >
-                  {formatMessage("timer.form.noneSpace")}
-                </button>
-                {spaces.map((space) => (
-                  <button
-                    key={space.id}
-                    type="button"
-                    className={[
-                      "inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
-                      field.value === space.id
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border text-muted-foreground hover:text-foreground",
-                    ].join(" ")}
-                    onClick={() => field.onChange(space.id)}
-                  >
-                    <span
-                      className="size-2 rounded-full bg-muted-foreground"
-                      style={space.color ? { backgroundColor: space.color } : undefined}
-                    />
-                    <span className="truncate">{space.name}</span>
-                  </button>
-                ))}
+          <Controller
+            control={control}
+            name="url"
+            render={({ field, fieldState }) => (
+              <div className="grid gap-2">
+                <Label htmlFor="url">{formatMessage("timer.form.url")}</Label>
+                <Input
+                  id="url"
+                  type="url"
+                  inputMode="url"
+                  maxLength={2048}
+                  placeholder={formatMessage("timer.form.urlPlaceholder")}
+                  value={field.value ?? ""}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  name={field.name}
+                  ref={field.ref}
+                />
+                {fieldState.error ? <div className="text-xs text-destructive">{fieldState.error.message}</div> : null}
               </div>
-            </div>
-          )}
-        />
+            )}
+          />
+
+          {spaces.length > 0 ? (
+            <Controller
+              control={control}
+              name="spaceId"
+              render={({ field }) => (
+                <div className="grid gap-2">
+                  <Label>{formatMessage("timer.form.space")}</Label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className={[
+                        "rounded-full border px-3 py-1 text-xs transition-colors",
+                        field.value
+                          ? "border-border text-muted-foreground hover:text-foreground"
+                          : "border-primary bg-primary text-primary-foreground",
+                      ].join(" ")}
+                      onClick={() => field.onChange("")}
+                    >
+                      {formatMessage("timer.form.noneSpace")}
+                    </button>
+                    {spaces.map((space) => (
+                      <button
+                        key={space.id}
+                        type="button"
+                        className={[
+                          "inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
+                          field.value === space.id
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border text-muted-foreground hover:text-foreground",
+                        ].join(" ")}
+                        onClick={() => field.onChange(space.id)}
+                      >
+                        <span
+                          className="size-2 rounded-full bg-muted-foreground"
+                          style={space.color ? { backgroundColor: space.color } : undefined}
+                        />
+                        <span className="truncate">{space.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            />
+          ) : null}
+        </div>
       ) : null}
     </>
   )
