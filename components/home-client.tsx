@@ -445,7 +445,7 @@ const CountUpTimerSection = memo(function CountUpTimerSection(
             className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
           >
             <TimerIcon className="size-3" />
-            {formatMessage("home.startedCountingUp")} · {formatMessage("countUp.sectionCount", { count })}
+            {formatMessage("home.countUp")} · {formatMessage("countUp.sectionCount", { count })}
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">{formatMessage("home.startedCountingUp.helper")}</p>
         </div>

@@ -50,6 +50,15 @@ describe("timer filters", () => {
     expect(
       timerFilterType(
         makeTimer({
+          targetDate: "2026-05-20T12:00:00.000Z",
+          createdAt: "2026-05-23T12:00:00.000Z",
+        }),
+        NOW_MS,
+      ),
+    ).toBe("countdown")
+    expect(
+      timerFilterType(
+        makeTimer({
           mode: "since",
           targetDate: "2020-01-01T12:00:00.000Z",
           milestones: { rules: [{ unit: "years", every: 1 }] },
@@ -62,6 +71,16 @@ describe("timer filters", () => {
     expect(
       timerMatchesFilters(makeTimer({ targetDate: "2026-05-25T12:00:00.000Z" }), filters({ type: "countUp" }), NOW_MS),
     ).toBe(false)
+    expect(
+      timerMatchesFilters(
+        makeTimer({
+          targetDate: "2026-05-20T12:00:00.000Z",
+          createdAt: "2026-05-23T12:00:00.000Z",
+        }),
+        filters({ type: "countdown" }),
+        NOW_MS,
+      ),
+    ).toBe(true)
     expect(
       timerMatchesFilters(
         makeTimer({ targetDate: "2026-05-20T12:00:00.000Z", recurrence: { enabled: true, type: "daily" } }),

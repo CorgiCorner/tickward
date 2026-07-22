@@ -455,7 +455,7 @@ export const plMessages = {
   "header.toggleTheme": "Przełącz motyw",
   "home.archived": "Zarchiwizowane",
   "home.archived.showAll": "Pokaż wszystko",
-  "home.startedCountingUp": "Zaczęły odliczać w górę",
+  "home.countUp": "Odliczanie w górę",
   "home.startedCountingUp.helper": "Te liczniki niedawno przekroczyły zero.",
   "home.jumpToActive": "Powrót na górę",
   "home.conflict.description": "Wybierz, która wersja ma pozostać aktywna przed następną synchronizacją.",

@@ -192,7 +192,7 @@ function AccountPreferencesSections(
       </Suspense>
       <section id="count-up" className="scroll-mt-28 pt-0">
         <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-          {formatMessage("home.startedCountingUp")}
+          {formatMessage("home.countUp")}
         </h2>
         <div className="mt-2">
           <Suspense fallback={<SettingsPanelLoading id="count-up-policy-settings" />}>
@@ -292,7 +292,7 @@ function SettingsHashScroller() {
 const SETTINGS_NAV_ITEMS = [
   { id: "account", labelKey: "auth.account" },
   { id: "notifications", labelKey: "settings.notifications" },
-  { id: "count-up", labelKey: "home.startedCountingUp" },
+  { id: "count-up", labelKey: "home.countUp" },
   { id: "developer", labelKey: "settings.developer" },
 ] as const
 
@@ -448,7 +448,7 @@ export function AccountPageClient(props: Readonly<AccountPageInitialData> = {}) 
         </section>
         <section id="count-up" className="scroll-mt-28 pt-0">
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-            {formatMessage("home.startedCountingUp")}
+            {formatMessage("home.countUp")}
           </h2>
           <div className="mt-2">
             <Suspense fallback={<SettingsPanelLoading id="count-up-policy-settings" />}>

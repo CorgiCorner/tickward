@@ -20,7 +20,15 @@ export function timerIsRecurring(timer: Timer) {
 
 export function timerFilterType(timer: Timer, nowMs = Date.now()): Exclude<TimerFilterType, "all"> {
   if (timer.mode === "since") return "countUp"
-  return new Date(effectiveTargetDate(timer, nowMs)).getTime() < nowMs ? "countUp" : "countdown"
+  const targetAtMs = new Date(effectiveTargetDate(timer, nowMs)).getTime()
+  const createdAtMs = new Date(timer.createdAt).getTime()
+
+  // A timer created after its target has never crossed zero while Tickward was
+  // tracking it. It belongs in the Past countdown section, rather than the
+  // Count up workflow. Treating it as Count up hid a newly-created past timer
+  // whenever the Countdown filter was active, despite confirming creation.
+  if (!Number.isFinite(targetAtMs) || targetAtMs >= nowMs || targetAtMs < createdAtMs) return "countdown"
+  return "countUp"
 }
 
 export function timerMatchesType(timer: Timer, type: TimerFilterType, nowMs = Date.now()) {

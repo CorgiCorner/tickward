@@ -312,7 +312,7 @@ async function assertMobileInputs(page, label) {
   // schedule popover trigger. There are no longer inline native date/time
   // inputs, so we assert the inline input stays h-9.
   const metrics = await page.evaluate(() => {
-    const name = document.querySelector('input[aria-label="Label"]')
+    const name = document.querySelector('input[aria-label="Name"]')
     if (!(name instanceof HTMLElement)) {
       return null
     }
@@ -360,7 +360,7 @@ async function openSeededHome(browserType, baseUrl, projectName) {
   const browserErrors = collectBrowserErrors(page)
   await installRoutes(page)
   await page.goto("/", { waitUntil: "domcontentloaded" })
-  await page.getByRole("textbox", { name: "Label" }).first().waitFor({ state: "visible", timeout: 10_000 })
+  await page.getByRole("textbox", { name: "Name" }).first().waitFor({ state: "visible", timeout: 10_000 })
   return { browser, browserErrors, page }
 }
 

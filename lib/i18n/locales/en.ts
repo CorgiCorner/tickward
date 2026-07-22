@@ -448,7 +448,7 @@ export const enMessages = {
   "header.toggleTheme": "Toggle theme",
   "home.archived": "Archived",
   "home.archived.showAll": "Show all",
-  "home.startedCountingUp": "Started counting up",
+  "home.countUp": "Count up",
   "home.startedCountingUp.helper": "These timers recently passed zero.",
   "home.jumpToActive": "Back to top",
   "home.conflict.description": "Choose which version should stay active before the next sync runs.",

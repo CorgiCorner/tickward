@@ -473,6 +473,7 @@ describe("HomeClient", () => {
     const attention = countUpSection()
     const past = sectionForHeading("Counting up")
     expect(attention.compareDocumentPosition(past) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(document.getElementById("count-up-timers-heading")).toHaveTextContent("Count up")
     expect(within(attention).getByText("Needs review")).toBeVisible()
     expect(within(past).getByText("Direct Past")).toBeVisible()
     expect(within(past).getByText("Acknowledged Past")).toBeVisible()

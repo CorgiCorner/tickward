@@ -371,11 +371,11 @@ describe("AccountPageClient", () => {
 
     render(<AccountPageClient />)
 
-    await userEvent.click(screen.getByRole("link", { name: "Started counting up" }))
+    await userEvent.click(screen.getByRole("link", { name: "Count up" }))
 
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "smooth" })
     expect(window.location.hash).toBe("#count-up")
-    const countUpTab = screen.getByRole("link", { name: "Started counting up" })
+    const countUpTab = screen.getByRole("link", { name: "Count up" })
     expect(countUpTab.className).toContain("border-foreground")
   })
 })

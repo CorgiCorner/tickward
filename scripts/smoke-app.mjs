@@ -195,7 +195,7 @@ async function runSmoke(baseUrl) {
     })
 
     await page.goto("/", { waitUntil: "networkidle" })
-    const quickAddInput = page.getByRole("textbox", { name: "Label" }).first()
+    const quickAddInput = page.getByRole("textbox", { name: "Name" }).first()
     await expectVisible(quickAddInput, "quick add")
     await assertNoBrowserErrors(browserErrors)
     log("home loaded without browser errors")

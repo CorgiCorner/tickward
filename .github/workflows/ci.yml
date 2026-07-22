@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       # Runs before npm ci/build so the scan does not traverse node_modules or .next.
       - name: Secret scan (gitleaks CLI, pinned release)
         env:
@@ -42,7 +42,7 @@ jobs:
           echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -color
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -75,8 +75,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -95,11 +95,15 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           # PR review requires a completed quality gate. A main push may still
           # emit an explicitly degraded artifact after transient Sonar outages.
-          TICKWARD_SONAR_POLICY: ${{ github.event_name == 'pull_request' && 'gate' || 'config' }}
+          # Dependabot workflows cannot access repository Actions secrets.
+          TICKWARD_SONAR_POLICY: ${{ github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && 'none' || github.event_name == 'pull_request' && 'gate' || 'config' }}
         run: |
-          if [[ -z "$SONAR_TOKEN" ]]; then
+          if [[ -z "$SONAR_TOKEN" && "$GITHUB_ACTOR" != "dependabot[bot]" ]]; then
             echo "::error::SONAR_TOKEN is required for private snapshot analysis"
             exit 1
+          fi
+          if [[ -z "$SONAR_TOKEN" ]]; then
+            echo "::warning::SONAR_TOKEN is unavailable for Dependabot; running snapshot validation without SonarCloud analysis"
           fi
           artifact_args=()
           if [ "${GITHUB_EVENT_NAME}" = "push" ]; then

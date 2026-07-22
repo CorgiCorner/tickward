@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.14.2 - 2026-07-22
+
+### Changed
+
+- Renamed the "Started counting up" section to "Count up" across supported languages.
+- Updated runtime, development, and GitHub Actions dependencies.
+
+### Fixed
+
+- Timers created with dates in the past now appear correctly in the Count up section.
+
+### Security
+
+- Updated transitive dependency resolutions to remove high-severity audit findings.
+
 ## 0.14.1 - 2026-07-18
 
 ### Changed

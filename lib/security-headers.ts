@@ -36,6 +36,9 @@ export function contentSecurityPolicy(): string {
     "'self'",
     "https://api.github.com",
     ...(plausibleOrigin ? [plausibleOrigin] : []),
+    // Sentry's loader fetches SDK source maps from this origin. Browsers apply
+    // connect-src to those fetches, so script-src alone is not sufficient.
+    ...(sentryIngestOrigin ? ["https://browser.sentry-cdn.com"] : []),
     ...(sentryIngestOrigin ? [sentryIngestOrigin] : []),
   ])
   const scriptSrc = uniqueSources([

@@ -462,7 +462,7 @@ export const deMessages = {
   "header.toggleTheme": "Design wechseln",
   "home.archived": "Archiviert",
   "home.archived.showAll": "Alle anzeigen",
-  "home.startedCountingUp": "Hochzählen gestartet",
+  "home.countUp": "Hochzählen",
   "home.startedCountingUp.helper": "Diese Timer haben kürzlich null überschritten.",
   "home.jumpToActive": "Zurück nach oben",
   "home.conflict.description":

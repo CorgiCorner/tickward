@@ -462,7 +462,7 @@ export const itMessages = {
   "header.toggleTheme": "Cambia tema",
   "home.archived": "Archiviati",
   "home.archived.showAll": "Mostra tutti",
-  "home.startedCountingUp": "Conteggio crescente iniziato",
+  "home.countUp": "Conteggio crescente",
   "home.startedCountingUp.helper": "Questi timer hanno superato lo zero di recente.",
   "home.jumpToActive": "Torna su",
   "home.conflict.description":
