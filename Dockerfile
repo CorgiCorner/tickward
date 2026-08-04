@@ -1,10 +1,10 @@
-FROM node:22-alpine AS deps
+FROM node:22.23.1-alpine AS deps
 
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 
-FROM node:22-alpine AS builder
+FROM node:22.23.1-alpine AS builder
 
 ARG SITE_URL=https://tickward.com
 ARG NEXT_PUBLIC_TICKWARD_MAX_TIMERS=20
@@ -29,7 +29,7 @@ RUN npm run db:download-rds-ca
 RUN npm run build
 RUN npm prune --omit=dev
 
-FROM node:22-alpine AS runner
+FROM node:22.23.1-alpine AS runner
 
 ARG SITE_URL=https://tickward.com
 ARG NEXT_PUBLIC_TICKWARD_MAX_TIMERS=20

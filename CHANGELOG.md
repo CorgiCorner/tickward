@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.14.3 - 2026-08-04
+
+### Changed
+
+- Updated runtime, development, and GitHub Actions dependencies.
+
+### Fixed
+
+- Pinned container build stages to the supported Node runtime so upstream image updates cannot break self-hosted builds.
+
+### Security
+
+- Updated the pinned PostCSS resolution and transitive dependency versions to clear all high-severity audit findings.
+
 ## 0.14.2 - 2026-07-22
 
 ### Changed
