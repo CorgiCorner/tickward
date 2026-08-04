@@ -80,6 +80,16 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      - name: Setup Java 21 for Copybara
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Cache Copybara
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/corgicorner-copybara
+          key: copybara-${{ runner.os }}-${{ hashFiles('scripts/run-copybara-snapshot.sh') }}
       - name: Install pinned Gitleaks
         env:
           GITLEAKS_VERSION: 8.30.1

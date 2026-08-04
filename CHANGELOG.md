@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.14.4 - 2026-08-04
+
+### Changed
+
+- Made public source releases reproducible through a parity-tested snapshot generator.
+- Added release candidates that validate the exact public snapshot and source binding before final publication.
+
 ## 0.14.3 - 2026-08-04
 
 ### Changed

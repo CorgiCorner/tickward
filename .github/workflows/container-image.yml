@@ -39,6 +39,24 @@ jobs:
       labels: ${{ steps.ghcr-meta.outputs.labels }}
 
     steps:
+      - name: Checkout public source
+        if: github.event_name == 'repository_dispatch'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Verify private origin binding
+        if: github.event_name == 'repository_dispatch'
+        env:
+          ORIGIN_SHA: ${{ github.event.client_payload.origin_sha }}
+        run: |
+          if [[ ! "${ORIGIN_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::repository_dispatch requires a full origin_sha"
+            exit 1
+          fi
+          if [ "$(git log -1 --pretty='%B' | grep -c "^GitOrigin-RevId: ${ORIGIN_SHA}$")" -ne 1 ]; then
+            echo "::error::Public main is not bound to ${ORIGIN_SHA}"
+            exit 1
+          fi
+
       - name: Check GHCR credentials
         id: ghcr
         env:
