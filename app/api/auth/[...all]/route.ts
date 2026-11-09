@@ -176,15 +176,30 @@ async function recordAuthPostAuditEvent(
 }
 
 export async function GET(req: Request) {
+  if (authPath(req).startsWith("/callback/apple")) return new NextResponse(null, { status: 404 })
   const handler = handlers()?.GET
   if (handler) return handler(req)
   if (isSessionRead(req)) return NextResponse.json(null)
   return unavailable()
 }
 
+/**
+ * Apple is registered only to verify the iPhone app's native id tokens through
+ * /api/mobile/auth/apple, which enforces a nonce. Its web endpoints stay closed so a captured
+ * id token cannot be replayed through them.
+ */
+async function isAppleWebSignIn(req: Request) {
+  const path = authPath(req)
+  if (path.startsWith("/callback/apple")) return true
+  if (!path.startsWith("/sign-in/social") && !path.startsWith("/link-social")) return false
+  const body = await readAuditJson(req)
+  return body?.provider === "apple"
+}
+
 export async function POST(req: Request) {
   const handler = handlers()?.POST
   if (!handler) return unavailable()
+  if (await isAppleWebSignIn(req)) return new NextResponse(null, { status: 404 })
   if (isEmailOtpSendRequest(req)) {
     const rateLimitResponse = await enforceEmailOtpSendRateLimit(req)
     if (rateLimitResponse) return rateLimitResponse

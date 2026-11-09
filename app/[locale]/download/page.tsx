@@ -21,7 +21,8 @@ export async function generateMetadata(props: Readonly<{ params: Promise<{ local
   const locale = await resolveRouteLocale(props.params)
   const path = localeHref(locale, "/download")
   return {
-    title: formatMessage("download.meta.title", {}, locale),
+    // The copy already names the brand; skip the template suffix.
+    title: { absolute: formatMessage("download.meta.title", {}, locale) },
     description: formatMessage("download.meta.description", {}, locale),
     alternates: {
       canonical: path,

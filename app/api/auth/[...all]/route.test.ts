@@ -61,6 +61,29 @@ describe("/api/auth/[...all]", () => {
     mocks.toNextJsHandler.mockReturnValue({ POST: mocks.postHandler })
   })
 
+  it("closes Apple's web sign-in so native id tokens only go through the nonce-checked route", async () => {
+    mocks.getTickwardAuth.mockReturnValue({})
+    const { POST } = await import("./route")
+
+    const apple = await POST(
+      new Request("https://tickward.test/api/auth/sign-in/social", {
+        body: JSON.stringify({ idToken: { token: "jwt" }, provider: "apple" }),
+        method: "POST",
+      }),
+    )
+    expect(apple.status).toBe(404)
+    expect(mocks.postHandler).not.toHaveBeenCalled()
+
+    const other = await POST(
+      new Request("https://tickward.test/api/auth/sign-in/social", {
+        body: JSON.stringify({ provider: "google" }),
+        method: "POST",
+      }),
+    )
+    expect(other.status).toBe(200)
+    expect(mocks.postHandler).toHaveBeenCalledTimes(1)
+  })
+
   it("returns an empty session read until Better Auth is configured", async () => {
     const { GET } = await import("./route")
 

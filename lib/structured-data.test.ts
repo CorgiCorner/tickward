@@ -6,12 +6,68 @@ import {
   buildFaqPageJsonLd,
   buildOrganizationJsonLd,
   buildSoftwareApplicationJsonLd,
+  validateContentPublicationDates,
   jsonLdScriptContent,
 } from "@/lib/structured-data"
 
 describe("structured data", () => {
   afterEach(() => {
     vi.unstubAllEnvs()
+  })
+
+  it("describes downloadable dataset formats separately from publication and event dates", () => {
+    vi.stubEnv("SITE_URL", "https://example.com")
+    const jsonLd = buildDatasetJsonLd({
+      name: "Published schedule",
+      description: "Visible schedule",
+      path: "/schedule",
+      dates: ["2027-01-01"],
+      publicationDates: { datePublished: "2026-10-15", dateModified: "2026-10-16" },
+      downloads: [
+        { path: "/api/schedule/calendar.ics", encodingFormat: "text/calendar" },
+        { path: "/api/schedule/feed.json", encodingFormat: "application/json" },
+      ],
+    })
+    expect(jsonLd).toMatchObject({
+      datePublished: "2026-10-15",
+      dateModified: "2026-10-16",
+      temporalCoverage: "2027-01-01/2027-01-01",
+    })
+    expect(jsonLd.distribution).toEqual([
+      {
+        "@type": "DataDownload",
+        contentUrl: "https://example.com/api/schedule/calendar.ics",
+        encodingFormat: "text/calendar",
+      },
+      {
+        "@type": "DataDownload",
+        contentUrl: "https://example.com/api/schedule/feed.json",
+        encodingFormat: "application/json",
+      },
+    ])
+  })
+
+  it("rejects impossible publication dates and reversed content history", () => {
+    for (const dates of [
+      { datePublished: "2026-02-30" },
+      { dateModified: "not a date" },
+      { datePublished: "2026-10-16", dateModified: "2026-10-15" },
+    ])
+      expect(() => validateContentPublicationDates(dates)).toThrow()
+  })
+
+  it("rejects download references that do not identify a site-relative resource", () => {
+    for (const path of ["//example.org/file", "https://example.org/file"]) {
+      expect(() =>
+        buildDatasetJsonLd({
+          name: "Dates",
+          description: "Dates",
+          path: "/dates",
+          dates: [],
+          downloads: [{ path, encodingFormat: "text/calendar" }],
+        }),
+      ).toThrow(/site-relative/)
+    }
   })
 
   it("describes the app as a free schema.org SoftwareApplication", () => {
@@ -34,10 +90,10 @@ describe("structured data", () => {
   })
 
   it("tracks the configured SITE_URL for the canonical url", () => {
-    vi.stubEnv("SITE_URL", "https://example.test")
+    vi.stubEnv("SITE_URL", "https://example.com")
     vi.stubEnv("NODE_ENV", "production")
 
-    expect(buildSoftwareApplicationJsonLd().url).toBe("https://example.test")
+    expect(buildSoftwareApplicationJsonLd().url).toBe("https://example.com")
   })
 
   it("serializes to embeddable JSON without script-breaking content", () => {
@@ -67,7 +123,7 @@ describe("structured data", () => {
   })
 
   it("builds Dataset markup with date coverage and publisher", () => {
-    vi.stubEnv("SITE_URL", "https://example.test")
+    vi.stubEnv("SITE_URL", "https://example.com")
     vi.stubEnv("NODE_ENV", "production")
 
     const jsonLd = buildDatasetJsonLd({
@@ -82,19 +138,19 @@ describe("structured data", () => {
       "@type": "Dataset",
       name: "US federal holidays 2027",
       description: "Visible calendar copy for the holidays.",
-      url: "https://example.test/en/timers/us-federal-holidays-2027",
+      url: "https://example.com/en/timers/us-federal-holidays-2027",
       temporalCoverage: "2027-01-01/2027-12-25",
       publisher: {
         "@type": "Organization",
         name: "tickward",
-        url: "https://example.test",
+        url: "https://example.com",
       },
       isAccessibleForFree: true,
     })
   })
 
   it("builds BreadcrumbList markup with absolute item urls", () => {
-    vi.stubEnv("SITE_URL", "https://example.test")
+    vi.stubEnv("SITE_URL", "https://example.com")
     vi.stubEnv("NODE_ENV", "production")
 
     const jsonLd = buildBreadcrumbListJsonLd([
@@ -106,8 +162,8 @@ describe("structured data", () => {
       "@context": "https://schema.org",
       "@type": "BreadcrumbList",
       itemListElement: [
-        { "@type": "ListItem", position: 1, name: "Home", item: "https://example.test/" },
-        { "@type": "ListItem", position: 2, name: "Example", item: "https://example.test/example" },
+        { "@type": "ListItem", position: 1, name: "Home", item: "https://example.com/" },
+        { "@type": "ListItem", position: 2, name: "Example", item: "https://example.com/example" },
       ],
     })
   })
@@ -133,13 +189,13 @@ describe("structured data", () => {
   })
 
   it("derives organization url and logo from the configured SITE_URL", () => {
-    vi.stubEnv("SITE_URL", "https://example.test")
+    vi.stubEnv("SITE_URL", "https://example.com")
     vi.stubEnv("NODE_ENV", "production")
 
     const jsonLd = buildOrganizationJsonLd()
 
-    expect(jsonLd.url).toBe("https://example.test")
-    expect(jsonLd.logo).toBe("https://example.test/press/tickward-logo-512.png")
+    expect(jsonLd.url).toBe("https://example.com")
+    expect(jsonLd.logo).toBe("https://example.com/press/tickward-logo-512.png")
   })
 
   it("serializes the organization payload without script-breaking content", () => {

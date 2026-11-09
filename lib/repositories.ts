@@ -72,6 +72,8 @@ export type RateLimitBucket =
   | "mcp-oauth-grant"
   | "desktop-oauth-exchange"
   | "desktop-oauth-grant"
+  | "mobile-auth"
+  | "mobile-review-code"
 
 export type RateLimitDecision =
   | { ok: true }

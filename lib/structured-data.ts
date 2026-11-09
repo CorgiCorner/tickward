@@ -53,13 +53,45 @@ export function buildSoftwareApplicationJsonLd(
   }
 }
 
+export type ContentPublicationDates = Readonly<{
+  datePublished?: string
+  dateModified?: string
+}>
+
+export type DatasetDownload = Readonly<{
+  path: string
+  encodingFormat: "text/calendar" | "application/json"
+}>
+
+// Invalid metadata is an authoring error; these diagnostics are not product UI copy.
+export function validateContentPublicationDates(dates: ContentPublicationDates) {
+  for (const value of [dates.datePublished, dates.dateModified]) {
+    if (value === undefined) continue
+    const parsed = new Date(value)
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+      Number.isNaN(parsed.getTime()) ||
+      parsed.toISOString().slice(0, 10) !== value
+    ) {
+      throw new Error("invalid publication date: use a real YYYY-MM-DD value")
+    }
+  }
+  if (dates.datePublished && dates.dateModified && dates.dateModified < dates.datePublished) {
+    throw new Error("content modification date precedes its publication date")
+  }
+}
+
 export function buildDatasetJsonLd(input: {
   name: string
   description: string
   path: string
   dates: readonly string[]
+  publicationDates?: ContentPublicationDates
+  downloads?: readonly DatasetDownload[]
 }) {
   const origin = getSiteOrigin()
+  const publicationDates = input.publicationDates ?? {}
+  validateContentPublicationDates(publicationDates)
   const sortedDates = input.dates
     .map((date) => new Date(date))
     .filter((date) => !Number.isNaN(date.getTime()))
@@ -74,6 +106,22 @@ export function buildDatasetJsonLd(input: {
     description: input.description,
     url: `${origin}${input.path}`,
     ...(firstDate && lastDate ? { temporalCoverage: `${firstDate}/${lastDate}` } : {}),
+    ...(publicationDates.datePublished ? { datePublished: publicationDates.datePublished } : {}),
+    ...(publicationDates.dateModified ? { dateModified: publicationDates.dateModified } : {}),
+    ...(input.downloads?.length
+      ? {
+          distribution: input.downloads.map((download) => {
+            if (!download.path.startsWith("/") || download.path.startsWith("//")) {
+              throw new Error("dataset download requires a site-relative path")
+            }
+            return {
+              "@type": "DataDownload",
+              contentUrl: `${origin}${download.path}`,
+              encodingFormat: download.encodingFormat,
+            }
+          }),
+        }
+      : {}),
     publisher: {
       "@type": "Organization",
       name: "tickward",

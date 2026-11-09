@@ -50,6 +50,7 @@ type SitemapSource = Readonly<{
   path: string
   priority: number
   localized?: boolean
+  lastModified?: string
 }>
 
 function sitemapUrl(siteOrigin: string, href: string): string {
@@ -72,6 +73,7 @@ function sitemapEntries(siteOrigin: string, entry: SitemapSource): MetadataRoute
     return [
       {
         url: sitemapUrl(siteOrigin, entry.path),
+        ...(entry.lastModified ? { lastModified: entry.lastModified } : {}),
         changeFrequency: entry.changeFrequency,
         priority: entry.priority,
       },
@@ -80,6 +82,7 @@ function sitemapEntries(siteOrigin: string, entry: SitemapSource): MetadataRoute
 
   return SUPPORTED_LOCALES.map((locale) => ({
     url: sitemapUrl(siteOrigin, localeHref(locale, entry.path)),
+    ...(entry.lastModified ? { lastModified: entry.lastModified } : {}),
     changeFrequency: entry.changeFrequency,
     priority: entry.priority,
     alternates: localeAlternates(siteOrigin, entry.path),

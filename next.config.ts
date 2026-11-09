@@ -13,6 +13,12 @@ const nextConfig: NextConfig = {
     // Required for app/global-not-found.tsx: routing-level 404s render a
     // standalone branded document with a real 404 status.
     globalNotFound: true,
+    // Server bundles ship without source maps (~65 MB across 731 files) to keep the Amplify
+    // compute output under its 220 MiB cap; browser maps stay for client error stacks.
+    serverSourceMaps: false,
+    // One static-generation worker: the Amplify build container has 8 GB and the build peaks
+    // near it (Linux container, 235 pages: 3 workers 7.4 GB, 2 workers OOM-killed, 1 worker 6.9 GB).
+    cpus: 1,
   },
   outputFileTracingIncludes: {
     "/*": ["./prisma/rds-ca.pem", "./skill.md"],

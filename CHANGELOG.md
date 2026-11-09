@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 0.15.0 - 2026-11-09
+
+### Added
+
+- Added mobile sign-in for the iPhone app with an emailed code or Sign in with Apple. Each device receives its own revocable connection token for the public API.
+- Added more source-checked calendars and 2027 schedules, with precise date and time exports.
+- Calendar pages now describe their download formats and show verified publication and content-update dates.
+
+### Fixed
+
+- Fixed page titles, social cards, sitemap last-modified dates and dead links.
+- Reduced build memory use and output size so production builds complete reliably.
+
+### Security
+
+- Updated authentication, input validation and development server dependencies to patched versions.
+
 ## 0.14.4 - 2026-08-04
 
 ### Changed

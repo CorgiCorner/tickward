@@ -48,6 +48,32 @@ async function sendEmailOtp(
   })
 }
 
+/** The iOS app's bundle id; setting it turns on native Sign in with Apple for the app. */
+function appleBundleIdentifier(env: NodeJS.ProcessEnv = process.env) {
+  const value = env.TICKWARD_APPLE_BUNDLE_ID?.trim()
+  return value ? value : null
+}
+
+export function appleSignInConfigured(env: NodeJS.ProcessEnv = process.env) {
+  return appleBundleIdentifier(env) !== null
+}
+
+function appleSocialProvider() {
+  const bundleId = appleBundleIdentifier()
+  if (!bundleId) return {}
+  // Only native id tokens are verified (audience = bundle id); there is no web redirect flow,
+  // so no client secret is needed.
+  return {
+    socialProviders: {
+      apple: {
+        appBundleIdentifier: bundleId,
+        clientId: bundleId,
+        clientSecret: "",
+      },
+    },
+  }
+}
+
 function createTickwardAuth(args: {
   authConfig: NonNullable<ReturnType<typeof getBetterAuthConfig>>
   prisma: NonNullable<ReturnType<typeof getPrismaClient>>
@@ -60,11 +86,13 @@ function createTickwardAuth(args: {
     database: prismaAdapter(args.prisma, {
       provider: "postgresql",
     }),
+    ...appleSocialProvider(),
     session: {
       expiresIn: SESSION_EXPIRES_IN_SECONDS,
       updateAge: SESSION_UPDATE_AGE_SECONDS,
     },
     advanced: {
+      database: { joins: true },
       useSecureCookies: secureCookies,
       defaultCookieAttributes: {
         httpOnly: true,
@@ -123,9 +151,6 @@ function createTickwardAuth(args: {
         roles: appAccessRoles,
       }),
     ],
-    experimental: {
-      joins: true,
-    },
   })
 }
 

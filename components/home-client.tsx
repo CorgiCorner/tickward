@@ -823,7 +823,7 @@ function isPastTimer(timer: Timer, nowMs: number) {
   return timer.recurrence?.enabled !== true && targetMs(timer, nowMs) < nowMs
 }
 
-export function HomeClient() {
+export function HomeClient(props: Readonly<{ promotion?: ReactNode }> = {}) {
   useProjectUrlSync()
   const hasHydrated = useTimerStore((s) => s.hasHydrated)
   const refreshAccountProjectsFromCloud = useTimerStore((s) => s.refreshAccountProjectsFromCloud)
@@ -1246,6 +1246,7 @@ export function HomeClient() {
         {countUpAnnouncement}
       </div>
       <Header />
+      {props.promotion}
 
       {/* The section constrains the sticky status footer to the timer list area
           so it settles before the content below app/page.tsx scrolls into view. */}

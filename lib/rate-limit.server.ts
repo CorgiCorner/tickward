@@ -29,6 +29,10 @@ const RATE_LIMITS = {
   "mcp-oauth-grant": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:mcp-oauth-grant" },
   "desktop-oauth-exchange": { limit: 30, window: "60 s", prefix: "tickward:ratelimit:desktop-oauth-exchange" },
   "desktop-oauth-grant": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:desktop-oauth-grant" },
+  "mobile-auth": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:mobile-auth" },
+  // App Review's fixed code: a small attempt budget for the whole life of one code. Successful
+  // sign-ins count too, so it leaves room for a review cycle's few real logins.
+  "mobile-review-code": { limit: 40, window: "62 d", prefix: "tickward:ratelimit:mobile-review-code" },
 } as const
 
 type RateLimiter = InstanceType<typeof Ratelimit>

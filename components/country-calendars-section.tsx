@@ -14,7 +14,7 @@ const COUNTRY_LINK_LIMIT = 6
 
 // Every country code that has an inline flag below; codes outside the set
 // render no flag at all, so keep this in sync when adding a country.
-const FLAG_CODES = new Set(["PL", "GB", "US", "CA", "DE", "AU"])
+const FLAG_CODES = new Set(["PL", "GB", "US", "CA", "DE", "AU", "NZ"])
 
 function normalizeFlagCode(code: string) {
   const normalized = code.toUpperCase()
@@ -67,6 +67,33 @@ function CountryFlag(props: Readonly<{ code: string }>) {
           <rect y="9.33" width="20" height="4.67" fill="#FFCE00" />
         </svg>
       ) : null}
+      {flagCode === "NZ" ? (
+        <svg viewBox="0 0 20 14" className="h-full w-full">
+          <rect width="20" height="14" fill="#012169" />
+          <g transform="scale(0.5)">
+            <path d="M0,0 L20,14 M20,0 L0,14" stroke="#fff" strokeWidth="3" />
+            <path d="M0,0 L20,14 M20,0 L0,14" stroke="#C8102E" strokeWidth="1.5" />
+            <rect x="8" width="4" height="14" fill="#fff" />
+            <rect y="5" width="20" height="4" fill="#fff" />
+            <rect x="9" width="2" height="14" fill="#C8102E" />
+            <rect y="6" width="20" height="2" fill="#C8102E" />
+          </g>
+          <g fill="#C8102E" stroke="#fff" strokeWidth="0.3">
+            {[
+              [14.7, 3],
+              [12.1, 6.3],
+              [17.3, 5.6],
+              [14.7, 11],
+            ].map(([x, y]) => (
+              <path
+                key={`${x}-${y}`}
+                transform={`translate(${x} ${y})`}
+                d="M0 -1 L0.24 -0.32 L0.95 -0.31 L0.38 0.12 L0.59 0.81 L0 0.4 L-0.59 0.81 L-0.38 0.12 L-0.95 -0.31 L-0.24 -0.32 Z"
+              />
+            ))}
+          </g>
+        </svg>
+      ) : null}
       {flagCode === "AU" ? (
         <svg viewBox="0 0 20 14" className="h-full w-full">
           <rect width="20" height="14" fill="#012169" />
@@ -104,6 +131,7 @@ function CountryFlag(props: Readonly<{ code: string }>) {
 
 export function CountryCalendarsSection(props: Readonly<{ locale: Locale }>) {
   const groups = appExtensions.marketingCountryCalendars?.(props.locale) ?? []
+  const timersIndexHref = appExtensions.marketingTimersIndexHref?.(props.locale) ?? localeHref(props.locale, "/timers")
   if (groups.length === 0) return null
 
   return (
@@ -121,7 +149,7 @@ export function CountryCalendarsSection(props: Readonly<{ locale: Locale }>) {
               <h3 className="text-xs font-medium leading-none text-foreground">
                 <Link
                   className="inline-flex items-center gap-2 hover:text-foreground hover:underline"
-                  href={`${localeHref(props.locale, "/timers")}#country-${group.code}`}
+                  href={`${timersIndexHref}#country-${group.code}`}
                 >
                   <CountryFlag code={group.code} />
                   <span>{group.countryLabel}</span>
@@ -143,10 +171,7 @@ export function CountryCalendarsSection(props: Readonly<{ locale: Locale }>) {
             </nav>
           ))}
         </div>
-        <Link
-          className="text-sm font-medium text-foreground hover:underline"
-          href={localeHref(props.locale, "/timers")}
-        >
+        <Link className="text-sm font-medium text-foreground hover:underline" href={timersIndexHref}>
           {formatMessage("entry.indexAll", {}, props.locale)}
         </Link>
       </div>

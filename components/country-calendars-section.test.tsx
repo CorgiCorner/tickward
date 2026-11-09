@@ -5,6 +5,7 @@ import { CountryCalendarsSection } from "@/components/country-calendars-section"
 
 vi.mock("@/lib/app-extensions", () => ({
   appExtensions: {
+    marketingTimersIndexHref: (locale: string) => (locale === "it" ? "/en/timers" : `/${locale}/timers`),
     marketingCountryCalendars: () => [
       {
         code: "GB",
@@ -26,6 +27,11 @@ vi.mock("@/lib/app-extensions", () => ({
         countryLabel: "Australia",
         links: [{ href: "/en/calendars/au-a", label: "AU A", hrefLang: "en", country: "AU" }],
       },
+      {
+        code: "NZ",
+        countryLabel: "New Zealand",
+        links: [{ href: "/en/calendars/nz-a", label: "NZ A", hrefLang: "en", country: "NZ" }],
+      },
     ],
   },
 }))
@@ -39,12 +45,23 @@ describe("CountryCalendarsSection", () => {
     expect(within(section).getByText("Poland")).toBeInTheDocument()
     expect(within(section).getByText("Germany")).toBeInTheDocument()
     expect(within(section).getByText("Australia")).toBeInTheDocument()
+    expect(within(section).getByText("New Zealand")).toBeInTheDocument()
     // Every country group renders its flag; a code missing from the flag
     // whitelist silently drops the icon. Scoped to the section so unrelated
     // page SVGs never skew the count.
-    expect(section.querySelectorAll("svg")).toHaveLength(4)
+    expect(section.querySelectorAll("svg")).toHaveLength(5)
     expect(screen.getByRole("link", { name: "UK A" })).toHaveAttribute("href", "/en/timers/uk-a")
     expect(screen.getByRole("link", { name: "PL A" })).toHaveAttribute("href", "/pl/timers/pl-a")
     expect(screen.getByRole("link", { name: "All calendars" })).toHaveAttribute("href", "/en/timers")
+  })
+
+  it("links locales without a timer directory to the provided directory", () => {
+    render(<CountryCalendarsSection locale="it" />)
+
+    const section = screen.getByRole("region")
+    const hrefs = [...section.querySelectorAll("a")].map((link) => link.getAttribute("href") ?? "")
+    expect(hrefs.filter((href) => href.startsWith("/it/timers"))).toEqual([])
+    expect(hrefs).toContain("/en/timers#country-GB")
+    expect(hrefs).toContain("/en/timers")
   })
 })

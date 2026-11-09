@@ -6,6 +6,8 @@ export type MarketingSitemapEntry = {
   path: string
   changeFrequency: "daily" | "weekly" | "monthly" | "yearly"
   priority: number
+  /** Date (YYYY-MM-DD) of the last substantive content change, when known. */
+  lastModified?: string
 }
 
 export type MarketingFooterLink = {
@@ -40,6 +42,7 @@ export type AccountMenuLink = {
 
 export type AppExtensions = {
   renderHead?: () => ReactNode
+  renderMarketingPromotion?: (props: { locale: string; placement: "home" | "calendar" }) => ReactNode
   accountMenuLinks?: (locale: string) => AccountMenuLink[]
   marketingFooterLinks?: () => MarketingFooterLink[]
   marketingFooterSections?: (locale: string) => MarketingFooterSection[]
@@ -47,5 +50,7 @@ export type AppExtensions = {
   marketingHomeEmbedHref?: () => string
   marketingHomeUseCases?: (locale: string) => MarketingFooterLink[]
   marketingSitemapEntries?: () => MarketingSitemapEntry[]
+  /** Timer directory link for a locale; locales without one may point elsewhere. */
+  marketingTimersIndexHref?: (locale: string) => string
   llmsMarketingLinks?: () => MarketingFooterLink[]
 }

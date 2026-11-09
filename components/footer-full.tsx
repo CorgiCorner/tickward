@@ -78,7 +78,10 @@ function FooterEntriesColumn(props: Readonly<{ locale: Locale; marketingLinks?: 
           </li>
         ))}
         <li>
-          <Link className={FOOTER_LINK_CLASS} href={localeHref(props.locale, "/timers")}>
+          <Link
+            className={FOOTER_LINK_CLASS}
+            href={appExtensions.marketingTimersIndexHref?.(props.locale) ?? localeHref(props.locale, "/timers")}
+          >
             {formatMessage("entry.indexAll", {}, props.locale)}
           </Link>
         </li>

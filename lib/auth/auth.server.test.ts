@@ -124,6 +124,7 @@ describe("tickward Better Auth server config", () => {
           updateAge: 60 * 60 * 24,
         },
         advanced: {
+          database: { joins: true },
           useSecureCookies: false,
           defaultCookieAttributes: {
             httpOnly: true,
@@ -138,6 +139,7 @@ describe("tickward Better Auth server config", () => {
     const { auth: productionAuth } = await loadAuth()
 
     expect(productionAuth?.options.advanced).toEqual({
+      database: { joins: true },
       useSecureCookies: true,
       defaultCookieAttributes: {
         httpOnly: true,

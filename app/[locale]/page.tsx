@@ -14,6 +14,7 @@ import { HomeUseCasesSection } from "@/components/home-use-cases-section"
 import { SiteFooter } from "@/components/site-footer"
 import { WebMcpTools } from "@/components/webmcp-tools"
 import { getCurrentActor } from "@/lib/actor.server"
+import { appExtensions } from "@/lib/app-extensions"
 import { DEFAULT_ACCOUNT_PREFERENCES, type AccountPreferencesRecord } from "@/lib/account-preferences"
 import { getAccountPreferencesForUser } from "@/lib/account-preferences.server"
 import { readRestoreKeyCookie, readSpacesCookie, readTimersCookie } from "@/lib/cookies.server"
@@ -86,7 +87,7 @@ async function readHomeAccountData(): Promise<HomeAccountData> {
 // Cookie/header reads live in this child so the page shell (metadata, JSON-LD,
 // persistent hero content, and site footer) can render before personalization
 // resolves.
-async function PersonalizedHome() {
+async function PersonalizedHome(props: Readonly<{ locale: Locale }>) {
   const rawTimers = await readTimersCookie<unknown>()
   const timers: Timer[] = isTimerArray(rawTimers) ? rawTimers : []
   const rawSpaces = await readSpacesCookie<unknown>()
@@ -94,7 +95,9 @@ async function PersonalizedHome() {
   const restoreKey = await readRestoreKeyCookie()
   const entitlementsTable = await getEntitlementsTable()
   const { accountPreferences, activePlan } = await readHomeAccountData()
-  const home = <HomeClient />
+  const home = (
+    <HomeClient promotion={appExtensions.renderMarketingPromotion?.({ locale: props.locale, placement: "home" })} />
+  )
 
   return (
     <TimerStoreProvider
@@ -135,7 +138,7 @@ export default async function Home(props: Readonly<{ params: HomeRouteParams }>)
         dangerouslySetInnerHTML={{ __html: jsonLdScriptContent(buildFaqPageJsonLd(homeFaqs)) }}
       />
       <Suspense fallback={<HomePageLoading />}>
-        <PersonalizedHome />
+        <PersonalizedHome locale={locale} />
       </Suspense>
       {/* Server-rendered below the Suspense boundary: hydration of the client
           app can never remove the SEO content, links, or contentinfo footer. */}
