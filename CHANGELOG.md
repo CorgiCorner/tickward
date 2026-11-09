@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.15.2 - 2026-11-09
+
+### Changed
+
+- Reminder and sign-in code emails now use a branded layout and show dates in the timer's own time zone instead of a raw timestamp.
+
 ## 0.15.1 - 2026-11-09
 
 ### Changed

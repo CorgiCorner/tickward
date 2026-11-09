@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { EmailOtpCommand, TimerFinishedEmailCommand, TimerReminderEmailCommand } from "@/lib/mail-provider"
-import { resendMailProvider } from "@/lib/adapters/resend-mail-provider.server"
+import { formatEmailDate, resendMailProvider } from "@/lib/adapters/resend-mail-provider.server"
 
 const command: TimerFinishedEmailCommand = {
   to: "ada@example.com",
@@ -24,6 +24,17 @@ const reminderCommand: TimerReminderEmailCommand = {
   transactionId: "timer-reminder:timer-a:10m:2026-06-05T21:37:00.000Z",
   mode: "until",
 }
+
+describe("formatEmailDate", () => {
+  it("formats the instant in the timer's own zone", () => {
+    expect(formatEmailDate("2026-11-09T09:00:00.000Z", "Europe/Warsaw")).toBe("Monday, 9 November 2026 at 10:00")
+  })
+
+  it("falls back to UTC for an unknown zone and keeps unparseable input", () => {
+    expect(formatEmailDate("2026-11-09T09:00:00.000Z", "Mars/Olympus")).toBe("Monday, 9 November 2026 at 09:00")
+    expect(formatEmailDate("soon", "Europe/Warsaw")).toBe("soon")
+  })
+})
 
 describe("resend mail provider", () => {
   beforeEach(() => {
@@ -79,13 +90,18 @@ describe("resend mail provider", () => {
 
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit
     const body = JSON.parse(String(init.body))
-    expect(body).toEqual({
-      from: "Tickward <noreply@example.com>",
-      reply_to: "contact@example.com",
-      to: ["ada@example.com"],
-      subject: "Timer finished: Deploy <script>",
-      html: "<p>Your timer <strong>Deploy &lt;script&gt;</strong> finished.</p><p>2026-06-05T21:37:00.000Z (Europe/Warsaw)</p>",
-    })
+    expect(body).toEqual(
+      expect.objectContaining({
+        from: "Tickward <noreply@example.com>",
+        reply_to: "contact@example.com",
+        to: ["ada@example.com"],
+        subject: "Timer finished: Deploy <script>",
+      }),
+    )
+    expect(body.html).toContain('Your timer <strong style="color:#18181b;">Deploy &lt;script&gt;</strong> finished.')
+    expect(body.html).toContain("Friday, 5 June 2026 at 23:37 (Warsaw time)")
+    expect(body.html).not.toContain("2026-06-05T21:37:00.000Z")
+    expect(body.html).not.toContain("<script>")
   })
 
   it("throws when the configured Resend request fails", async () => {
@@ -122,13 +138,21 @@ describe("resend mail provider", () => {
 
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit
     const body = JSON.parse(String(init.body))
-    expect(body).toEqual({
-      from: "Tickward <noreply@example.com>",
-      reply_to: "contact@example.com",
-      to: ["ada@example.com"],
-      subject: "Reminder: Deploy <script>",
-      html: '<h1>Timer reminder</h1><p>This is your 10 minutes before reminder for <strong>Deploy &lt;script&gt;</strong>. Target: 2026-06-05T21:37:00.000Z (Europe/Warsaw).</p><p><a href="https://example.test/en/settings#alerts">Manage reminder emails</a></p>',
-    })
+    expect(body).toEqual(
+      expect.objectContaining({
+        from: "Tickward <noreply@example.com>",
+        reply_to: "contact@example.com",
+        to: ["ada@example.com"],
+        subject: "Reminder: Deploy <script>",
+      }),
+    )
+    expect(body.html).toContain(
+      '<strong style="color:#18181b;">Deploy &lt;script&gt;</strong> is due on Friday, 5 June 2026 at 23:37 (Warsaw time). You asked to be reminded 10 minutes before.',
+    )
+    expect(body.html).toContain('<img src="https://example.test/icon-192.png"')
+    expect(body.html).toContain('href="https://example.test/en/settings#alerts"')
+    expect(body.html).toContain(">Manage reminder emails</a>")
+    expect(body.html).not.toContain("2026-06-05T21:37:00.000Z")
   })
 
   it.each([
@@ -155,7 +179,7 @@ describe("resend mail provider", () => {
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit
     const body = JSON.parse(String(init.body))
     expect(body.subject).toBe(subject)
-    expect(body.html).toContain(`<p>${milestoneBody}</p>`)
+    expect(body.html).toContain(milestoneBody.replaceAll("<strong>", '<strong style="color:#18181b;">'))
   })
 
   it("sends escaped OTP email HTML through Resend", async () => {
@@ -181,13 +205,17 @@ describe("resend mail provider", () => {
 
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit
     const body = JSON.parse(String(init.body))
-    expect(body).toEqual({
-      from: "Tickward <noreply@example.com>",
-      reply_to: "contact@example.com",
-      to: ["ada@example.com"],
-      subject: "Verify your Tickward email",
-      html: "<p>Your Tickward code is <strong>123&lt;456</strong>.</p><p>This code expires in 10 minutes.</p>",
-    })
+    expect(body).toEqual(
+      expect.objectContaining({
+        from: "Tickward <noreply@example.com>",
+        reply_to: "contact@example.com",
+        to: ["ada@example.com"],
+        subject: "Verify your Tickward email",
+      }),
+    )
+    expect(body.html).toContain('Your Tickward code is <strong style="color:#18181b;">123&lt;456</strong>.')
+    expect(body.html).toContain("This code expires in 10 minutes.")
+    expect(body.html).not.toContain("123<456")
   })
 
   it("throws when the configured Resend OTP request fails", async () => {
