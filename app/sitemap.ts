@@ -38,7 +38,7 @@ const APP_SITEMAP_ENTRIES = [
     localized: true,
   },
   {
-    path: "/download",
+    path: "/iphone",
     changeFrequency: "monthly",
     priority: 0.7,
     localized: true,

@@ -109,8 +109,8 @@ function FooterProductColumn(props: Readonly<{ docsHref?: string | null; locale:
           </a>
         </li>
         <li>
-          <Link className={FOOTER_LINK_CLASS} href={localeHref(props.locale, "/download")}>
-            {formatMessage("footer.downloadMac", {}, props.locale)}
+          <Link className={FOOTER_LINK_CLASS} href={localeHref(props.locale, "/iphone")}>
+            {formatMessage("footer.iphone", {}, props.locale)}
           </Link>
         </li>
         <li>

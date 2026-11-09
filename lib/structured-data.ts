@@ -24,7 +24,7 @@ export function buildOrganizationJsonLd() {
 }
 
 // Schema.org SoftwareApplication markup. Defaults describe the web app on the
-// marketing homepage; the download page overrides them for the desktop build.
+// marketing homepage; the iPhone app page overrides them for the iOS app.
 export function buildSoftwareApplicationJsonLd(
   overrides: Readonly<{
     name?: string

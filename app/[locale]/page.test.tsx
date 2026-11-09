@@ -3,7 +3,7 @@ import { Suspense } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import Home from "@/app/[locale]/page"
-import { DesktopAppPromo } from "@/components/desktop-app-promo"
+import { IphoneAppPromo } from "@/components/iphone-app-promo"
 import { FaqSection } from "@/components/faq-section"
 import { GitHubStarCta } from "@/components/github-star-cta"
 import { HomeContentSection } from "@/components/home-content-section"
@@ -61,12 +61,12 @@ describe("Home page shell", () => {
     )
   })
 
-  it("renders the desktop app promo directly below FAQ and before use cases", async () => {
+  it("renders the iPhone app promo directly below FAQ and before use cases", async () => {
     const children = await pageChildren()
     const types = children.map((child) => child.type)
     const suspenseIndex = types.indexOf(Suspense)
     const contentIndex = types.indexOf(HomeContentSection)
-    const desktopPromoIndex = types.indexOf(DesktopAppPromo)
+    const iphonePromoIndex = types.indexOf(IphoneAppPromo)
     const starCtaIndex = types.indexOf(GitHubStarCta)
     const faqIndex = children.findIndex((child) => {
       const nested = child.props.children
@@ -78,8 +78,8 @@ describe("Home page shell", () => {
     expect(contentIndex).toBeGreaterThan(suspenseIndex)
     expect(starCtaIndex).toBe(contentIndex + 1)
     expect(faqIndex).toBeGreaterThan(starCtaIndex)
-    expect(desktopPromoIndex).toBe(faqIndex + 1)
-    expect(useCasesIndex).toBe(desktopPromoIndex + 1)
+    expect(iphonePromoIndex).toBe(faqIndex + 1)
+    expect(useCasesIndex).toBe(iphonePromoIndex + 1)
     expect(types.indexOf(SiteFooter)).toBeGreaterThan(useCasesIndex)
   })
 

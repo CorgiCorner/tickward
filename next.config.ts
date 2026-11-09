@@ -42,7 +42,11 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     const wwwToApex = getWwwToApexRedirect()
-    return wwwToApex ? [wwwToApex] : []
+    return [
+      ...(wwwToApex ? [wwwToApex] : []),
+      // The macOS app page was retired for the iPhone app; keep old links and search results working.
+      { source: "/:locale(en|pl|de|it)/download", destination: "/:locale/iphone", permanent: true },
+    ]
   },
   async headers() {
     const sharedSecurityHeaders = SHARED_SECURITY_HEADERS.map(([key, value]) => ({ key, value }))

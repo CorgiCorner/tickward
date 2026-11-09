@@ -6,11 +6,11 @@ import { AccountPreferencesProvider } from "@/components/account-preferences-pro
 import { HomePageLoading } from "@/components/app-shell-loading"
 import { HomeClient } from "@/components/home-client"
 import { CountryCalendarsSection } from "@/components/country-calendars-section"
-import { DesktopAppPromo } from "@/components/desktop-app-promo"
 import { FaqSection } from "@/components/faq-section"
 import { GitHubStarCta } from "@/components/github-star-cta"
 import { HomeContentSection } from "@/components/home-content-section"
 import { HomeUseCasesSection } from "@/components/home-use-cases-section"
+import { IphoneAppPromo } from "@/components/iphone-app-promo"
 import { SiteFooter } from "@/components/site-footer"
 import { WebMcpTools } from "@/components/webmcp-tools"
 import { getCurrentActor } from "@/lib/actor.server"
@@ -147,7 +147,7 @@ export default async function Home(props: Readonly<{ params: HomeRouteParams }>)
       <div className="mx-auto w-full max-w-[640px] px-4 pb-16">
         <FaqSection heading={formatMessage("home.faq.heading", {}, locale)} faqs={homeFaqs} />
       </div>
-      <DesktopAppPromo locale={locale} />
+      <IphoneAppPromo locale={locale} />
       <HomeUseCasesSection locale={locale} />
       <CountryCalendarsSection locale={locale} />
       <SiteFooter locale={locale} />

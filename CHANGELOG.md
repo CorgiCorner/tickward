@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.15.1 - 2026-11-09
+
+### Changed
+
+- Replaced the macOS app download page with a page about the iPhone app in development; the old download address redirects to it.
+
 ## 0.15.0 - 2026-11-09
 
 ### Added
