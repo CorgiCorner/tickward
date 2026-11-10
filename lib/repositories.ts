@@ -61,8 +61,10 @@ export type RateLimitBucket =
   | "embed-seen"
   | "auth-otp"
   | "auth-otp-ip"
+  | "auth-otp-unknown-ip"
   | "public-api"
   | "public-api-ip"
+  | "public-api-global"
   | "inbox"
   | "api-key-management"
   | "webhook-management"
@@ -73,7 +75,10 @@ export type RateLimitBucket =
   | "desktop-oauth-exchange"
   | "desktop-oauth-grant"
   | "mobile-auth"
+  | "mobile-auth-global"
+  | "mobile-account-delete"
   | "mobile-review-code"
+  | "mobile-review-client"
 
 export type RateLimitDecision =
   | { ok: true }

@@ -31,14 +31,14 @@ Published app images:
 
 | Registry   | Image                                      |
 | ---------- | ------------------------------------------ |
-| Docker Hub | `docker.io/corgicorner/tickward:0.15.2`    |
-| GHCR       | `ghcr.io/corgicorner/tickward:0.15.2`      |
+| Docker Hub | `docker.io/corgicorner/tickward:0.16.0`    |
+| GHCR       | `ghcr.io/corgicorner/tickward:0.16.0`      |
 
 Docker Compose reads `TICKWARD_IMAGE` from `.env`. The default example uses
 Docker Hub. To use GHCR instead:
 
 ```bash
-TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.15.2 docker compose up -d
+TICKWARD_IMAGE=ghcr.io/corgicorner/tickward:0.16.0 docker compose up -d
 ```
 
 To build from a local checkout instead of using a published image:
@@ -182,7 +182,10 @@ variables, so you can add them to an existing deployment without rebuilding the
 image.
 
 OTP send requests are rate limited with Redis: one request per minute per
-normalized email and three requests per minute per IP.
+normalized email. Behind a trusted proxy (`TICKWARD_TRUST_PROXY_HEADERS=true`)
+each client IP is also limited to three requests per minute. Without that
+setting the app cannot tell clients apart by IP, and all code emails share a
+ceiling of 60 per minute.
 
 To smoke-test the request path against a running app:
 

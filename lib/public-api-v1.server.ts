@@ -9,11 +9,13 @@ import { apiError, apiJson, apiList, isResponse, type ApiErrorType } from "@/lib
 import { newPublicId } from "@/lib/public-ids"
 import { auditRequestContext, recordAuditEvent } from "@/lib/audit-log.server"
 import {
+  API_KEY_KIND,
   MCP_CREDENTIAL_KIND,
   authenticateApiKey,
   type AuthenticatedApiKey,
   readBearerApiKey,
 } from "@/lib/api-keys.server"
+import { UNKNOWN_CLIENT_IP } from "@/lib/client-ip.server"
 import type { UserRef } from "@/lib/contracts"
 import { jsonInput } from "@/lib/db/prisma-json.server"
 import { requirePrismaClient } from "@/lib/db/prisma.server"
@@ -727,7 +729,7 @@ function authorizePublicApiScope(
   if (method !== "GET") {
     return apiError("validation_error", "scope=all is only supported for read requests.", { status: 400 })
   }
-  if (ctx.apiKey.user.role !== "admin") {
+  if (ctx.apiKey.user.role !== "admin" || ctx.apiKey.kind !== API_KEY_KIND) {
     return apiError("insufficient_scope", "scope=all requires an admin API key.", {
       details: { required_role: "admin", scope: "all" },
       status: 403,
@@ -1332,7 +1334,7 @@ async function assertProjectNotOverLimitReadOnly(
   return null
 }
 
-async function deleteProjectGraph(tx: Prisma.TransactionClient, projectId: string) {
+export async function deleteProjectGraph(tx: Prisma.TransactionClient, projectId: string, ownerId?: string) {
   const timerRows = await tx.$queryRaw<Array<{ id: string }>>`
     SELECT id FROM "timer" WHERE "projectId" = ${projectId}
   `
@@ -1351,7 +1353,12 @@ async function deleteProjectGraph(tx: Prisma.TransactionClient, projectId: strin
         timerId: { in: timerIds },
         OR: [
           { transactionId: { startsWith: `timer-reminder:${projectId}:` } },
-          ...timerIds.map((id) => ({ transactionId: { startsWith: `timer-reminder:${id}:` } })),
+          ...timerIds.map((id) => ({
+            // Legacy ids do not name the project. Given the owner, they match only reminders to that
+            // owner or to nobody (sent before the project had an owner), never another account's.
+            ...(ownerId ? { OR: [{ subscriberId: ownerId }, { subscriberId: null }] } : {}),
+            transactionId: { startsWith: `timer-reminder:${id}:` },
+          })),
         ],
       },
     })
@@ -2260,8 +2267,15 @@ async function createShare(ctx: PublicApiContext, projectId: string, req: Reques
 
     const timer = snapshot.timers[timerIndex]
     const actor = { kind: "user" as const, user: ctx.apiKey.user }
-    const shareId = stableShareId({ actor, entityId: timer.id, kind: "timer" })
-    const existingShare = await tx.share.findUnique({ where: { id: shareId } })
+    const legacyId = stableShareId({ actor, entityId: timer.id, kind: "timer" })
+    const legacyShare = await tx.share.findUnique({ where: { id: legacyId } })
+    // Keep an existing link for this project; all new links include the project namespace.
+    // This also avoids a race between first-time shares of equal timer ids in two projects.
+    const shareId =
+      legacyShare?.projectId === projectId
+        ? legacyId
+        : stableShareId({ actor, entityId: `${projectId}:${timer.id}`, kind: "timer" })
+    const existingShare = shareId === legacyId ? legacyShare : await tx.share.findUnique({ where: { id: shareId } })
     const isNewShare = !existingShare
     if (existingShare && existingShare.projectId !== projectId) {
       return apiError("storage_unavailable", "Share row belongs to a different project.", { status: 503 })
@@ -2546,16 +2560,30 @@ async function listWebhookDeliveries(ctx: PublicApiContext, webhookId: string, r
 }
 
 async function authenticate(req: Request): Promise<{ ctx: PublicApiContext; headers: HeadersInit } | Response> {
+  const token = readBearerApiKey(req)
+  const ip = clientIp(req)
+  // Without trusted proxy headers every caller's IP reads "unknown". One shared pre-auth bucket
+  // would let a single caller lock everybody out, so each credential gets its own instead, and a
+  // generous shared ceiling still caps the credential lookups those callers can cause.
+  const keyByCredential = ip === UNKNOWN_CLIENT_IP && token !== null
   try {
-    const ipRateLimit = await checkRateLimit("public-api-ip", `ip:${clientIp(req)}`)
+    const preAuthKey = keyByCredential
+      ? `token:${createHash("sha256").update(token, "utf8").digest("hex")}`
+      : `ip:${ip}`
+    const ipRateLimit = await checkRateLimit("public-api-ip", preAuthKey)
     if (!ipRateLimit.allowed) {
       return apiError("rate_limited", "Too many requests.", { headers: ipRateLimit.headers, status: 429 })
+    }
+    if (keyByCredential) {
+      const ceiling = await checkRateLimit("public-api-global", "all")
+      if (!ceiling.allowed) {
+        return apiError("rate_limited", "Too many requests.", { headers: ceiling.headers, status: 429 })
+      }
     }
   } catch {
     return apiError("rate_limit_unavailable", "Rate limit unavailable.", { status: 503 })
   }
 
-  const token = readBearerApiKey(req)
   if (!token) {
     return apiError("missing_api_key", "Missing bearer credential in the authorization header.", { status: 401 })
   }
@@ -2581,13 +2609,13 @@ function shouldTrustProxyHeaders() {
 }
 
 function clientIp(req: Request) {
-  if (!shouldTrustProxyHeaders()) return "unknown"
+  if (!shouldTrustProxyHeaders()) return UNKNOWN_CLIENT_IP
 
   const cfConnectingIp = req.headers.get("cf-connecting-ip")?.trim()
   if (cfConnectingIp) return cfConnectingIp
   const forwardedFor = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
   if (forwardedFor) return forwardedFor
-  return req.headers.get("x-real-ip")?.trim() ?? "unknown"
+  return req.headers.get("x-real-ip")?.trim() ?? UNKNOWN_CLIENT_IP
 }
 
 function withHeaders(response: Response, headers: HeadersInit) {

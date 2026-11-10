@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.16.0 - 2026-11-10
+
+### Added
+
+- The iPhone app can delete the signed-in account, including its projects, timers, shares, webhooks, API keys and connected devices.
+- Added `TICKWARD_CLIENT_IP_HEADER` to name the one proxy header that carries the client IP for sign-in rate limits (default `x-forwarded-for`, rightmost hop).
+
+### Changed
+
+- Sign-in code emails are limited per email address first, then per client IP behind a trusted proxy, or by a shared ceiling of 60 per minute without one.
+- App sign-in requests must send `Content-Type: application/json`.
+
+### Fixed
+
+- Sharing a timer no longer fails when two projects of one account contain the same timer id.
+
+### Security
+
+- Sign-in code requests no longer trust client-supplied IP headers unless `TICKWARD_TRUST_PROXY_HEADERS=true`.
+- Reading all accounts with `scope=all` now requires an admin API key; an admin's app or MCP connection token is refused.
+
 ## 0.15.2 - 2026-11-09
 
 ### Changed

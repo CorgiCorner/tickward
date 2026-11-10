@@ -18,8 +18,15 @@ const RATE_LIMITS = {
   "embed-seen": { limit: 10, window: "60 s", prefix: "tickward:ratelimit:embed-seen" },
   "auth-otp": { limit: 1, window: "60 s", prefix: "tickward:ratelimit:auth-otp" },
   "auth-otp-ip": { limit: 3, window: "60 s", prefix: "tickward:ratelimit:auth-otp-ip" },
+  // Shared by code sends whose client IP no trusted proxy names, spent only after the per-email
+  // limit admits the send. Kept low on purpose: this is also the most code emails one client can
+  // make the site send to addresses it invents, and a higher number raises that without stopping
+  // a client that fills the bucket. Only TICKWARD_TRUST_PROXY_HEADERS tells clients apart.
+  "auth-otp-unknown-ip": { limit: 60, window: "60 s", prefix: "tickward:ratelimit:auth-otp-unknown-ip" },
   "public-api": { limit: 120, window: "60 s", prefix: "tickward:ratelimit:public-api" },
   "public-api-ip": { limit: 300, window: "60 s", prefix: "tickward:ratelimit:public-api-ip" },
+  // Shared by API callers no trusted proxy names, after their per-credential pre-auth bucket.
+  "public-api-global": { limit: 3000, window: "60 s", prefix: "tickward:ratelimit:public-api-global" },
   inbox: { limit: 60, window: "60 s", prefix: "tickward:ratelimit:inbox" },
   "api-key-management": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:api-key-management" },
   "webhook-management": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:webhook-management" },
@@ -30,9 +37,16 @@ const RATE_LIMITS = {
   "desktop-oauth-exchange": { limit: 30, window: "60 s", prefix: "tickward:ratelimit:desktop-oauth-exchange" },
   "desktop-oauth-grant": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:desktop-oauth-grant" },
   "mobile-auth": { limit: 20, window: "60 s", prefix: "tickward:ratelimit:mobile-auth" },
+  // Shared by app sign-in callers no trusted proxy names, after their per-email or per-token bucket.
+  "mobile-auth-global": { limit: 1000, window: "60 s", prefix: "tickward:ratelimit:mobile-auth-global" },
+  // Per account. A deletion succeeds once; this only bounds retries of the heavy transaction.
+  "mobile-account-delete": { limit: 3, window: "60 s", prefix: "tickward:ratelimit:mobile-account-delete" },
   // App Review's fixed code: a small attempt budget for the whole life of one code. Successful
   // sign-ins count too, so it leaves room for a review cycle's few real logins.
   "mobile-review-code": { limit: 40, window: "62 d", prefix: "tickward:ratelimit:mobile-review-code" },
+  // One client's share of that budget, so a single client cannot use up the code's attempts.
+  // A successful sign-in resets the client's share.
+  "mobile-review-client": { limit: 5, window: "62 d", prefix: "tickward:ratelimit:mobile-review-client" },
 } as const
 
 type RateLimiter = InstanceType<typeof Ratelimit>
@@ -73,6 +87,15 @@ export async function checkRateLimit(bucket: RateLimitBucket, key: string) {
     allowed: result.success,
     headers: rateLimitHeaders(result),
     retryAfter: Math.max(1, Math.ceil((result.reset - Date.now()) / 1000)),
+  }
+}
+
+/** Gives a key its whole budget back. Best effort: on failure the budget runs out on its own. */
+export async function resetRateLimit(bucket: RateLimitBucket, key: string) {
+  try {
+    await getRateLimiter(bucket).resetUsedTokens(key)
+  } catch {
+    // Never fail the request over a reset.
   }
 }
 

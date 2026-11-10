@@ -46,6 +46,7 @@ vi.mock("@/lib/webhooks.server", async (importOriginal) => ({
 }))
 
 const readKey = {
+  kind: "api_key" as const,
   id: "key_read",
   permission: "read" as const,
   rateLimitKey: "user:user_123",
@@ -648,6 +649,69 @@ describe("public API v1", () => {
     })
   })
 
+  it("rejects all-tenant reads from admin connection tokens", async () => {
+    mocks.authenticateApiKey.mockResolvedValue({
+      ...fullKey,
+      kind: "mcp_connection",
+      scopes: ["projects:read"],
+      user: { ...fullKey.user, role: "admin" },
+    })
+    const findMany = vi.fn().mockResolvedValue([])
+    mocks.requirePrismaClient.mockReturnValue({ project: { findMany } })
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const response = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://example.com/api/v1/projects?scope=all", {
+        headers: { authorization: "Bearer tw_mcp_device" },
+      }),
+      ["projects"],
+    )
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ error: { message: "scope=all requires an admin API key." } })
+    expect(findMany).not.toHaveBeenCalled()
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it("keeps unknown-IP pre-auth budgets separate for different tokens", async () => {
+    const counts = new Map<string, number>()
+    mocks.checkRateLimit.mockImplementation(async (bucket, key) => {
+      const entry = `${bucket}:${key}`
+      const count = (counts.get(entry) ?? 0) + 1
+      counts.set(entry, count)
+      return { allowed: bucket !== "public-api-ip" || count <= 3, headers: {} }
+    })
+    mocks.requirePrismaClient.mockReturnValue({ project: { findMany: vi.fn().mockResolvedValue([]) } })
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const request = (token: string) =>
+      handlePublicApiV1Request(
+        "GET",
+        new Request("https://example.com/api/v1/projects", {
+          headers: { authorization: `Bearer ${token}` },
+        }),
+        ["projects"],
+      )
+    for (let i = 0; i < 5; i++) await request("tw_mcp_noisy")
+    expect((await request("tw_mcp_other")).status).toBe(200)
+    expect(mocks.checkRateLimit).toHaveBeenCalledWith("public-api-global", "all")
+    // The noisy token's refused requests did not spend the shared ceiling.
+    expect(counts.get("public-api-global:all")).toBe(4)
+  })
+
+  it("caps unknown-IP credential lookups with the shared ceiling", async () => {
+    mocks.checkRateLimit.mockImplementation(async (bucket: string) => ({
+      allowed: bucket !== "public-api-global",
+      headers: { "retry-after": "5" },
+    }))
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const res = await handlePublicApiV1Request(
+      "GET",
+      new Request("https://example.com/api/v1/projects", { headers: { authorization: "Bearer tw_random_guess" } }),
+      ["projects"],
+    )
+    expect(res.status).toBe(429)
+    expect(mocks.authenticateApiKey).not.toHaveBeenCalled()
+  })
+
   it("rejects scope=all for non-admin read requests", async () => {
     const { handlePublicApiV1Request } = await import("./public-api-v1.server")
 
@@ -828,7 +892,7 @@ describe("public API v1", () => {
     )
 
     expect(res.status).toBe(200)
-    expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(1, "public-api-ip", "ip:unknown")
+    expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(1, "public-api-ip", expect.stringMatching(/^token:/))
   })
 
   it("prefers Cloudflare client IP when proxy headers are trusted", async () => {
@@ -856,6 +920,7 @@ describe("public API v1", () => {
 
     expect(res.status).toBe(200)
     expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(1, "public-api-ip", "ip:198.51.100.5")
+    expect(mocks.checkRateLimit).not.toHaveBeenCalledWith("public-api-global", "all")
   })
 
   it("blocks read keys from writes", async () => {
@@ -3106,6 +3171,54 @@ describe("public API v1", () => {
     expect(tx.project.update).not.toHaveBeenCalled()
   })
 
+  it.each(["existing", "collision", "new"])(
+    "preserves legacy links and scopes new share ids to the project: %s",
+    async (scenario) => {
+      const { stableShareId } = await import("./static-share-id.server")
+      const actor = { kind: "user" as const, user: fullKey.user }
+      const legacyId = stableShareId({ actor, entityId: "timer-a", kind: "timer" })
+      const scopedId = stableShareId({ actor, entityId: "project_123:timer-a", kind: "timer" })
+      const oldShare = {
+        id: legacyId,
+        projectId: scenario === "existing" ? "project_123" : "other-project",
+        data: { timerId: "timer-a", sharedAt: "2026-06-01T00:00:00.000Z" },
+      }
+      const shares = new Map(scenario === "new" ? [] : [[legacyId, oldShare]])
+      const snapshot = makeProjectSnapshot({ timers: [makeTimer({ id: "timer-a" })] })
+      const tx = {
+        $queryRaw: lockedProjectQuery(projectRow(snapshot)),
+        project: { update: vi.fn() },
+        timer: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        share: {
+          findUnique: vi.fn(async ({ where }: { where: { id: string } }) => shares.get(where.id) ?? null),
+          upsert: vi.fn(async ({ create }: { create: typeof oldShare }) => ({
+            ...create,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })),
+        },
+        webhookEvent: { create: vi.fn() },
+      }
+      mockTransaction(tx)
+      mocks.authenticateApiKey.mockResolvedValue(fullKey)
+      const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+      const response = await handlePublicApiV1Request(
+        "POST",
+        new Request("https://example.com/api/v1/projects/project_123/shares", {
+          method: "POST",
+          headers: { authorization: "Bearer tw_full", "content-type": "application/json" },
+          body: JSON.stringify({ timer_id: "timer-a" }),
+        }),
+        ["projects", "project_123", "shares"],
+      )
+      expect(response.status).toBe(201)
+      expect(tx.share.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: scenario === "existing" ? legacyId : scopedId } }),
+      )
+      expect(shares.get(legacyId)).toEqual(scenario === "new" ? undefined : oldShare)
+    },
+  )
+
   it("deletes shares, emits share.deleted, clears timer sharing, and syncs the snapshot", async () => {
     const { handlePublicApiV1Request } = await import("./public-api-v1.server")
     mocks.authenticateApiKey.mockResolvedValueOnce(fullKey)
@@ -3540,6 +3653,7 @@ describe("public API v1", () => {
     const { handlePublicApiV1Request } = await import("./public-api-v1.server")
     mocks.checkRateLimit
       .mockResolvedValueOnce({ allowed: true, headers: { "ratelimit-limit": "300" } })
+      .mockResolvedValueOnce({ allowed: true, headers: { "ratelimit-limit": "3000" } })
       .mockResolvedValueOnce({ allowed: false, headers: { "retry-after": "30" } })
 
     const res = await handlePublicApiV1Request(
@@ -3555,8 +3669,9 @@ describe("public API v1", () => {
         type: "rate_limited",
       },
     })
-    expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(1, "public-api-ip", "ip:unknown")
-    expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(2, "public-api", "user:user_123")
+    expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(1, "public-api-ip", expect.stringMatching(/^token:/))
+    expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(2, "public-api-global", "all")
+    expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(3, "public-api", "user:user_123")
     expect(mocks.requirePrismaClient).not.toHaveBeenCalled()
   })
 
