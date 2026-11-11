@@ -32,7 +32,9 @@ vi.mock("@/components/plausible-analytics", async (importOriginal) => {
 
 vi.mock("@dnd-kit/core", () => ({
   DndContext: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  PointerSensor: vi.fn(),
+  MouseSensor: vi.fn(),
+  TouchSensor: vi.fn(),
+  KeyboardSensor: vi.fn(),
   closestCenter: vi.fn(),
   useSensor: vi.fn(() => ({})),
   useSensors: vi.fn(() => []),
@@ -46,6 +48,8 @@ vi.mock("@dnd-kit/sortable", () => ({
     next.splice(toIndex, 0, item)
     return next
   },
+  sortableKeyboardCoordinates: vi.fn(),
+  rectSortingStrategy: {},
   verticalListSortingStrategy: {},
 }))
 
@@ -68,7 +72,13 @@ vi.mock("@/components/ios-pwa-prompt", () => ({
 }))
 
 vi.mock("@/components/organizer-bar", () => ({
-  OrganizerBar: () => <div data-testid="organizer-bar" />,
+  OrganizerBar: ({ onSelectSortMode }: { onSelectSortMode?: (mode: string) => void }) => (
+    <div data-testid="organizer-bar">
+      <button type="button" onClick={() => onSelectSortMode?.("manual")}>
+        Sort manually
+      </button>
+    </div>
+  ),
 }))
 
 vi.mock("@/components/project-claim-slot", () => ({
@@ -103,8 +113,18 @@ vi.mock("@/components/timer-card", () => ({
     countUpHolding,
     countUpCrossfade,
     onCountUpInteractionChange,
+    sortable,
+    onMove,
+    canMoveEarlier,
+    canMoveLater,
+    compact,
   }: {
+    compact?: boolean
     timer: { id: string; label: string }
+    sortable?: boolean
+    onMove?: (timerId: string, direction: -1 | 1) => void
+    canMoveEarlier?: boolean
+    canMoveLater?: boolean
     countUpOccurrence?: CountUpOccurrence
     countUpPlacement?: "section" | "pinned"
     countUpHolding?: boolean
@@ -119,8 +139,20 @@ vi.mock("@/components/timer-card", () => ({
       data-count-up-placement={countUpPlacement}
       data-count-up-holding={countUpHolding || undefined}
       data-count-up-crossfade={countUpCrossfade || undefined}
+      data-sortable={sortable ? "" : undefined}
+      data-compact={compact ? "" : undefined}
     >
       {timer.label}
+      {sortable ? (
+        <>
+          <button type="button" disabled={!canMoveEarlier} onClick={() => onMove?.(timer.id, -1)}>
+            {`Move earlier ${timer.label}`}
+          </button>
+          <button type="button" disabled={!canMoveLater} onClick={() => onMove?.(timer.id, 1)}>
+            {`Move later ${timer.label}`}
+          </button>
+        </>
+      ) : null}
       <button
         type="button"
         aria-label={`Focus ${timer.label}`}
@@ -219,6 +251,7 @@ function countUpOccurrence(
 
 describe("HomeClient", () => {
   beforeEach(() => {
+    localStorage.removeItem("tickward:dashboard-view")
     vi.clearAllMocks()
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
     vi.setSystemTime(new Date("2026-05-24T00:00:00.000Z"))
@@ -246,6 +279,8 @@ describe("HomeClient", () => {
       refreshFollowedTimers: vi.fn().mockResolvedValue(undefined),
       removeAccountProjectsFromDevice: vi.fn(),
       reorderVisibleTimers: vi.fn(),
+      reorderTimers: vi.fn(),
+      setTimerSortMode: vi.fn(),
       restoreKey: null,
       sortMode: "soonest",
       spaces: [],
@@ -271,6 +306,13 @@ describe("HomeClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.useRealTimers()
+  })
+
+  it("starts a touch drag only after press-and-hold, so a swipe on the handle still scrolls", async () => {
+    const { MouseSensor, TouchSensor, useSensor } = await import("@dnd-kit/core")
+    renderHomeClient()
+    expect(useSensor).toHaveBeenCalledWith(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
+    expect(useSensor).toHaveBeenCalledWith(MouseSensor, { activationConstraint: { distance: 8 } })
   })
 
   it("hides the onboarding banner until the user has a timer or space", () => {
@@ -403,6 +445,154 @@ describe("HomeClient", () => {
 
     expect(screen.getByText("Upcoming")).toBeInTheDocument()
     expect(container.querySelector('[data-slot="timer-list"]')).not.toHaveClass("-mx-4", "md:mx-0")
+  })
+
+  describe("dashboard view", () => {
+    function renderWithPromotion() {
+      return render(
+        <TooltipProvider delayDuration={0}>
+          <HomeClient promotion={<aside data-testid="promotion">Promotion</aside>} />
+        </TooltipProvider>,
+      )
+    }
+
+    it("shows compact cards in two desktop columns by default", () => {
+      storeState.timers = [makeTimer()]
+      const { container } = renderHomeClient()
+
+      const list = within(sectionForHeading("Upcoming")).getByRole("article").parentElement
+      expect(list).toHaveClass("md:grid-cols-2")
+      expect(container.querySelector("[data-compact]")).not.toBeNull()
+      expect(screen.getByRole("radio", { name: "Grid view" })).toHaveAttribute("aria-checked", "true")
+    })
+
+    it("remembers the list view on this device and keeps full cards there", () => {
+      storeState.timers = [makeTimer()]
+      const { container } = renderHomeClient()
+
+      fireEvent.click(screen.getByRole("radio", { name: "List view" }))
+
+      expect(localStorage.getItem("tickward:dashboard-view")).toBe("list")
+      expect(container.querySelector("[data-compact]")).toBeNull()
+      expect(within(sectionForHeading("Upcoming")).getByRole("article").parentElement).not.toHaveClass("md:grid-cols-2")
+    })
+
+    it("shows the dial dashboard instead of the cards in the dial view", () => {
+      localStorage.setItem("tickward:dashboard-view", "dial")
+      storeState.timers = [makeTimer({ id: "a", label: "Alpha" }), makeTimer({ id: "b", label: "Bravo", pinned: true })]
+      renderHomeClient()
+
+      const dial = screen.getByTestId("dial-dashboard")
+      expect(within(dial).getByRole("group", { name: /./ })).toBeInTheDocument()
+      expect(within(dial).getAllByText("Alpha").length).toBeGreaterThan(0)
+      expect(screen.queryByRole("heading", { name: "Upcoming" })).not.toBeInTheDocument()
+      expect(screen.getByRole("radio", { name: "Dial view" })).toHaveAttribute("aria-checked", "true")
+    })
+
+    it("keeps the three-way switch for desktop; phones get the toggle beside sort", () => {
+      storeState.timers = [makeTimer()]
+      renderHomeClient()
+
+      expect(screen.getByRole("radiogroup", { name: "Dashboard view" })).toHaveClass("hidden", "md:inline-flex")
+    })
+
+    it("moves the promotion below the list on desktop", () => {
+      storeState.timers = [makeTimer()]
+      const { container } = renderWithPromotion()
+
+      const below = container.querySelector('[data-slot="dashboard-promotion"]')
+      expect(below).toHaveClass("group/promotion", "hidden", "md:block")
+      expect(below).toHaveAttribute("data-layout", "inline")
+      expect(below?.compareDocumentPosition(container.querySelector('[data-slot="timer-list"]')!)).toBe(
+        Node.DOCUMENT_POSITION_PRECEDING,
+      )
+      expect(screen.getAllByTestId("promotion")).toHaveLength(2)
+    })
+  })
+
+  describe("timer order", () => {
+    const upcoming = [
+      makeTimer({ id: "b", label: "Bravo", targetDate: "2026-05-27T12:00:00.000Z" }),
+      makeTimer({ id: "a", label: "Alpha", targetDate: "2026-05-26T12:00:00.000Z" }),
+      makeTimer({ id: "s", label: "Since start", mode: "since", targetDate: "2026-05-01T12:00:00.000Z" }),
+      makeTimer({ id: "t", label: "Since trip", mode: "since", targetDate: "2026-05-10T12:00:00.000Z" }),
+    ]
+
+    it("has no handle or move actions outside Manual order", () => {
+      storeState.timers = upcoming
+      const { container } = renderHomeClient()
+
+      expect(container.querySelector("[data-sortable]")).toBeNull()
+      expect(screen.queryByRole("button", { name: /Move later/ })).not.toBeInTheDocument()
+    })
+
+    it("makes every section, count-ups included, sortable in Manual order", () => {
+      storeState.timers = upcoming
+      storeState.sortMode = "manual"
+      const { container } = renderHomeClient()
+
+      expect(container.querySelectorAll("[data-sortable]")).toHaveLength(4)
+      // Manual order keeps the stored order, also for count-ups.
+      expect(
+        within(sectionForHeading("Counting up"))
+          .getAllByRole("article")
+          .map((el) => el.textContent),
+      ).toEqual([expect.stringContaining("Since start"), expect.stringContaining("Since trip")])
+    })
+
+    it("moves a card one place inside its section without touching the sort mode", () => {
+      storeState.timers = upcoming
+      storeState.sortMode = "manual"
+      renderHomeClient()
+
+      expect(screen.getByRole("button", { name: "Move earlier Bravo" })).toBeDisabled()
+      fireEvent.click(screen.getByRole("button", { name: "Move later Bravo" }))
+
+      expect(storeState.reorderVisibleTimers).toHaveBeenCalledWith(["a", "b"])
+      expect(storeState.setTimerSortMode).not.toHaveBeenCalled()
+    })
+
+    it("moves pinned timers by their place in the whole list", () => {
+      storeState.timers = [
+        makeTimer({ id: "x", label: "Other" }),
+        makeTimer({ id: "p1", label: "First pin", pinned: true }),
+        makeTimer({ id: "p2", label: "Second pin", pinned: true }),
+      ]
+      storeState.sortMode = "manual"
+      renderHomeClient()
+
+      fireEvent.click(screen.getByRole("button", { name: "Move later First pin" }))
+
+      expect(storeState.reorderTimers).toHaveBeenCalledWith(1, 2)
+      expect(storeState.reorderVisibleTimers).not.toHaveBeenCalled()
+    })
+
+    it("keeps the archive newest first and out of Manual order", () => {
+      storeState.timers = [
+        makeTimer({ id: "old", label: "Old", archivedAt: "2026-05-01T00:00:00.000Z" }),
+        makeTimer({ id: "new", label: "New", archivedAt: "2026-05-20T00:00:00.000Z" }),
+      ]
+      storeState.sortMode = "manual"
+      const { container } = renderHomeClient()
+
+      const archived = container.querySelector('[data-slot="archived-timer-list"]')!
+      expect(
+        within(archived as HTMLElement)
+          .getAllByRole("article")
+          .map((el) => el.textContent?.slice(0, 3)),
+      ).toEqual(["New", "Old"])
+      expect(archived.querySelector("[data-sortable]")).toBeNull()
+    })
+
+    it("keeps the visible order when Manual order starts", () => {
+      storeState.timers = upcoming
+      renderHomeClient()
+
+      fireEvent.click(screen.getByRole("button", { name: "Sort manually" }))
+
+      expect(storeState.reorderVisibleTimers).toHaveBeenCalledWith(["a", "b", "t", "s"])
+      expect(storeState.setTimerSortMode).toHaveBeenCalledWith("manual")
+    })
   })
 
   it("renders elapsed one-time timers under Past instead of Upcoming", () => {
@@ -1073,7 +1263,11 @@ describe("HomeClient", () => {
   it("uses a crossfade and announces the destination when reduced motion is preferred", () => {
     vi.stubGlobal(
       "matchMedia",
-      vi.fn(() => ({ matches: true })),
+      vi.fn((query: string) => ({
+        matches: query.includes("reduced-motion"),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
     )
     const target = currentNowMs
     storeState.timers = [

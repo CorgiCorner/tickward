@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -35,11 +35,29 @@ const countUpOccurrence: CountUpOccurrence = {
   usesDefaultPolicy: true,
 }
 
+// Counts mounted detail views; the real view still renders.
+const detailDialogMounts = vi.hoisted(() => ({ current: 0 }))
+vi.mock("@/components/timer-detail/timer-detail-dialog", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/timer-detail/timer-detail-dialog")>()
+  const { useEffect } = await import("react")
+  function CountedTimerDetailDialog(props: Parameters<typeof actual.TimerDetailDialog>[0]) {
+    useEffect(() => {
+      detailDialogMounts.current += 1
+      return () => {
+        detailDialogMounts.current -= 1
+      }
+    }, [])
+    return <actual.TimerDetailDialog {...props} />
+  }
+  return { ...actual, TimerDetailDialog: CountedTimerDetailDialog }
+})
+
 vi.mock("@/components/plausible-analytics", () => ({
   trackCountUpAnalyticsEvent: analyticsTrack,
 }))
 
 vi.mock("@/components/use-now", () => ({ useNow: () => Date.now() }))
+vi.mock("@/components/dashboard/use-minute-now", () => ({ useMinuteNow: () => Date.now() }))
 
 vi.mock("@/lib/store", () => ({
   useTimerStore: <T,>(selector: (store: TimerStore) => T) => selector(storeState as TimerStore),
@@ -167,6 +185,304 @@ describe("TimerCard", () => {
 
     expect(screen.getAllByText("Since")[0]).toBeVisible()
     expect(screen.getAllByText(/Next: 3 years/)[0]).toBeVisible()
+  })
+
+  it("keeps the date line visible and puts the description on its own line", () => {
+    render(
+      <TimerCard
+        timer={makeTimer({
+          targetDate: "2026-11-11T15:00:00.000Z",
+          description: "Tickets are in the wallet.",
+        })}
+        nowMs={Date.parse("2026-11-10T12:00:00.000Z")}
+      />,
+    )
+
+    const dates = document.querySelectorAll('[data-slot="timer-card-date"]')
+    expect(dates.length).toBeGreaterThan(0)
+    expect(dates[0]).toHaveTextContent("Nov 11, 2026 · 16:00 · Europe/Warsaw")
+    expect(screen.getAllByText("Tickets are in the wallet.")[0]).toHaveAttribute("data-slot", "timer-card-description")
+  })
+
+  it("uses one set of unit labels and drops the day segment under a day", () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-10T12:00:00.000Z"))
+    render(<TimerCard timer={makeTimer({ targetDate: "2026-11-11T02:10:03.000Z" })} nowMs={Date.now()} />)
+
+    const counter = document.querySelector('[data-slot="timer-card-counter"]')
+    expect(counter).toHaveTextContent("14hrs:10min:03sec")
+    expect(counter).not.toHaveTextContent(/day/)
+  })
+
+  it("always shows when a count-up started, even with a description", () => {
+    render(
+      <TimerCard
+        timer={makeTimer({ targetDate: "2026-11-09T20:10:00.000Z", mode: "since", description: "Lamp collected." })}
+        nowMs={Date.parse("2026-11-10T12:00:00.000Z")}
+      />,
+    )
+
+    expect(document.querySelector('[data-slot="timer-card-date"]')).toHaveTextContent(
+      "Since Nov 9, 2026 · 21:10 · Europe/Warsaw",
+    )
+  })
+
+  it("shows the next reminder with a bell on a countdown", () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-10T09:00:00.000Z"))
+    render(
+      <TimerCard
+        timer={makeTimer({
+          targetDate: "2026-11-11T15:00:00.000Z",
+          notify: true,
+          reminders: [{ offsetMinutes: 1440 }, { offsetMinutes: 10080 }],
+        })}
+        nowMs={Date.now()}
+      />,
+    )
+
+    expect(document.querySelector('[data-slot="timer-card-next"]')).toHaveTextContent(
+      "Reminder: 1 day before · today 16:00",
+    )
+  })
+
+  it("never shows milestones on a countdown", () => {
+    render(
+      <TimerCard
+        timer={makeTimer({ targetDate: "2026-11-11T15:00:00.000Z", notify: false })}
+        nowMs={Date.parse("2026-11-10T12:00:00.000Z")}
+      />,
+    )
+
+    expect(document.querySelector('[data-slot="timer-card-next"]')).toBeNull()
+  })
+
+  describe("milestone day", () => {
+    const sinceWeMet = makeTimer({
+      id: "since-we-met",
+      label: "Since we met",
+      mode: "since",
+      color: "rgb(124, 58, 237)",
+      targetDate: "2023-11-10T09:00:00.000Z",
+      timezone: "Europe/Warsaw",
+      milestones: { rules: [{ unit: "years", every: 1 }] },
+      notify: false,
+    })
+
+    beforeEach(() => {
+      vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-10T12:00:00.000Z"))
+    })
+
+    it("shows the badge without a value and the reached value in the corner", async () => {
+      render(<TimerCard timer={sinceWeMet} nowMs={Date.now()} />)
+
+      const badges = document.querySelectorAll('[data-slot="milestone-reached-badge"]')
+      expect(badges.length).toBeGreaterThan(0)
+      expect(badges[0]).toHaveTextContent(/^Milestone reached$/)
+      expect(document.querySelector('[data-slot="timer-card-reached"]')).toHaveTextContent("3 years")
+      expect(document.querySelector('[data-slot="timer-card-next"]')).toBeNull()
+      expect(document.querySelector("article")).toHaveAttribute("data-milestone-day")
+      // The moment plays once: the bar closes from just short of full.
+      const bar = document.querySelector('[data-slot="milestone-progress"] > div') as HTMLElement
+      await waitFor(() => expect(bar.style.transform).toBe("scaleX(1)"))
+      expect(localStorage.getItem("tickward:milestone-moments")).toContain("card|since-we-met|years|3")
+    })
+
+    it("does not replay the moment on the same day unless the badge is clicked", async () => {
+      localStorage.setItem("tickward:milestone-moments", JSON.stringify({ "card|since-we-met|years|3": Date.now() }))
+      const user = userEvent.setup()
+      render(<TimerCard timer={sinceWeMet} nowMs={Date.now()} />)
+
+      const bar = document.querySelector('[data-slot="milestone-progress"] > div') as HTMLElement
+      expect(bar.style.transform).toBe("scaleX(1)")
+      await user.click(screen.getAllByRole("button", { name: /Replay the milestone moment/ })[0])
+      await waitFor(() => expect(bar.style.transform).toBe("scaleX(1)"))
+    })
+
+    it("rolls the count, closes the bar and brings the badge in, keeping only fades with reduced motion", () => {
+      // A timer whose moment has not played in this run yet.
+      render(<TimerCard timer={{ ...sinceWeMet, id: "since-we-met-roll" }} nowMs={Date.now()} />)
+
+      // Before the first frame the moment shows yesterday's count, ready to roll.
+      const roll = document.querySelector('[data-slot="milestone-roll"]') as HTMLElement
+      expect(roll).toHaveAttribute("data-phase", "before")
+      const [today, yesterday] = Array.from(roll.children) as HTMLElement[]
+      expect(today).toHaveTextContent("1,096")
+      expect(yesterday).toHaveTextContent("1,095")
+      expect(yesterday).toHaveAttribute("aria-hidden", "true")
+      // The travel is multiplied by --motion-travel, which reduced motion sets to 0.
+      expect(today.className).toContain("var(--motion-travel)")
+      const bar = document.querySelector('[data-slot="milestone-progress"] > div') as HTMLElement
+      expect(bar.className).toContain("transition-none")
+      const badge = document.querySelector('[data-slot="milestone-reached-badge"]') as HTMLElement
+      expect(badge).toHaveClass("motion-reduce:scale-100")
+    })
+
+    it("keeps the number in the text colour", () => {
+      render(<TimerCard timer={sinceWeMet} nowMs={Date.now()} />)
+
+      const counter = document.querySelector('[data-slot="timer-card-counter"]') as HTMLElement
+      expect(counter).toHaveTextContent("1,096days")
+      expect(counter.querySelector("[style]")).toBeNull()
+    })
+
+    it("leaves the corner empty when the counter already shows the value", () => {
+      render(
+        <TimerCard
+          timer={{
+            ...sinceWeMet,
+            targetDate: "2023-04-20T09:00:00.000Z",
+            milestones: { rules: [{ unit: "days", every: 100 }] },
+          }}
+          nowMs={Date.now()}
+        />,
+      )
+
+      expect(document.querySelectorAll('[data-slot="milestone-reached-badge"]').length).toBeGreaterThan(0)
+      expect(document.querySelector('[data-slot="timer-card-reached"]')).toBeNull()
+    })
+
+    it("switches the count format on click and keeps it on this device only", async () => {
+      const user = userEvent.setup()
+      render(<TimerCard timer={sinceWeMet} nowMs={Date.now()} />)
+
+      // The label starts with the count, so a screen reader still hears the number.
+      const toggle = screen.getAllByRole("button", { name: "1,096 days. Show years, months and days" })[0]
+      await user.click(toggle)
+
+      expect(localStorage.getItem("tickward:count-up-format:since-we-met")).toBe("calendar")
+      expect(screen.getAllByRole("button", { name: "3 years. Show total days" })[0]).toHaveAttribute(
+        "data-format",
+        "calendar",
+      )
+      // An exact anniversary reads "3 years" in the counter, so the corner stays empty.
+      expect(document.querySelector('[data-slot="timer-card-reached"]')).toBeNull()
+      expect(storeState.updateTimer).not.toHaveBeenCalled()
+
+      await user.click(screen.getAllByRole("button", { name: "3 years. Show total days" })[0])
+      expect(localStorage.getItem("tickward:count-up-format:since-we-met")).toBeNull()
+    })
+
+    it("leaves the card moment unplayed when only the menu is rendered, as in the dial view", async () => {
+      // A timer whose moment has not played in this run yet.
+      const timer = { ...sinceWeMet, id: "since-we-met-dial" }
+      const { unmount } = render(<TimerCard timer={timer} nowMs={Date.now()} variant="menu" />)
+      await act(async () => {
+        await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)))
+      })
+      unmount()
+      expect(localStorage.getItem("tickward:milestone-moments") ?? "").not.toContain("card|since-we-met-dial")
+
+      // Back on the grid, the card still plays its moment.
+      render(<TimerCard timer={timer} nowMs={Date.now()} />)
+      await waitFor(() =>
+        expect(localStorage.getItem("tickward:milestone-moments")).toContain("card|since-we-met-dial|years|3"),
+      )
+    })
+
+    it("keeps the reached value on a compact card, whose counter reads total days in any format", () => {
+      localStorage.setItem("tickward:count-up-format:since-we-met", "calendar")
+      render(<TimerCard timer={sinceWeMet} nowMs={Date.now()} compact />)
+
+      const compact = document.querySelector('[data-slot="compact-timer-card"]') as HTMLElement
+      expect(compact).not.toBeNull()
+      expect(compact.querySelector('[data-slot="timer-card-reached"]')).toHaveTextContent("3 years")
+    })
+
+    it("has no format switch for a timer younger than one month", () => {
+      render(<TimerCard timer={{ ...sinceWeMet, targetDate: "2026-10-20T09:00:00.000Z" }} nowMs={Date.now()} />)
+
+      expect(document.querySelector('[data-slot="count-up-format-toggle"]')).toBeNull()
+    })
+
+    it("shows the next milestone with progress on an ordinary day", () => {
+      vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-20T12:00:00.000Z"))
+      render(<TimerCard timer={sinceWeMet} nowMs={Date.now()} />)
+
+      expect(document.querySelector('[data-slot="milestone-reached-badge"]')).toBeNull()
+      expect(document.querySelector('[data-slot="timer-card-next"]')).toHaveTextContent("Next: 4 years · in 354 days")
+      const bar = document.querySelector('[data-slot="milestone-progress"] > div') as HTMLElement
+      expect(bar.style.transform).toMatch(/^scaleX\(0\.0/)
+    })
+  })
+
+  it("shows no drag handle unless the sort mode is Manual order", () => {
+    render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+
+    expect(document.querySelector('[data-slot="timer-drag-handle"]')).toBeNull()
+  })
+
+  it("puts the handle on count-ups too and moves cards from the menu in Manual order", async () => {
+    const user = userEvent.setup()
+    const onMove = vi.fn()
+    render(
+      <TimerCard
+        timer={makeTimer({ label: "Parcel", mode: "since", targetDate: "2026-05-01T00:00:00.000Z" })}
+        nowMs={Date.parse("2026-05-24T00:00:00.000Z")}
+        sortable
+        onMove={onMove}
+        canMoveEarlier={false}
+        canMoveLater
+      />,
+    )
+
+    expect(screen.getAllByRole("button", { name: "Reorder Parcel" }).length).toBeGreaterThan(0)
+    await openFirstTimerActions(user)
+    expect(await screen.findByRole("menuitem", { name: "Move earlier" })).toHaveAttribute("aria-disabled", "true")
+    await user.click(screen.getByRole("menuitem", { name: "Move later" }))
+    expect(onMove).toHaveBeenCalledWith("timer-a", 1)
+  })
+
+  it("slides the handle in only when Manual order has just started", () => {
+    const { rerender } = render(
+      <TimerCard
+        timer={makeTimer()}
+        nowMs={Date.parse("2026-05-24T00:00:00.000Z")}
+        sortable
+        handleEntranceDelayMs={60}
+      />,
+    )
+    const handle = document.querySelector('[data-slot="timer-drag-handle"]') as HTMLElement
+    expect(handle).toHaveClass("animate-in", "motion-reduce:slide-in-from-left-0")
+    expect(handle.style.animationDelay).toBe("60ms")
+
+    rerender(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} sortable />)
+    expect(document.querySelector('[data-slot="timer-drag-handle"]')).not.toHaveClass("animate-in")
+  })
+
+  it("keeps Pin available outside Manual order", () => {
+    render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+
+    expect(screen.getAllByRole("button", { name: /Pin/ }).length).toBeGreaterThan(0)
+  })
+
+  it("renders the dense card for the desktop grid with Pin in its menu", async () => {
+    const user = userEvent.setup()
+    render(<TimerCard timer={makeTimer({ label: "Train" })} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} compact />)
+
+    const compact = document.querySelector('[data-slot="compact-timer-card"]')
+    expect(compact).not.toBeNull()
+    expect(compact?.querySelector('[data-slot="timer-card-date"]')).toHaveTextContent("May 25, 2026 · 14:00")
+    // The phone copy keeps the full card.
+    expect(document.querySelectorAll("article")).toHaveLength(2)
+
+    const menus = screen.getAllByRole("button", { name: "Open timer actions" })
+    await user.click(menus[menus.length - 1])
+    await user.click(await screen.findByRole("menuitem", { name: "Pin to top" }))
+    expect(storeState.setPinnedTimer).toHaveBeenCalledWith("timer-a")
+  })
+
+  it("keeps the full card for an attention count-up so its decision controls stay", () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-05-25T13:00:00.000Z"))
+    render(
+      <TimerCard
+        timer={makeTimer()}
+        nowMs={Date.now()}
+        compact
+        countUpOccurrence={countUpOccurrence}
+        countUpPlacement="section"
+      />,
+    )
+
+    expect(document.querySelector('[data-slot="compact-timer-card"]')).toBeNull()
   })
 
   it("labels an exhausted finite milestone ladder", () => {
@@ -775,27 +1091,105 @@ describe("TimerCard", () => {
     expect(toastMock.error).toHaveBeenCalledWith("Open Settings and choose how timer alarms should run.")
   })
 
-  it("opens the edit form when tapping the timer card body on mobile", async () => {
+  it("opens the detail view when the card body is clicked", async () => {
     const user = userEvent.setup()
-    setViewportMobile(true)
 
     render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
 
-    await user.click(screen.getAllByRole("button", { name: "Edit" })[0])
+    const openers = screen.getAllByRole("button", { name: "Open Launch" })
+    // One opener per layout tree (phone and desktop); only one is visible at a time.
+    expect(openers).toHaveLength(2)
+    await user.click(openers[1])
 
-    expect(await screen.findByRole("dialog", { name: "Edit timer" }, { timeout: 4000 })).toBeVisible()
+    expect(await screen.findByRole("dialog", { name: "Launch" }, { timeout: 4000 })).toBeVisible()
+    expect(screen.queryByRole("dialog", { name: "Edit timer" })).not.toBeInTheDocument()
   })
 
-  it("opens the edit form from the keyboard via the mobile card button", async () => {
+  it("mounts one detail view per card, and only once someone reaches for it", async () => {
+    const idle = Object.getOwnPropertyDescriptor(globalThis, "requestIdleCallback")
+    const cancelIdle = Object.getOwnPropertyDescriptor(globalThis, "cancelIdleCallback")
+    Object.assign(globalThis, {
+      requestIdleCallback: (callback: IdleRequestCallback) => {
+        callback({ didTimeout: false, timeRemaining: () => 50 })
+        return 1
+      },
+      cancelIdleCallback: () => {},
+    })
+    try {
+      // Let the counting mock finish loading first: an import made while its factory still
+      // runs gets the original module.
+      await import("@/components/timer-detail/timer-detail-dialog")
+      const user = userEvent.setup()
+
+      const { unmount } = render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+      await act(async () => {})
+      // An idle page loads the view's code but mounts no view.
+      expect(detailDialogMounts.current).toBe(0)
+
+      const openers = screen.getAllByRole("button", { name: "Open Launch" })
+      fireEvent.pointerDown(openers[0])
+      fireEvent.pointerDown(openers[1])
+      await user.click(openers[1])
+      expect(await screen.findByRole("dialog", { name: "Launch" }, { timeout: 4000 })).toBeVisible()
+      expect(detailDialogMounts.current).toBe(1)
+      unmount()
+    } finally {
+      for (const [name, descriptor] of [
+        ["requestIdleCallback", idle],
+        ["cancelIdleCallback", cancelIdle],
+      ] as const) {
+        if (descriptor) Object.defineProperty(globalThis, name, descriptor)
+        else Reflect.deleteProperty(globalThis, name)
+      }
+    }
+  })
+
+  it("opens the detail view from the keyboard", async () => {
     const user = userEvent.setup()
     setViewportMobile(true)
 
     render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
 
-    screen.getAllByRole("button", { name: "Edit" })[0].focus()
+    screen.getAllByRole("button", { name: "Open Launch" })[0].focus()
     await user.keyboard("{Enter}")
 
-    expect(await screen.findByRole("dialog", { name: "Edit timer" }, { timeout: 4000 })).toBeVisible()
+    expect(await screen.findByRole("dialog", { name: "Launch" }, { timeout: 4000 })).toBeVisible()
+  })
+
+  it("keeps the card controls above the detail opener", () => {
+    render(
+      <TimerCard
+        timer={makeTimer({ url: "https://example.com" })}
+        nowMs={Date.parse("2026-05-24T00:00:00.000Z")}
+        sortable
+      />,
+    )
+
+    for (const handle of screen.getAllByRole("button", { name: "Reorder Launch" })) {
+      expect(handle.className).toMatch(/\bz-20\b/)
+    }
+    for (const link of screen.getAllByRole("link", { name: "Open link" })) {
+      expect(link.className).toMatch(/\bz-10\b/)
+    }
+    const outerActions = [...document.querySelectorAll("[data-timer-card-action]")].filter(
+      (element) => !element.parentElement?.closest("[data-timer-card-action]"),
+    )
+    expect(outerActions.length).toBeGreaterThan(3)
+    for (const actions of outerActions) {
+      expect(actions.className).toMatch(/\bz-(10|20)\b/)
+    }
+  })
+
+  it("does not open the detail view when a drag on the handle ends", () => {
+    render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} sortable />)
+
+    const handle = screen.getAllByRole("button", { name: "Reorder Launch" })[1]
+    fireEvent.pointerDown(handle, { clientX: 20, clientY: 20 })
+    fireEvent.pointerMove(handle, { clientX: 20, clientY: 90 })
+    fireEvent.pointerUp(handle, { clientX: 20, clientY: 90 })
+    fireEvent.click(handle)
+
+    expect(screen.queryByRole("dialog", { name: "Launch" })).not.toBeInTheDocument()
   })
 
   it("keeps mobile swipe gestures from opening the edit form", () => {

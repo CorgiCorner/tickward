@@ -282,6 +282,63 @@ async function deleteProjectGraph(
   })
 }
 
+type PrismaClient = ReturnType<typeof requirePrismaClient>
+
+function isUniqueConstraintError(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "P2002"
+}
+
+// Writes the snapshot into the project behind an existing token. Returns
+// "missing" when no token exists yet, false when it is revoked or expired.
+async function updateSnapshotForToken(
+  prisma: PrismaClient,
+  tokenHash: RestoreKeyTokenHash,
+  project: ProjectSnapshotV2,
+): Promise<boolean | "missing"> {
+  const existingToken = await prisma.projectAccessToken.findUnique({
+    where: { tokenHash },
+    select: { projectId: true, revokedAt: true, expiresAt: true, project: { select: { ownerId: true } } },
+  })
+
+  if (!existingToken) return "missing"
+  if (!isActiveAccessToken(existingToken)) return false
+
+  const ownerId = existingToken.project.ownerId
+  const timerRows = timerCreateManyData(existingToken.projectId, ownerId, project)
+  const spaceRows = spaceCreateManyData(existingToken.projectId, ownerId, project)
+
+  await prisma.$transaction([
+    prisma.project.update({
+      where: { id: existingToken.projectId },
+      data: prismaProjectFields(project),
+    }),
+    prisma.timer.deleteMany({ where: { projectId: existingToken.projectId } }),
+    prisma.space.deleteMany({ where: { projectId: existingToken.projectId } }),
+    ...(timerRows.length > 0 ? [prisma.timer.createMany({ data: timerRows })] : []),
+    ...(spaceRows.length > 0 ? [prisma.space.createMany({ data: spaceRows })] : []),
+  ])
+  return true
+}
+
+async function createProjectForToken(prisma: PrismaClient, tokenHash: RestoreKeyTokenHash, project: ProjectSnapshotV2) {
+  const fallbackDate = dateFromIso(project.updatedAt, new Date())
+  await prisma.project.create({
+    data: {
+      id: newPublicId("project"),
+      ...prismaProjectFields(project),
+      accessTokens: {
+        create: { tokenHash },
+      },
+      ...(project.timers.length > 0
+        ? { timers: { create: project.timers.map((timer) => timerCreateData(timer, fallbackDate)) } }
+        : {}),
+      ...(project.spaces.length > 0
+        ? { spaces: { create: project.spaces.map((space) => spaceCreateData(space, fallbackDate)) } }
+        : {}),
+    },
+  })
+}
+
 export const prismaProjectRepository: ProjectRepository = {
   async loadSnapshot(restoreKey) {
     const prisma = requirePrismaClient()
@@ -298,50 +355,23 @@ export const prismaProjectRepository: ProjectRepository = {
 
   async saveSnapshot(restoreKey, project) {
     const prisma = requirePrismaClient()
-
     const tokenHash = hashRestoreKeyToken(restoreKey)
-    const existingToken = await prisma.projectAccessToken.findUnique({
-      where: { tokenHash },
-      select: { projectId: true, revokedAt: true, expiresAt: true, project: { select: { ownerId: true } } },
-    })
 
-    if (existingToken && !isActiveAccessToken(existingToken)) return false
+    const updated = await updateSnapshotForToken(prisma, tokenHash, project)
+    if (updated !== "missing") return updated
 
-    if (existingToken) {
-      const ownerId = existingToken.project.ownerId
-      const timerRows = timerCreateManyData(existingToken.projectId, ownerId, project)
-      const spaceRows = spaceCreateManyData(existingToken.projectId, ownerId, project)
-
-      await prisma.$transaction([
-        prisma.project.update({
-          where: { id: existingToken.projectId },
-          data: prismaProjectFields(project),
-        }),
-        prisma.timer.deleteMany({ where: { projectId: existingToken.projectId } }),
-        prisma.space.deleteMany({ where: { projectId: existingToken.projectId } }),
-        ...(timerRows.length > 0 ? [prisma.timer.createMany({ data: timerRows })] : []),
-        ...(spaceRows.length > 0 ? [prisma.space.createMany({ data: spaceRows })] : []),
-      ])
+    try {
+      await createProjectForToken(prisma, tokenHash, project)
       return true
+    } catch (error) {
+      // Two first saves for the same restore key can both see no token and
+      // race to insert it. The loser hits the unique token hash; the project
+      // now exists, so save into it instead of failing the request.
+      if (!isUniqueConstraintError(error)) throw error
+      const retried = await updateSnapshotForToken(prisma, tokenHash, project)
+      if (retried === "missing") throw error
+      return retried
     }
-
-    const fallbackDate = dateFromIso(project.updatedAt, new Date())
-    await prisma.project.create({
-      data: {
-        id: newPublicId("project"),
-        ...prismaProjectFields(project),
-        accessTokens: {
-          create: { tokenHash },
-        },
-        ...(project.timers.length > 0
-          ? { timers: { create: project.timers.map((timer) => timerCreateData(timer, fallbackDate)) } }
-          : {}),
-        ...(project.spaces.length > 0
-          ? { spaces: { create: project.spaces.map((space) => spaceCreateData(space, fallbackDate)) } }
-          : {}),
-      },
-    })
-    return true
   },
 
   async clear(restoreKey) {

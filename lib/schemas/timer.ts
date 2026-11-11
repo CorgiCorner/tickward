@@ -539,30 +539,6 @@ export const timerFormSchema = timerFormBaseSchema.superRefine((form, ctx) => {
   }
 })
 
-export const timerFormStepFields = {
-  1: ["label", "description", "url", "spaceId"],
-  2: [
-    "scheduleMode",
-    "timerMode",
-    "milestoneRules",
-    "date",
-    "time",
-    "timezone",
-    "durationDays",
-    "durationHours",
-    "durationMinutes",
-    "durationSeconds",
-    "notify",
-    "reminders",
-    "repeatEnabled",
-    "repeatType",
-    "lastDay",
-    "afterZeroMode",
-    "afterZeroMinutes",
-  ],
-  3: ["image"],
-} as const
-
 export const timerFormStepSchemas = {
   1: timerFormBaseSchema.pick({
     label: true,

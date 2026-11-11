@@ -421,6 +421,18 @@
   width: clamp(220px, 34vw, 300px);
 }
 
+.milestonePhone {
+  justify-self: center;
+  width: clamp(220px, 34vw, 300px);
+}
+
+/* Copy sits on the left here, so on wide screens it hugs the phone. */
+@media (min-width: 860px) {
+  .milestoneCopy {
+    justify-self: end;
+  }
+}
+
 /* A soft halo where the Live Activity sits on the Lock Screen. */
 .lockPhone::after {
   content: "";

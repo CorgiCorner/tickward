@@ -1,31 +1,25 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { formatInTimeZone } from "date-fns-tz"
-import { ChevronDownIcon } from "lucide-react"
-import { useId, useMemo, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react"
-import { useForm, useWatch, type UseFormReturn } from "react-hook-form"
+import { useId, useMemo, useState, type ReactNode } from "react"
+import { useForm, useWatch, type FieldErrors } from "react-hook-form"
 import { toast } from "sonner"
 
-import {
-  TimerBasicsSection,
-  TimerCustomizeSection,
-  TimerFormSectionHeading,
-  TimerFormStepper,
-  TimerScheduleSection,
-} from "@/components/timer-form-sections"
+import { MENU_MOTION_CLASSNAME } from "@/components/dashboard/motion"
+import { SignInDialog } from "@/components/sign-in-auth"
 import { StartCountUpFromDate } from "@/components/start-count-up-from-date"
+import {
+  ScheduleModeSwitch,
+  TimerAlertsSection,
+  TimerDirectionSection,
+  TimerMilestonesField,
+  TimerNameSection,
+  TimerPhotoSection,
+  TimerRepeatSection,
+  TimerWhenSection,
+} from "@/components/timer-form-sections"
+import { FadeInText, RevealRow } from "@/components/timer-form/reveal"
 import { useNow } from "@/components/use-now"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -35,7 +29,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { authClient } from "@/lib/auth/auth-client"
+import { runInBackground } from "@/lib/background-task"
 import { useBrowserTimeZone, useDefaultTimeZone } from "@/lib/default-timezone.client"
 import { formatMessage, formatPluralMessage, nextDefaultTimerLabel, type MessageKey } from "@/lib/i18n/messages"
 import { formatMilestoneDisplayLabel } from "@/lib/milestone-display"
@@ -47,11 +50,9 @@ import {
   isTimerFormStepValid,
   normalizeTimerUrl,
   timerFormSchema,
-  timerFormStepFields,
   timerAfterZeroFromForm,
   timerTemplateFormSeed,
   type TimerCreationTemplateId,
-  type TimerFormStep,
   type TimerFormSubmitValue,
   type TimerFormValues,
 } from "@/lib/schemas/timer"
@@ -60,6 +61,7 @@ import { timerAlertReadiness } from "@/lib/timer-alert-readiness.client"
 import type { Timer } from "@/lib/types"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
 import {
+  cn,
   effectiveTargetDate,
   nextSlotOccurrence,
   recurrenceSlot,
@@ -78,6 +80,12 @@ type TimerFormProps = {
   open?: boolean
   onOpenChange?: (open: boolean) => void
   onSubmit: (timer: TimerFormSubmitValue) => void
+  /**
+   * "dialog" (default) opens the form in its own dialog. "inline" renders it into
+   * the host dialog it replaces (the timer detail view); closing it, by Save or
+   * Back, hands the place back to the host.
+   */
+  surface?: "dialog" | "inline"
 }
 
 const TIMER_TEMPLATE_LABEL_KEYS: Record<TimerCreationTemplateId, MessageKey> = {
@@ -88,14 +96,6 @@ const TIMER_TEMPLATE_LABEL_KEYS: Record<TimerCreationTemplateId, MessageKey> = {
   monthiversary: "timer.form.template.monthiversary",
   "recovery-ladder": "timer.form.template.recoveryLadder",
   streak: "timer.form.template.streak",
-}
-
-function nextStep(step: TimerFormStep): TimerFormStep {
-  return step < 3 ? ((step + 1) as TimerFormStep) : step
-}
-
-function previousStep(step: TimerFormStep): TimerFormStep {
-  return step > 1 ? ((step - 1) as TimerFormStep) : step
 }
 
 function recurrenceForSubmit(parsed: TimerFormValues) {
@@ -180,53 +180,6 @@ function getDefaultValues(args: {
   }
 }
 
-function TimerAfterZeroField(props: Readonly<{ form: UseFormReturn<TimerFormValues> }>) {
-  const mode = useWatch({ control: props.form.control, name: "afterZeroMode" })
-
-  return (
-    <div className="grid gap-2">
-      <Label htmlFor="timer-after-zero">{formatMessage("timer.form.afterZero.label")}</Label>
-      <Select
-        value={mode}
-        onValueChange={(value) =>
-          props.form.setValue("afterZeroMode", value as TimerFormValues["afterZeroMode"], {
-            shouldDirty: true,
-            shouldTouch: true,
-            shouldValidate: true,
-          })
-        }
-      >
-        <SelectTrigger id="timer-after-zero" aria-label={formatMessage("timer.form.afterZero.label")}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="use-default">{formatMessage("timer.form.afterZero.useDefault")}</SelectItem>
-          <SelectItem value="move-directly-to-past">{formatMessage("timer.form.afterZero.moveDirectly")}</SelectItem>
-          <SelectItem value="keep-visible-5m">{formatMessage("timer.form.afterZero.keep5m")}</SelectItem>
-          <SelectItem value="keep-visible-15m">{formatMessage("timer.form.afterZero.keep15m")}</SelectItem>
-          <SelectItem value="keep-visible-1h">{formatMessage("timer.form.afterZero.keep1h")}</SelectItem>
-          <SelectItem value="keep-visible-1d">{formatMessage("timer.form.afterZero.keep1d")}</SelectItem>
-          <SelectItem value="keep-visible-custom">{formatMessage("timer.form.afterZero.keepCustom")}</SelectItem>
-          <SelectItem value="until-reviewed">{formatMessage("timer.form.afterZero.untilReviewed")}</SelectItem>
-        </SelectContent>
-      </Select>
-      {mode === "keep-visible-custom" ? (
-        <div className="grid gap-2">
-          <Label htmlFor="timer-after-zero-minutes">{formatMessage("timer.form.afterZero.customMinutes")}</Label>
-          <Input
-            id="timer-after-zero-minutes"
-            type="number"
-            min={1}
-            max={525_600}
-            inputMode="numeric"
-            {...props.form.register("afterZeroMinutes")}
-          />
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
 type NotifyToggleResult = {
   checked: boolean
   errorKey?: MessageKey
@@ -239,202 +192,95 @@ async function resolveNotifyToggle(checked: boolean, signedIn: boolean): Promise
   return readiness.ready ? { checked: true } : { checked: false, errorKey: readiness.messageKey }
 }
 
-function TimerStepContent(
-  props: Readonly<{
-    currentStep: TimerFormStep
-    descriptionLength: number
-    form: UseFormReturn<TimerFormValues>
-    isPastDate: boolean
-    directionSuggestion?: "since" | "until"
-    focusDateOnMount?: boolean
-    labelLength: number
-    labelPlaceholder: string
-    localTz: string
-    onNotifyChange: (checked: boolean) => void
-    repeatEnabled: boolean
-    repeatPreview: string[]
-    timerMode: TimerFormValues["timerMode"]
-    milestonePreview: string[]
-    livePreview?: string
-    repeatType: TimerFormValues["repeatType"]
-    scheduleMode: TimerFormValues["scheduleMode"]
-    spaces: ComponentProps<typeof TimerBasicsSection>["spaces"]
-    timezone: string
-    onTimerModeChange: (mode: TimerFormValues["timerMode"]) => void
-  }>,
-) {
-  if (props.currentStep === 1) {
-    return (
-      <TimerBasicsSection
-        control={props.form.control}
-        register={props.form.register}
-        spaces={props.spaces}
-        labelLength={props.labelLength}
-        descriptionLength={props.descriptionLength}
-        labelPlaceholder={props.labelPlaceholder}
-        detailsCollapsed
-      />
-    )
-  }
+const FOOTER_ERROR_FIELDS = [
+  "date",
+  "time",
+  "durationMinutes",
+  "milestoneRules",
+  "label",
+  "url",
+  "afterZeroMinutes",
+  "reminders",
+  "scheduleMode",
+  "repeatEnabled",
+] as const
 
-  if (props.currentStep === 2) {
-    return (
-      <>
-        <TimerScheduleSection
-          control={props.form.control}
-          allowScheduleMode
-          localTz={props.localTz}
-          timezone={props.timezone}
-          scheduleMode={props.scheduleMode}
-          repeatEnabled={props.repeatEnabled}
-          repeatType={props.repeatType}
-          repeatPreview={props.repeatPreview}
-          timerMode={props.timerMode}
-          milestonePreview={props.milestonePreview}
-          isPastDate={props.isPastDate}
-          directionSuggestion={props.directionSuggestion}
-          focusDateOnMount={props.focusDateOnMount}
-          livePreview={props.livePreview}
-          onNotifyChange={props.onNotifyChange}
-          onTimerModeChange={props.onTimerModeChange}
-        />
-        {!props.repeatEnabled && props.timerMode !== "since" ? <TimerAfterZeroField form={props.form} /> : null}
-      </>
-    )
+function firstErrorMessage(errors: FieldErrors<TimerFormValues>) {
+  for (const name of FOOTER_ERROR_FIELDS) {
+    const error = errors[name]
+    if (!error) continue
+    if (typeof error.message === "string" && error.message) return error.message
+    if (Array.isArray(error)) {
+      const nested = error.find((item) => item && typeof item === "object")
+      const message = nested?.message ?? nested?.offsetMinutes?.message
+      if (typeof message === "string" && message) return message
+    }
   }
+  return null
+}
 
-  if (props.currentStep === 3) return <TimerCustomizeSection control={props.form.control} />
+// One line left of the primary action. What blocks the timer wins; otherwise
+// signed-out people learn where the timer is kept.
+function footerStatus(args: {
+  errors: FieldErrors<TimerFormValues>
+  submitted: boolean
+  scheduleMode: TimerFormValues["scheduleMode"]
+  date: string
+  durationSeconds: number
+  notifyBlockedByPastDate: boolean
+  signedIn: boolean
+  isEdit: boolean
+}): { text: string; tone: "muted" | "error" } | null {
+  const error = args.submitted ? firstErrorMessage(args.errors) : null
+  if (error) return { text: error, tone: "error" }
+  const tone = args.submitted ? "error" : "muted"
+  if (args.scheduleMode === "at" && !args.date) return { text: formatMessage("timer.form.footer.missingDate"), tone }
+  if (args.scheduleMode === "in" && args.durationSeconds < 1) {
+    return { text: formatMessage("validation.durationTooShort"), tone }
+  }
+  if (args.notifyBlockedByPastDate) return { text: formatMessage("notifications.futureOnly.inline"), tone }
+  if (!args.signedIn && !args.isEdit) return { text: formatMessage("timer.form.footer.local"), tone: "muted" }
   return null
 }
 
 function TimerFormFooter(
   props: Readonly<{
-    currentStep: TimerFormStep
-    currentStepReady: boolean
-    currentStepValid: boolean
-    mode: Mode
-    notifyBlockedByPastDate: boolean
     formId: string
-    onBack: () => void
-    onNext: (event: MouseEvent<HTMLButtonElement>) => void
-    scheduleValid: boolean
+    mode: Mode
+    status: ReturnType<typeof footerStatus>
   }>,
 ) {
+  const statusId = useId()
   // Rendered inside DialogFooter at the DialogContent level: the dialog pins
   // only direct DialogFooter children, so the wrapper must not own it.
   return (
-    <>
-      {props.currentStep > 1 ? (
-        <Button type="button" variant="outline" onClick={props.onBack}>
-          {formatMessage("common.back")}
-        </Button>
-      ) : null}
-      {props.currentStep < 3 ? (
-        <Button type="button" disabled={!props.currentStepReady} onClick={props.onNext}>
-          {formatMessage("common.next")}
-        </Button>
-      ) : (
-        <Button
-          form={props.formId}
-          type="submit"
-          disabled={!props.currentStepValid || !props.scheduleValid || props.notifyBlockedByPastDate}
-        >
-          {formatMessage(props.mode === "create" ? "common.create" : "common.save")}
-        </Button>
-      )}
-    </>
-  )
-}
-
-function TimerEditFooter(props: Readonly<{ formId: string; saveDisabled: boolean }>) {
-  return (
-    <Button form={props.formId} type="submit" disabled={props.saveDisabled}>
-      {formatMessage("common.save")}
-    </Button>
-  )
-}
-
-// Edit reveals every section at once (basics, schedule, customize) so changing a
-// single field never forces a walk through the create wizard's three steps.
-function TimerEditSections(
-  props: Readonly<{
-    form: UseFormReturn<TimerFormValues>
-    spaces: ComponentProps<typeof TimerBasicsSection>["spaces"]
-    labelLength: number
-    labelPlaceholder: string
-    descriptionLength: number
-    localTz: string
-    timezone: string
-    scheduleMode: TimerFormValues["scheduleMode"]
-    repeatEnabled: boolean
-    repeatType: TimerFormValues["repeatType"]
-    repeatPreview: string[]
-    timerMode: TimerFormValues["timerMode"]
-    milestonePreview: string[]
-    livePreview?: string
-    isPastDate: boolean
-    onNotifyChange: (checked: boolean) => void
-    onTimerModeChange: (mode: TimerFormValues["timerMode"]) => void
-    timer: Timer
-    onStartCountUpComplete: () => void
-  }>,
-) {
-  const [customizeOpen, setCustomizeOpen] = useState(false)
-
-  return (
-    <div className="grid gap-5">
-      <section className="grid gap-3 rounded-lg border p-4">
-        <TimerFormSectionHeading step={1} labelKey="timer.form.basics" />
-        <TimerBasicsSection
-          control={props.form.control}
-          register={props.form.register}
-          spaces={props.spaces}
-          labelLength={props.labelLength}
-          descriptionLength={props.descriptionLength}
-          labelPlaceholder={props.labelPlaceholder}
-        />
-      </section>
-      <section className="grid gap-3 rounded-lg border p-4">
-        <TimerFormSectionHeading step={2} labelKey="timer.form.schedule" />
-        <TimerScheduleSection
-          control={props.form.control}
-          localTz={props.localTz}
-          timezone={props.timezone}
-          scheduleMode={props.scheduleMode}
-          repeatEnabled={props.repeatEnabled}
-          repeatType={props.repeatType}
-          repeatPreview={props.repeatPreview}
-          timerMode={props.timerMode}
-          milestonePreview={props.milestonePreview}
-          isPastDate={props.isPastDate}
-          livePreview={props.livePreview}
-          onNotifyChange={props.onNotifyChange}
-          onTimerModeChange={props.onTimerModeChange}
-          timerModeLocked
-          lockedDirectionAction={<StartCountUpFromDate timer={props.timer} onComplete={props.onStartCountUpComplete} />}
-        />
-        {!props.repeatEnabled && props.timerMode !== "since" ? <TimerAfterZeroField form={props.form} /> : null}
-      </section>
-      <section className="grid gap-3 rounded-lg border p-4">
-        <button
-          type="button"
-          className="flex items-center justify-between gap-3 text-left outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-          aria-expanded={customizeOpen}
-          onClick={() => setCustomizeOpen((open) => !open)}
-        >
-          <TimerFormSectionHeading step={3} labelKey="timer.form.customize" />
-          <ChevronDownIcon
-            className={["size-4 text-muted-foreground transition-transform", customizeOpen ? "rotate-180" : ""].join(
-              " ",
-            )}
-          />
-        </button>
-        {customizeOpen ? <TimerCustomizeSection control={props.form.control} /> : null}
-      </section>
+    <div className="flex w-full items-center justify-between gap-3">
+      <div className="min-w-0 flex-1" aria-live="polite">
+        {props.status ? (
+          <FadeInText
+            key={props.status.text}
+            id={statusId}
+            className={cn("text-xs", props.status.tone === "error" ? "text-destructive" : "text-muted-foreground")}
+          >
+            {props.status.text}
+          </FadeInText>
+        ) : null}
+      </div>
+      <Button
+        form={props.formId}
+        type="submit"
+        className="shrink-0 transition-[color,background-color,transform] duration-press active:scale-[0.97] motion-reduce:active:scale-100"
+        aria-describedby={props.status?.tone === "error" ? statusId : undefined}
+      >
+        {formatMessage(props.mode === "create" ? "timer.form.createTimer" : "common.save")}
+      </Button>
     </div>
   )
 }
 
+function hasOptionalDetails(timer: Timer | undefined) {
+  return Boolean(timer?.description || timer?.url || timer?.spaceId)
+}
 function TimerFormContent(
   props: Readonly<
     Omit<TimerFormProps, "onOpenChange" | "open" | "trigger"> & {
@@ -450,10 +296,8 @@ function TimerFormContent(
   const defaultTz = useDefaultTimeZone()
   const browserTz = useBrowserTimeZone()
   const nowMs = useNow()
-  const [step, setStep] = useState<TimerFormStep>(() =>
-    props.fromTemplateMenu && props.templateId !== "blank" ? 2 : 1,
-  )
   const session = authClient.useSession()
+  const signedIn = Boolean(session.data?.user)
   const formId = useId()
 
   const defaultValues = useMemo(
@@ -492,7 +336,6 @@ function TimerFormContent(
   const labelLength = label.trim().length
   const descriptionLength = description.trim().length
   const labelPlaceholder = useMemo(() => nextDefaultTimerLabel(timers), [timers])
-  const currentStepValid = isTimerFormStepValid(step, values)
   const scheduleValid = isTimerFormStepValid(2, values)
 
   const selectedTargetMs = useMemo(() => {
@@ -509,9 +352,6 @@ function TimerFormContent(
 
   const isEdit = props.mode === "edit"
   const notifyBlockedByPastDate = timerMode !== "since" && notify && isPastDate
-  const currentStepReady = currentStepValid && !(step === 2 && notifyBlockedByPastDate)
-  const basicsValid = isTimerFormStepValid(1, values)
-  const editSaveDisabled = !basicsValid || !scheduleValid || notifyBlockedByPastDate
   const directionSuggestion = useMemo(() => {
     if (isEdit || scheduleMode !== "at" || typeof selectedTargetMs !== "number") return undefined
     if (timerMode === "until" && selectedTargetMs < nowMs) return "since" as const
@@ -593,11 +433,11 @@ function TimerFormContent(
     } else {
       form.setValue("milestoneRules", [], { shouldDirty: true })
     }
-    void form.trigger(timerFormStepFields[2])
+    if (form.formState.submitCount > 0) void form.trigger()
   }
 
   async function handleNotifyChange(checked: boolean) {
-    const result = await resolveNotifyToggle(checked, Boolean(session.data?.user))
+    const result = await resolveNotifyToggle(checked, signedIn)
     if (result.errorKey) toast.error(formatMessage(result.errorKey))
     form.setValue("notify", result.checked, {
       shouldDirty: true,
@@ -605,23 +445,9 @@ function TimerFormContent(
     })
   }
 
-  async function handleNextStep(event: MouseEvent<HTMLButtonElement>) {
-    event.preventDefault()
-    const valid = await form.trigger(timerFormStepFields[step], {
-      shouldFocus: true,
-    })
-    if (!valid) return
-    if (step === 2 && notifyBlockedByPastDate) {
-      toast.error(formatMessage("notifications.futureOnly"))
-      return
-    }
-    setStep(nextStep(step))
-  }
-
   function handleSubmit(values: TimerFormValues) {
     const parsed = timerFormSchema.parse(values)
     if (parsed.timerMode !== "since" && parsed.notify && isPastDate) {
-      setStep(2)
       toast.error(formatMessage("notifications.futureOnly"))
       return
     }
@@ -655,6 +481,111 @@ function TimerFormContent(
     props.onOpenChange(false)
   }
 
+  const status = footerStatus({
+    errors: form.formState.errors,
+    submitted: form.formState.submitCount > 0,
+    scheduleMode,
+    date,
+    durationSeconds: durationTotalSeconds(values),
+    notifyBlockedByPastDate,
+    signedIn,
+    isEdit,
+  })
+  const sinceMode = timerMode === "since"
+  const durationMode = !isEdit && scheduleMode === "in" && !sinceMode
+
+  const header = (
+    <DialogHeader>
+      <DialogTitle>
+        {formatMessage(props.mode === "create" ? "timer.form.createTitle" : "timer.form.editTitle")}
+      </DialogTitle>
+      <DialogDescription className="sr-only">{formatMessage("timer.form.dialogDescription")}</DialogDescription>
+    </DialogHeader>
+  )
+
+  const formFields = (
+    <form id={formId} noValidate onSubmit={form.handleSubmit(handleSubmit)} className="grid gap-5">
+      <TimerNameSection
+        control={form.control}
+        register={form.register}
+        spaces={spaces}
+        labelLength={labelLength}
+        descriptionLength={descriptionLength}
+        labelPlaceholder={labelPlaceholder}
+        autoFocus={!isEdit && !(props.fromTemplateMenu && props.templateId !== "blank")}
+        detailsInitiallyOpen={isEdit && hasOptionalDetails(props.initial)}
+      />
+
+      <TimerDirectionSection
+        timerMode={timerMode}
+        onTimerModeChange={handleTimerModeChange}
+        locked={isEdit}
+        hintAction={isEdit || sinceMode ? null : <ScheduleModeSwitch control={form.control} />}
+        lockedAction={
+          isEdit ? <StartCountUpFromDate timer={props.initial!} onComplete={() => props.onOpenChange(false)} /> : null
+        }
+      />
+
+      <TimerWhenSection
+        control={form.control}
+        allowScheduleMode={!isEdit}
+        localTz={browserTz}
+        scheduleMode={scheduleMode}
+        timerMode={timerMode}
+        directionSuggestion={directionSuggestion}
+        focusDateOnMount={props.fromTemplateMenu && props.templateId !== "blank"}
+        livePreview={livePreview}
+        onTimerModeChange={handleTimerModeChange}
+      />
+
+      {sinceMode ? (
+        <RevealRow>
+          <TimerMilestonesField control={form.control} preview={milestonePreview} timezone={timezone} />
+        </RevealRow>
+      ) : null}
+
+      <TimerAlertsSection
+        control={form.control}
+        timerMode={timerMode}
+        isPastDate={isPastDate}
+        signedIn={signedIn}
+        signInAction={
+          <SignInDialog onCompleted={() => runInBackground("timerForm.sessionRefetch", session.refetch?.())} />
+        }
+        onNotifyChange={(checked) => void handleNotifyChange(checked)}
+      />
+
+      {sinceMode ? null : (
+        <RevealRow>
+          <TimerRepeatSection
+            control={form.control}
+            repeatPreview={repeatPreview}
+            timezone={timezone}
+            showRepeat={!durationMode}
+          />
+        </RevealRow>
+      )}
+
+      <TimerPhotoSection control={form.control} />
+    </form>
+  )
+
+  if (props.surface === "inline") {
+    // The same header, scrolling body and pinned footer as the dialog, laid out
+    // inside the host's panel.
+    return (
+      <div data-slot="timer-form-inline" className="flex min-h-0 flex-1 flex-col">
+        <div className="shrink-0 px-4 pt-5 md:px-7 md:pt-6">{header}</div>
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto overscroll-contain px-4 pb-4 pt-4 md:px-7">
+          {formFields}
+        </div>
+        <div className="shrink-0 border-t border-border px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 md:px-7 md:pb-4">
+          <TimerFormFooter formId={formId} mode={props.mode} status={status} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <DialogContent
       sheetOnMobile
@@ -667,100 +598,12 @@ function TimerFormContent(
         target?.focus()
       }}
     >
-      <DialogHeader>
-        <DialogTitle>
-          {formatMessage(props.mode === "create" ? "timer.form.createTitle" : "timer.form.editTitle")}
-        </DialogTitle>
-        <DialogDescription className="sr-only">{formatMessage("timer.form.dialogDescription")}</DialogDescription>
-      </DialogHeader>
+      {header}
 
-      <form id={formId} onSubmit={form.handleSubmit(handleSubmit)} className="grid gap-4">
-        {isEdit ? (
-          <TimerEditSections
-            form={form}
-            spaces={spaces}
-            labelLength={labelLength}
-            labelPlaceholder={labelPlaceholder}
-            descriptionLength={descriptionLength}
-            localTz={browserTz}
-            timezone={timezone}
-            scheduleMode={scheduleMode}
-            repeatEnabled={repeatEnabled}
-            repeatType={repeatType}
-            repeatPreview={repeatPreview}
-            timerMode={timerMode}
-            milestonePreview={milestonePreview}
-            livePreview={livePreview}
-            isPastDate={isPastDate}
-            onNotifyChange={(checked) => void handleNotifyChange(checked)}
-            onTimerModeChange={handleTimerModeChange}
-            timer={props.initial!}
-            onStartCountUpComplete={() => props.onOpenChange(false)}
-          />
-        ) : (
-          <>
-            <TimerFormStepper step={step} />
-
-            <div className="grid min-h-[280px] content-start gap-4">
-              {step === 2 && props.fromTemplateMenu ? (
-                <div className="grid gap-1.5 rounded-lg border bg-muted/30 px-3 py-2">
-                  <Label htmlFor={`${formId}-template-label`} className="text-xs text-muted-foreground">
-                    {formatMessage("timer.form.label")}
-                  </Label>
-                  <Input
-                    id={`${formId}-template-label`}
-                    maxLength={60}
-                    placeholder={labelPlaceholder}
-                    className="h-8 min-h-8 bg-background text-sm"
-                    {...form.register("label")}
-                  />
-                </div>
-              ) : null}
-              <TimerStepContent
-                currentStep={step}
-                descriptionLength={descriptionLength}
-                form={form}
-                isPastDate={isPastDate}
-                directionSuggestion={directionSuggestion}
-                focusDateOnMount={props.fromTemplateMenu && props.templateId !== "blank"}
-                labelLength={labelLength}
-                labelPlaceholder={labelPlaceholder}
-                localTz={browserTz}
-                repeatEnabled={repeatEnabled}
-                repeatPreview={repeatPreview}
-                timerMode={timerMode}
-                milestonePreview={milestonePreview}
-                livePreview={livePreview}
-                repeatType={repeatType}
-                scheduleMode={scheduleMode}
-                spaces={spaces}
-                timezone={timezone}
-                onNotifyChange={(checked) => void handleNotifyChange(checked)}
-                onTimerModeChange={handleTimerModeChange}
-              />
-            </div>
-          </>
-        )}
-      </form>
-      {isEdit ? (
-        <DialogFooter className="flex-row justify-end gap-2">
-          <TimerEditFooter formId={formId} saveDisabled={editSaveDisabled} />
-        </DialogFooter>
-      ) : (
-        <DialogFooter className="flex-row gap-2">
-          <TimerFormFooter
-            currentStep={step}
-            currentStepReady={currentStepReady}
-            currentStepValid={currentStepValid}
-            formId={formId}
-            mode={props.mode}
-            notifyBlockedByPastDate={notifyBlockedByPastDate}
-            scheduleValid={scheduleValid}
-            onBack={() => setStep(previousStep(step))}
-            onNext={(event) => void handleNextStep(event)}
-          />
-        </DialogFooter>
-      )}
+      {formFields}
+      <DialogFooter className="flex-row">
+        <TimerFormFooter formId={formId} mode={props.mode} status={status} />
+      </DialogFooter>
     </DialogContent>
   )
 }
@@ -781,8 +624,11 @@ export function TimerForm(props: Readonly<TimerFormProps>) {
       fromTemplateMenu={props.open === undefined && props.mode === "create"}
       onOpenChange={setOpen}
       onSubmit={props.onSubmit}
+      surface={props.surface}
     />
   ) : null
+
+  if (props.surface === "inline") return content
 
   if (props.open === undefined && props.mode === "create") {
     return (
@@ -791,7 +637,10 @@ export function TimerForm(props: Readonly<TimerFormProps>) {
           <DropdownMenuTrigger asChild>
             {props.trigger ?? <Button>{formatMessage("timer.form.newTimerButton")}</Button>}
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-56" onCloseAutoFocus={(event) => event.preventDefault()}>
+          <DropdownMenuContent
+            align="start"
+            className={cn("min-w-56", MENU_MOTION_CLASSNAME)}
+            onCloseAutoFocus={(event) => event.preventDefault()}>
             <DropdownMenuLabel>{formatMessage("timer.form.template.start")}</DropdownMenuLabel>
             <DropdownMenuItem
               onSelect={() => {

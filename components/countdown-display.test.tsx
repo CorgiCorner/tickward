@@ -14,9 +14,9 @@ describe("CountdownDisplay", () => {
     expect(screen.getByText("02")).toBeInTheDocument()
     expect(screen.getByText("03")).toBeInTheDocument()
     expect(screen.getByText("days")).toBeInTheDocument()
-    expect(screen.getByText("hours")).toBeInTheDocument()
-    expect(screen.getByText("mins")).toBeInTheDocument()
-    expect(screen.getByText("secs")).toBeInTheDocument()
+    expect(screen.getByText("hrs")).toBeInTheDocument()
+    expect(screen.getByText("min")).toBeInTheDocument()
+    expect(screen.getByText("sec")).toBeInTheDocument()
   })
 
   it("labels count-up values from past dates", () => {

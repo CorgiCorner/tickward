@@ -1,0 +1,274 @@
+/* The dial view. Only transform, opacity and filter animate. The tick sweep and the milestone
+   moment are the only staggered motion; everything else is a short transition. */
+
+.face {
+  --face: 280px;
+  --dial-color: var(--primary);
+  position: relative;
+  width: var(--face);
+  max-width: 100%;
+  aspect-ratio: 1;
+  flex: none;
+}
+
+.dial {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transition: transform var(--transition-duration-enter) var(--ease-move);
+}
+
+.tick {
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+
+.rest .tick {
+  stroke: var(--foreground);
+  opacity: 0.16;
+}
+
+.lit .tick {
+  stroke: var(--dial-color);
+  transition: opacity var(--transition-duration-enter) var(--ease-fade);
+}
+
+/* A newly selected timer: ticks light one after another, 8 ms apart. */
+.lit[data-motion="select"] .tick {
+  animation: tick-on var(--transition-duration-enter) var(--ease-move) backwards;
+  animation-delay: calc(var(--tick) * 8ms);
+}
+
+/* The milestone moment: the whole round lights again, slower. */
+.lit[data-motion="moment"] .tick {
+  animation: tick-on 300ms var(--ease-move) backwards;
+  animation-delay: calc(60ms + var(--tick) * 14ms);
+}
+
+@keyframes tick-on {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Readout: number, unit, clock, stacked in the middle of the dial. */
+
+.readout {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* Number and unit, with the outgoing pair stacked on top while a new count format fades in. */
+.count,
+.countLayer {
+  display: grid;
+  justify-items: center;
+}
+
+.countLayer {
+  grid-area: 1 / 1;
+}
+
+.number {
+  display: grid;
+  justify-items: center;
+  font-size: calc(var(--face) * 0.28);
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+  white-space: nowrap;
+}
+
+.number[data-long="true"] {
+  font-size: calc(var(--face) * 0.21);
+}
+
+.numberLayer {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--transition-duration-enter) var(--ease-fade),
+    transform var(--transition-duration-move) var(--ease-move),
+    filter var(--transition-duration-enter) var(--ease-fade);
+}
+
+.numberLayer[data-shown="false"] {
+  opacity: 0;
+  filter: blur(5px);
+}
+
+.numberLayer[data-role="now"][data-shown="false"] {
+  transform: translateY(14px);
+}
+
+.numberLayer[data-role="was"][data-shown="false"] {
+  transform: translateY(-14px);
+}
+
+/* The readout's -0.05em tracking also trims the space after the separator, so the comma takes
+   back on its right what it gives up on its left; measured ink gaps are then equal on both sides
+   and the comma never touches the next digit. */
+.group {
+  margin-inline: -0.02em 0.02em;
+}
+
+.unit {
+  margin-top: calc(var(--face) * 0.015);
+  font-size: max(14px, calc(var(--face) * 0.044));
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--muted-foreground);
+}
+
+.clock {
+  margin-top: calc(var(--face) * 0.028);
+  font-size: calc(var(--face) * 0.078);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+/* Milestone moment: a soft glow and twelve sparks behind the dial. This is the once-a-day
+   celebration, so its beats keep their own timings (see MOMENT_TIMELINE). */
+
+.glow {
+  position: absolute;
+  inset: 8.5%;
+  border-radius: 999px;
+  background: radial-gradient(closest-side, var(--dial-color), transparent);
+  opacity: 0;
+  transform: scale(0.8);
+  pointer-events: none;
+}
+
+.spark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 12px;
+  margin: -6px 0 0 -1.5px;
+  border-radius: 2px;
+  background: var(--dial-color);
+  opacity: 0;
+  transform: rotate(var(--angle)) translateY(calc(var(--face) * -0.48));
+  pointer-events: none;
+}
+
+.face[data-moment="bloom"] .glow {
+  opacity: 0.42;
+  transform: scale(1.12);
+  transition:
+    opacity 240ms ease-out,
+    transform 300ms var(--ease-move);
+}
+
+.face[data-moment="bloom"] .dial {
+  transform: scale(1.035);
+  transition: transform 260ms cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+.face[data-moment="bloom"] .spark {
+  opacity: 1;
+  transform: rotate(var(--angle)) translateY(calc(var(--face) * -0.54));
+  transition:
+    transform 300ms var(--ease-move),
+    opacity 120ms ease-out;
+}
+
+.face[data-moment="after"] .glow {
+  opacity: 0;
+  transform: scale(1.2);
+  transition:
+    opacity 300ms ease-out,
+    transform 300ms ease-out;
+}
+
+.face[data-moment="after"] .spark {
+  opacity: 0;
+  transform: rotate(var(--angle)) translateY(calc(var(--face) * -0.6));
+  transition:
+    transform 300ms ease-out,
+    opacity 280ms ease-out;
+}
+
+/* Milestone badge: it arrives last, growing from its left edge, as on the card and in the
+   detail view. */
+
+.badge {
+  transform-origin: left center;
+  transition:
+    opacity var(--transition-duration-enter) var(--ease-fade),
+    transform var(--transition-duration-enter) var(--ease-move);
+}
+
+.badge[data-shown="false"] {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+/* Focus mode */
+
+.focus {
+  transition:
+    opacity var(--transition-duration-exit) var(--ease-fade),
+    transform var(--transition-duration-exit) var(--ease-move);
+}
+
+.focus[data-visible="false"] {
+  opacity: 0;
+  transform: scale(0.97);
+}
+
+.focus[data-visible="true"] {
+  transition:
+    opacity var(--transition-duration-enter) var(--ease-fade),
+    transform var(--transition-duration-enter) var(--ease-move);
+}
+
+.focusFace {
+  --face: min(520px, calc(100vw - 48px), calc(100dvh - 260px));
+}
+
+@media (max-width: 480px) {
+  .focusFace {
+    --face: min(520px, calc(100vw - 32px), calc(100dvh - 240px));
+  }
+}
+
+/* Reduced motion keeps the fades and drops every movement and stagger. */
+@media (prefers-reduced-motion: reduce) {
+  .lit[data-motion="select"] .tick,
+  .lit[data-motion="moment"] .tick {
+    animation-duration: var(--transition-duration-exit);
+    animation-delay: 0ms;
+  }
+
+  .dial,
+  .face[data-moment] .dial {
+    transform: none;
+    transition: none;
+  }
+
+  .numberLayer[data-role][data-shown="false"] {
+    transform: none;
+    filter: none;
+  }
+
+  .spark,
+  .glow {
+    display: none;
+  }
+
+  .badge[data-shown="false"],
+  .focus[data-visible="false"] {
+    transform: none;
+  }
+}

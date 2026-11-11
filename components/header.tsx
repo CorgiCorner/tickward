@@ -13,6 +13,7 @@ import { ProjectSwitcher } from "@/components/project-switcher"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatMessage } from "@/lib/i18n/messages"
+import { cn } from "@/lib/utils"
 
 function subscribeToHydrationStore() {
   return () => {}
@@ -26,14 +27,20 @@ function getServerSnapshot() {
   return false
 }
 
-export function Header() {
+// `wide` lines the header up with the dense desktop dashboard (992 px column).
+export function Header(props: Readonly<{ wide?: boolean }> = {}) {
   const { resolvedTheme, setTheme } = useTheme()
   const themeMounted = useSyncExternalStore(subscribeToHydrationStore, getHydratedSnapshot, getServerSnapshot)
   const isDark = themeMounted && resolvedTheme === "dark"
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-[640px] flex-wrap items-center gap-2.5 px-4 py-3">
+      <div
+        className={cn(
+          "mx-auto flex w-full max-w-[640px] flex-wrap items-center gap-2.5 px-4 py-3",
+          props.wide ? "md:max-w-[992px]" : "",
+        )}
+      >
         <div className="min-w-0 shrink-0">
           <AppBrandLink />
         </div>

@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+## 0.17.0 - 2026-11-11
+
+### Added
+
+- A dial view for the dashboard: the selected timer on a 60-tick dial with its details, and the other timers listed under Pinned, This week, Later and Counting up.
+- Switch the dashboard between grid, list and dial; the choice is remembered on the device.
+- A timer detail view that opens from a card: date, note, milestones or reminders, sharing and space in one place, on desktop and on phones.
+- Count-ups can show years, months and days instead of total days. Click the number to switch; the choice is kept per timer on the device.
+- A milestone day is marked on the card, in the detail view and on the dial for 24 hours after the milestone, with a short one-time animation.
+- In Manual order, timers can be reordered from the keyboard and from the card menu.
+- The iPhone page has a section about count-up milestones.
+
+### Changed
+
+- The new timer form is one screen instead of three steps. Countdown reminders are presets before the date, up to five.
+- Timer cards always show the date, and the description has its own line. Unit labels read days, hrs, min and sec everywhere.
+- The drag handle appears only in Manual order, and dragging a card no longer changes the sort mode.
+- The dashboard is wider on desktop, with compact two-column cards and the promotion below the list.
+- Focus mode shows the date, the note and progress with reminder or milestone markers.
+- The shared timer page on phones is focused on one action and has a one-line footer.
+- Motion across the app uses one set of timings and respects the reduced motion setting.
+
+### Fixed
+
+- Body text renders in the Geist font, which was loaded but never applied.
+- A timer with a description no longer hides its date.
+- The settings page no longer overflows on phones when a webhook exists.
+- Two first saves of a project at the same moment no longer return an error.
+- The count-up form no longer shows countdown reminder copy, and signed-out people see that reminders need an account.
+
+### Removed
+
+- The expired "US national parks free days 2026" page.
+
 ## 0.16.0 - 2026-11-10
 
 ### Added

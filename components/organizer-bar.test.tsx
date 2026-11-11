@@ -47,6 +47,24 @@ describe("OrganizerBar", () => {
     }
   })
 
+  it("offers the dial on phones as a toggle the size of sort", async () => {
+    localStorage.removeItem("tickward:dashboard-view")
+    const user = userEvent.setup()
+    renderOrganizerBar()
+
+    const toggle = screen.getByRole("button", { name: "Dial view" })
+    expect(toggle).toHaveClass("md:hidden", "size-8")
+    expect(toggle).toHaveAttribute("aria-pressed", "false")
+
+    await user.click(toggle)
+    expect(localStorage.getItem("tickward:dashboard-view")).toBe("dial")
+    expect(toggle).toHaveAttribute("aria-pressed", "true")
+
+    await user.click(toggle)
+    expect(localStorage.getItem("tickward:dashboard-view")).toBe("grid")
+    localStorage.removeItem("tickward:dashboard-view")
+  })
+
   it("opens timer filters and toggles show-only options", async () => {
     const user = userEvent.setup()
     renderOrganizerBar()
@@ -97,6 +115,27 @@ describe("OrganizerBar", () => {
     await user.click(screen.getByRole("button", { name: "Manual order" }))
 
     expect(storeState.setTimerSortMode).toHaveBeenLastCalledWith("manual")
+  })
+
+  it("lists Manual order last and hands the choice to the page when asked", async () => {
+    const user = userEvent.setup()
+    const onSelectSortMode = vi.fn()
+    render(
+      <TooltipProvider delayDuration={0}>
+        <OrganizerBar nowMs={Date.parse("2026-05-24T00:00:00.000Z")} onSelectSortMode={onSelectSortMode} />
+      </TooltipProvider>,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Sort timers" }))
+    const labels = screen
+      .getAllByRole("button")
+      .map((button) => button.textContent)
+      .filter((text) => text && /order|first|A-Z|added/.test(text))
+    expect(labels.at(-1)).toBe("Manual order")
+
+    await user.click(screen.getByRole("button", { name: "Manual order" }))
+    expect(onSelectSortMode).toHaveBeenCalledWith("manual")
+    expect(storeState.setTimerSortMode).not.toHaveBeenCalled()
   })
 
   it("adds a space inline from the bar without a management modal", async () => {

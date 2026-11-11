@@ -1,7 +1,22 @@
 "use client"
 
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core"
-import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable"
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable"
 import {
   AlertTriangleIcon,
   ArrowDownIcon,
@@ -17,6 +32,12 @@ import { toast } from "sonner"
 
 import { FooterStatusBar } from "@/components/footer"
 import { CountUpIntroNote } from "@/components/count-up-intro-note"
+import { useDashboardView, type DashboardView } from "@/components/dashboard/dashboard-view"
+import { DashboardViewSwitch } from "@/components/dashboard/dashboard-view-switch"
+import { DialDashboardView } from "@/components/dashboard/dial-dashboard-view"
+import { prefersReducedMotion } from "@/components/dashboard/motion"
+import { useFlipReorder } from "@/components/dashboard/use-flip-reorder"
+import { useViewCrossfade } from "@/components/dashboard/use-view-crossfade"
 import {
   COUNT_UP_HIGHLIGHT_DURATION_MS,
   COUNT_UP_VIEW_EVENT,
@@ -49,7 +70,7 @@ import { formatMessage } from "@/lib/i18n/messages"
 import { useTimerStore } from "@/lib/store"
 import { getCountUpOccurrenceKey, type CountUpOccurrence } from "@/lib/stores/count-up-store"
 import { timerMatchesFilters } from "@/lib/timer-filters"
-import type { Timer, TimerSortMode } from "@/lib/types"
+import type { Space, Timer, TimerSortMode } from "@/lib/types"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
 import { cn, effectiveTargetDate } from "@/lib/utils"
 
@@ -303,6 +324,7 @@ function matchesActiveSpace(timer: Timer, activeSpaceId: string | null, spaces: 
 
 type TimerSectionKind = "pinned" | "countUp" | "upcoming" | "past" | "archived"
 const COUNT_UP_CROSS_HOLD_MS = 1_500
+const HANDLE_ENTRANCE_MS = 600
 const COUNT_UP_CROSSFADE_MS = 300
 
 const SortableTimerSection = memo(function SortableTimerSection(
@@ -314,6 +336,9 @@ const SortableTimerSection = memo(function SortableTimerSection(
     nowMs: number
     sensors: ReturnType<typeof useSensors>
     onDragEnd: (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => void
+    onMove?: (timerId: string, direction: -1 | 1, sectionTimers: Timer[]) => void
+    view?: DashboardView
+    handleEntrance?: boolean
     icon?: ReactNode
     id?: string
     dataSlot?: string
@@ -332,14 +357,31 @@ const SortableTimerSection = memo(function SortableTimerSection(
 ) {
   if (props.timers.length === 0) return null
 
+  // Manual order only: cards carry a handle, drag inside this section and can
+  // be moved one place from their menu.
+  const sortable = props.sortable === true
+  const sectionTimers = props.timers
+  const onMove = props.onMove
+  const moveTimer = onMove
+    ? (timerId: string, direction: -1 | 1) => onMove(timerId, direction, sectionTimers)
+    : undefined
+
+  // Grid (and the dial's fallback list): two columns of compact cards on desktop.
+  const grid = props.view !== undefined && props.view !== "list"
+
   const list = (
-    <div data-slot={props.dataSlot} className={cn("grid gap-3", props.listClassName)}>
-      {props.timers.map((timer) => (
+    <div data-slot={props.dataSlot} className={cn("grid gap-3", grid ? "md:grid-cols-2" : "", props.listClassName)}>
+      {props.timers.map((timer, index) => (
         <TimerCard
           key={timer.id}
           timer={timer}
           nowMs={props.nowMs}
-          sortable={props.sortable}
+          compact={grid}
+          sortable={sortable}
+          handleEntranceDelayMs={props.handleEntrance ? Math.min(index, 8) * 30 : undefined}
+          onMove={moveTimer}
+          canMoveEarlier={index > 0}
+          canMoveLater={index < props.timers.length - 1}
           countUpOccurrence={props.countUpOccurrences?.get(timer.id)}
           countUpPlacement={props.countUpOccurrences?.has(timer.id) ? props.countUpPlacement : undefined}
           countUpHolding={props.heldCountUpTimerIds?.has(timer.id)}
@@ -370,18 +412,21 @@ const SortableTimerSection = memo(function SortableTimerSection(
         </div>
         {props.action}
       </div>
-      {props.sortable === false ? (
-        list
-      ) : (
+      {sortable ? (
         <DndContext
           sensors={props.sensors}
           collisionDetection={closestCenter}
           onDragEnd={(event) => props.onDragEnd(event, props.timers, props.kind)}
         >
-          <SortableContext items={props.timers.map((timer) => timer.id)} strategy={verticalListSortingStrategy}>
+          <SortableContext
+            items={props.timers.map((timer) => timer.id)}
+            strategy={grid ? rectSortingStrategy : verticalListSortingStrategy}
+          >
             {list}
           </SortableContext>
         </DndContext>
+      ) : (
+        list
       )}
     </section>
   )
@@ -512,6 +557,10 @@ const ActiveTimerList = memo(function ActiveTimerList(
     nowMs: number
     sensors: ReturnType<typeof useSensors>
     onDragEnd: (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => void
+    onMove: (timerId: string, direction: -1 | 1, sectionTimers: Timer[]) => void
+    manualOrder: boolean
+    view: DashboardView
+    handleEntrance?: boolean
     onAcknowledgeCountUps: (keys: string[]) => void
     onUnacknowledgeCountUps: (keys: string[]) => void
     heldCountUpTimerIds: ReadonlySet<string>
@@ -539,6 +588,10 @@ const ActiveTimerList = memo(function ActiveTimerList(
         nowMs={props.nowMs}
         sensors={props.sensors}
         onDragEnd={props.onDragEnd}
+        onMove={props.onMove}
+        sortable={props.manualOrder}
+        view={props.view}
+        handleEntrance={props.handleEntrance}
         icon={<PinIcon className="size-3" />}
         countUpOccurrences={props.countUpOccurrencesByTimer}
         countUpPlacement="pinned"
@@ -566,6 +619,10 @@ const ActiveTimerList = memo(function ActiveTimerList(
         nowMs={props.nowMs}
         sensors={props.sensors}
         onDragEnd={props.onDragEnd}
+        onMove={props.onMove}
+        sortable={props.manualOrder}
+        view={props.view}
+        handleEntrance={props.handleEntrance}
         countUpOccurrences={props.countUpOccurrencesByTimer}
         countUpPlacement="section"
         heldCountUpTimerIds={props.heldCountUpTimerIds}
@@ -582,7 +639,10 @@ const ActiveTimerList = memo(function ActiveTimerList(
         nowMs={props.nowMs}
         sensors={props.sensors}
         onDragEnd={props.onDragEnd}
-        sortable={false}
+        onMove={props.onMove}
+        sortable={props.manualOrder}
+        view={props.view}
+        handleEntrance={props.handleEntrance}
         onCountUpInteractionChange={props.onCountUpInteractionChange}
       />
     </div>
@@ -590,15 +650,11 @@ const ActiveTimerList = memo(function ActiveTimerList(
 })
 
 function scrollToId(id: string) {
-  const reduceMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+  const reduceMotion = prefersReducedMotion()
   document.getElementById(id)?.scrollIntoView({
     behavior: reduceMotion ? "auto" : "smooth",
     block: "start",
   })
-}
-
-function countUpPrefersReducedMotion() {
-  return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
 }
 
 type CountUpTransitionDocument = Document & {
@@ -636,6 +692,10 @@ const ArchivedTimerList = memo(function ArchivedTimerList(
     nowMs: number
     sensors: ReturnType<typeof useSensors>
     onDragEnd: (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => void
+    onMove: (timerId: string, direction: -1 | 1, sectionTimers: Timer[]) => void
+    manualOrder: boolean
+    view: DashboardView
+    handleEntrance?: boolean
     showJumpToActive: boolean
   }>,
 ) {
@@ -653,6 +713,10 @@ const ArchivedTimerList = memo(function ArchivedTimerList(
         nowMs={props.nowMs}
         sensors={props.sensors}
         onDragEnd={props.onDragEnd}
+        onMove={props.onMove}
+        sortable={false}
+        view={props.view}
+        handleEntrance={props.handleEntrance}
         dataSlot="archived-timer-list"
         listClassName="opacity-70"
         action={
@@ -688,6 +752,13 @@ const TimerCollection = memo(function TimerCollection(
     nowMs: number
     sensors: ReturnType<typeof useSensors>
     onDragEnd: (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => void
+    onMove: (timerId: string, direction: -1 | 1, sectionTimers: Timer[]) => void
+    onSelectSortMode: (mode: TimerSortMode) => void
+    manualOrder: boolean
+    sortMode: TimerSortMode
+    spaces: ReadonlyArray<Space>
+    view: DashboardView
+    handleEntrance?: boolean
     onSelectExample: (label: string) => void
     onAcknowledgeCountUps: (keys: string[]) => void
     onUnacknowledgeCountUps: (keys: string[]) => void
@@ -698,10 +769,15 @@ const TimerCollection = memo(function TimerCollection(
     revealCountUpKey?: string
   }>,
 ) {
+  // Switching grid, list and dial cross-fades the timers below the organizer;
+  // `view` lags the switch by the fade-out.
+  const viewRootRef = useRef<HTMLDivElement>(null)
+  const view = useViewCrossfade(props.view, viewRootRef)
+
   if (props.timers.length === 0) {
     return (
       <>
-        {props.hasActiveProject ? <OrganizerBar nowMs={props.nowMs} /> : null}
+        {props.hasActiveProject ? <OrganizerBar nowMs={props.nowMs} onSelectSortMode={props.onSelectSortMode} /> : null}
         <EmptyState compact={!props.hasActiveProject} onSelectExample={props.onSelectExample} />
       </>
     )
@@ -711,39 +787,57 @@ const TimerCollection = memo(function TimerCollection(
 
   return (
     <>
-      <OrganizerBar nowMs={props.nowMs} />
-      {props.activeTimers.length > 0 ? (
-        <ActiveTimerList
-          pinnedTimers={props.pinnedTimers}
-          countUpTimers={props.countUpTimers}
-          countUpOccurrencesByTimer={props.countUpOccurrencesByTimer}
-          upcomingTimers={props.upcomingTimers}
-          pastTimers={props.pastTimers}
+      <OrganizerBar nowMs={props.nowMs} onSelectSortMode={props.onSelectSortMode} />
+      <div ref={viewRootRef} data-slot="dashboard-view-content" data-view={view}>
+        {view === "dial" && props.activeTimers.length > 0 ? (
+          <DialDashboardView
+            timers={[...props.pinnedTimers, ...props.countUpTimers, ...props.upcomingTimers, ...props.pastTimers]}
+            spaces={props.spaces}
+            sortMode={props.sortMode}
+            nowMs={props.nowMs}
+          />
+        ) : null}
+        {view !== "dial" && props.activeTimers.length > 0 ? (
+          <ActiveTimerList
+            pinnedTimers={props.pinnedTimers}
+            countUpTimers={props.countUpTimers}
+            countUpOccurrencesByTimer={props.countUpOccurrencesByTimer}
+            upcomingTimers={props.upcomingTimers}
+            pastTimers={props.pastTimers}
+            nowMs={props.nowMs}
+            sensors={props.sensors}
+            onDragEnd={props.onDragEnd}
+            onMove={props.onMove}
+            manualOrder={props.manualOrder}
+            view={view}
+            handleEntrance={props.handleEntrance}
+            onAcknowledgeCountUps={props.onAcknowledgeCountUps}
+            onUnacknowledgeCountUps={props.onUnacknowledgeCountUps}
+            heldCountUpTimerIds={props.heldCountUpTimerIds}
+            reducedMotionCountUpTimerIds={props.reducedMotionCountUpTimerIds}
+            onCountUpInteractionChange={props.onCountUpInteractionChange}
+            onCountUpSeen={props.onCountUpSeen}
+            revealCountUpKey={props.revealCountUpKey}
+          />
+        ) : null}
+        {showSectionJump ? (
+          <div className="mt-3 flex justify-end px-1">
+            <SectionJump direction="toArchived" />
+          </div>
+        ) : null}
+        <ArchivedTimerList
+          timers={props.archivedTimers}
           nowMs={props.nowMs}
           sensors={props.sensors}
           onDragEnd={props.onDragEnd}
-          onAcknowledgeCountUps={props.onAcknowledgeCountUps}
-          onUnacknowledgeCountUps={props.onUnacknowledgeCountUps}
-          heldCountUpTimerIds={props.heldCountUpTimerIds}
-          reducedMotionCountUpTimerIds={props.reducedMotionCountUpTimerIds}
-          onCountUpInteractionChange={props.onCountUpInteractionChange}
-          onCountUpSeen={props.onCountUpSeen}
-          revealCountUpKey={props.revealCountUpKey}
+          onMove={props.onMove}
+          manualOrder={props.manualOrder}
+          view={view}
+          handleEntrance={props.handleEntrance}
+          showJumpToActive={props.activeTimers.length > 0}
         />
-      ) : null}
-      {showSectionJump ? (
-        <div className="mt-3 flex justify-end px-1">
-          <SectionJump direction="toArchived" />
-        </div>
-      ) : null}
-      <ArchivedTimerList
-        timers={props.archivedTimers}
-        nowMs={props.nowMs}
-        sensors={props.sensors}
-        onDragEnd={props.onDragEnd}
-        showJumpToActive={props.activeTimers.length > 0}
-      />
-      {props.activeTimers.length === 0 && props.archivedTimers.length === 0 ? <FilteredEmptyState /> : null}
+        {props.activeTimers.length === 0 && props.archivedTimers.length === 0 ? <FilteredEmptyState /> : null}
+      </div>
     </>
   )
 })
@@ -857,7 +951,15 @@ export function HomeClient(props: Readonly<{ promotion?: ReactNode }> = {}) {
     clearTimerFilters()
   }, [clearTimerFilters, setActiveSpace])
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  const manualOrder = sortMode === "manual"
+  const [dashboardView, setDashboardView] = useDashboardView()
+  const sensors = useSensors(
+    // A mouse drags after 8 px. A finger has to press and hold the handle for 250 ms first, so
+    // a swipe that starts on the handle still scrolls the page instead of grabbing the card.
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
   const activeProject = projects.find((project) => project.id === activeProjectId)
   const activeCountUpProjectId = activeProject?.cloudProjectId ?? activeProjectId
   const session = authClient.useSession()
@@ -945,14 +1047,23 @@ export function HomeClient(props: Readonly<{ promotion?: ReactNode }> = {}) {
           (timer) =>
             !timer.pinned && !countUpOccurrencesByTimer.has(timer.id) && isPastTimer(timer, classificationNowMs),
         )
-        .sort((a, b) => targetMs(b, classificationNowMs) - targetMs(a, classificationNowMs)),
-    [activeTimers, countUpOccurrencesByTimer, classificationNowMs],
+        .sort((a, b) => (manualOrder ? 0 : targetMs(b, classificationNowMs) - targetMs(a, classificationNowMs))),
+    [activeTimers, countUpOccurrencesByTimer, classificationNowMs, manualOrder],
   )
+  // The archive is not an ordering surface: newest archived first in every mode,
+  // so switching to Manual order never reshuffles it.
   const archivedTimers = useMemo(() => {
     const archived = filteredTimers.filter((timer) => timer.archivedAt)
-    if (sortMode === "manual") return archived
     return [...archived].sort((a, b) => new Date(b.archivedAt ?? 0).getTime() - new Date(a.archivedAt ?? 0).getTime())
-  }, [filteredTimers, sortMode])
+  }, [filteredTimers])
+  // Sort, pin and move changes glide cards to their new place (FLIP).
+  const flipRootRef = useRef<HTMLDivElement>(null)
+  const flipOrderKey = [pinnedTimers, countUpTimers, upcomingTimers, pastTimers, archivedTimers]
+    .map((section) => section.map((timer) => timer.id).join(","))
+    .join("|")
+  const skipNextFlip = useFlipReorder(flipRootRef, flipOrderKey)
+  // The handle slides in only when Manual order starts in this session, not on load.
+  const [handleEntrance, setHandleEntrance] = useState(false)
   const nextBoundaryMs = useMemo(
     () => nextReclassificationBoundaryMs(activeProjectTimers, classificationNowMs),
     [activeProjectTimers, classificationNowMs],
@@ -1050,42 +1161,47 @@ export function HomeClient(props: Readonly<{ promotion?: ReactNode }> = {}) {
     syncCountUpOccurrences,
   ])
 
-  const releaseCountUpHold = useCallback((timerId: string) => {
-    if (countUpInteractionIdsRef.current.has(timerId)) {
-      countUpReadyToMoveIdsRef.current.add(timerId)
-      return
-    }
+  const releaseCountUpHold = useCallback(
+    (timerId: string) => {
+      if (countUpInteractionIdsRef.current.has(timerId)) {
+        countUpReadyToMoveIdsRef.current.add(timerId)
+        return
+      }
 
-    countUpReadyToMoveIdsRef.current.delete(timerId)
-    const reduceMotion = countUpReducedMotionIdsRef.current.has(timerId)
-    runCountUpMove(
-      () =>
-        setHeldCountUpTimerIds((current) => {
+      countUpReadyToMoveIdsRef.current.delete(timerId)
+      const reduceMotion = countUpReducedMotionIdsRef.current.has(timerId)
+      // The count-up move has its own transition; do not play the list's FLIP on top.
+      skipNextFlip()
+      runCountUpMove(
+        () =>
+          setHeldCountUpTimerIds((current) => {
+            if (!current.has(timerId)) return current
+            const next = new Set(current)
+            next.delete(timerId)
+            return next
+          }),
+        reduceMotion,
+      )
+
+      if (!reduceMotion) return
+      const label = countUpLabelsRef.current.get(timerId)
+      if (label) setCountUpAnnouncement(formatMessage("countUp.movedToSectionAnnouncement", { label }))
+      const existing = countUpCrossfadeTimeoutsRef.current.get(timerId)
+      if (existing !== undefined) globalThis.clearTimeout(existing)
+      const timeout = globalThis.setTimeout(() => {
+        countUpReducedMotionIdsRef.current.delete(timerId)
+        setReducedMotionCountUpTimerIds((current) => {
           if (!current.has(timerId)) return current
           const next = new Set(current)
           next.delete(timerId)
           return next
-        }),
-      reduceMotion,
-    )
-
-    if (!reduceMotion) return
-    const label = countUpLabelsRef.current.get(timerId)
-    if (label) setCountUpAnnouncement(formatMessage("countUp.movedToSectionAnnouncement", { label }))
-    const existing = countUpCrossfadeTimeoutsRef.current.get(timerId)
-    if (existing !== undefined) globalThis.clearTimeout(existing)
-    const timeout = globalThis.setTimeout(() => {
-      countUpReducedMotionIdsRef.current.delete(timerId)
-      setReducedMotionCountUpTimerIds((current) => {
-        if (!current.has(timerId)) return current
-        const next = new Set(current)
-        next.delete(timerId)
-        return next
-      })
-      countUpCrossfadeTimeoutsRef.current.delete(timerId)
-    }, COUNT_UP_CROSSFADE_MS)
-    countUpCrossfadeTimeoutsRef.current.set(timerId, timeout)
-  }, [])
+        })
+        countUpCrossfadeTimeoutsRef.current.delete(timerId)
+      }, COUNT_UP_CROSSFADE_MS)
+      countUpCrossfadeTimeoutsRef.current.set(timerId, timeout)
+    },
+    [skipNextFlip],
+  )
 
   const handleCountUpInteractionChange = useCallback(
     (timerId: string, active: boolean) => {
@@ -1127,7 +1243,7 @@ export function HomeClient(props: Readonly<{ promotion?: ReactNode }> = {}) {
         const isVisibleCard = activeTimers.some((activeTimer) => activeTimer.id === timer.id)
         if (!isVisibleCard || timer.pinned) continue
         countUpLabelsRef.current.set(timer.id, timer.label)
-        const reduceMotion = countUpPrefersReducedMotion()
+        const reduceMotion = prefersReducedMotion()
         if (reduceMotion) {
           countUpReducedMotionIdsRef.current.add(timer.id)
           setReducedMotionCountUpTimerIds((current) => new Set(current).add(timer.id))
@@ -1207,9 +1323,26 @@ export function HomeClient(props: Readonly<{ promotion?: ReactNode }> = {}) {
     }
   }, [hasHydrated, refreshActiveProjectFromCloud])
 
+  // Pinned timers move by their place in the whole list (the store keeps them
+  // out of the visible-order helper); every other section reorders its own ids.
+  const moveWithinSection = useCallback(
+    (kind: TimerSectionKind, visibleIds: string[], from: number, to: number) => {
+      if (kind === "pinned") {
+        const fromIndex = timers.findIndex((timer) => timer.id === visibleIds[from])
+        const toIndex = timers.findIndex((timer) => timer.id === visibleIds[to])
+        if (fromIndex !== -1 && toIndex !== -1) reorderTimers(fromIndex, toIndex)
+        return
+      }
+      reorderVisibleTimers(arrayMove(visibleIds, from, to))
+    },
+    [reorderTimers, reorderVisibleTimers, timers],
+  )
+
+  // Reordering only exists in Manual order, inside one section; it never
+  // changes the sort mode behind the user's back.
   const handleTimerDragEnd = useCallback(
     (event: DragEndEvent, sectionTimers: Timer[], kind: TimerSectionKind) => {
-      if (kind === "past" || kind === "countUp") return
+      if (!manualOrder || kind === "countUp") return
 
       const { active, over } = event
       if (!over || active.id === over.id) return
@@ -1218,23 +1351,39 @@ export function HomeClient(props: Readonly<{ promotion?: ReactNode }> = {}) {
       const overIdx = visibleIds.indexOf(String(over.id))
       if (activeIdx === -1 || overIdx === -1) return
 
-      if (kind === "upcoming") {
-        reorderVisibleTimers(arrayMove(visibleIds, activeIdx, overIdx))
-      } else {
-        const fromIndex = timers.findIndex((timer) => timer.id === active.id)
-        const toIndex = timers.findIndex((timer) => timer.id === over.id)
-        if (fromIndex === -1 || toIndex === -1) return
-        reorderTimers(fromIndex, toIndex)
-        if (sortMode !== "manual") setTimerSortMode("manual")
-      }
-
-      if (sortMode !== "manual") {
-        toast(formatMessage("timer.manualOrder"), {
-          id: "manual-sort-after-drag",
-        })
-      }
+      // The drop already shows the new order; the FLIP must not replay it.
+      skipNextFlip()
+      moveWithinSection(kind, visibleIds, activeIdx, overIdx)
     },
-    [reorderTimers, reorderVisibleTimers, setTimerSortMode, sortMode, timers],
+    [manualOrder, moveWithinSection, skipNextFlip],
+  )
+
+  const handleMoveTimer = useCallback(
+    (timerId: string, direction: -1 | 1, sectionTimers: Timer[]) => {
+      if (!manualOrder) return
+      const visibleIds = sectionTimers.map((timer) => timer.id)
+      const from = visibleIds.indexOf(timerId)
+      const to = from + direction
+      if (from === -1 || to < 0 || to >= visibleIds.length) return
+      moveWithinSection(sectionTimers[from]?.pinned ? "pinned" : "upcoming", visibleIds, from, to)
+    },
+    [manualOrder, moveWithinSection],
+  )
+
+  // Choosing Manual order keeps every card where it is: the order on screen
+  // becomes the manual order, so nothing jumps.
+  const handleSelectSortMode = useCallback(
+    (mode: TimerSortMode) => {
+      if (mode === "manual" && !manualOrder) {
+        setHandleEntrance(true)
+        globalThis.setTimeout(() => setHandleEntrance(false), HANDLE_ENTRANCE_MS)
+        // Pinned timers already show in stored order and the archive keeps its own.
+        const shownIds = [...countUpTimers, ...upcomingTimers, ...pastTimers].map((timer) => timer.id)
+        if (shownIds.length > 0) reorderVisibleTimers(shownIds)
+      }
+      setTimerSortMode(mode)
+    },
+    [countUpTimers, manualOrder, pastTimers, reorderVisibleTimers, setTimerSortMode, upcomingTimers],
   )
 
   return (
@@ -1245,13 +1394,15 @@ export function HomeClient(props: Readonly<{ promotion?: ReactNode }> = {}) {
       <div className="sr-only" aria-live="polite" aria-atomic="true" data-slot="count-up-announcer">
         {countUpAnnouncement}
       </div>
-      <Header />
-      {props.promotion}
+      <Header wide />
+      {/* Phones keep the promotion above the list; the dense desktop dashboard
+          shows it below the list. */}
+      <div className="md:hidden">{props.promotion}</div>
 
       {/* The section constrains the sticky status footer to the timer list area
           so it settles before the content below app/page.tsx scrolls into view. */}
       <section data-slot="timer-list-section" className="relative flex flex-1 flex-col">
-        <main className="mx-auto w-full max-w-[640px] flex-1 px-4 py-5">
+        <main className="mx-auto w-full max-w-[640px] flex-1 px-4 py-5 md:max-w-[992px]">
           {hasHydrated ? (
             <>
               <ProjectConflictBanner />
@@ -1265,35 +1416,62 @@ export function HomeClient(props: Readonly<{ promotion?: ReactNode }> = {}) {
               />
               <OnboardingBanner timerCount={timers.length} spaceCount={spaces.length} />
               <CountUpStickyBanner count={activeOffscreenCountUpTargets.length} onView={viewOffscreenCountUps} />
-              <QuickAddTimer label={quickAddLabel} onLabelChange={setQuickAddLabel} />
-              <TimerCollection
-                hasActiveProject={Boolean(activeProject)}
-                timers={timers}
-                activeTimers={activeTimers}
-                archivedTimers={archivedTimers}
-                pinnedTimers={pinnedTimers}
-                countUpTimers={countUpTimers}
-                countUpOccurrencesByTimer={countUpOccurrencesByTimer}
-                upcomingTimers={upcomingTimers}
-                pastTimers={pastTimers}
-                nowMs={classificationNowMs}
-                sensors={sensors}
-                onDragEnd={handleTimerDragEnd}
-                onSelectExample={setQuickAddLabel}
-                onAcknowledgeCountUps={acknowledgeCountUps}
-                onUnacknowledgeCountUps={unacknowledgeCountUps}
-                heldCountUpTimerIds={heldCountUpTimerIds}
-                reducedMotionCountUpTimerIds={reducedMotionCountUpTimerIds}
-                onCountUpInteractionChange={handleCountUpInteractionChange}
-                onCountUpSeen={queueCountUpSeen}
-                revealCountUpKey={countUpRevealKey}
-              />
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <QuickAddTimer label={quickAddLabel} onLabelChange={setQuickAddLabel} />
+                </div>
+                <DashboardViewSwitch
+                  value={dashboardView}
+                  onChange={setDashboardView}
+                  className="hidden md:inline-flex"
+                />
+              </div>
+              <div ref={flipRootRef} className="contents">
+                <TimerCollection
+                  hasActiveProject={Boolean(activeProject)}
+                  timers={timers}
+                  activeTimers={activeTimers}
+                  archivedTimers={archivedTimers}
+                  pinnedTimers={pinnedTimers}
+                  countUpTimers={countUpTimers}
+                  countUpOccurrencesByTimer={countUpOccurrencesByTimer}
+                  upcomingTimers={upcomingTimers}
+                  pastTimers={pastTimers}
+                  nowMs={classificationNowMs}
+                  sensors={sensors}
+                  onDragEnd={handleTimerDragEnd}
+                  onMove={handleMoveTimer}
+                  onSelectSortMode={handleSelectSortMode}
+                  manualOrder={manualOrder}
+                  sortMode={sortMode}
+                  spaces={spaces}
+                  view={dashboardView}
+                  onSelectExample={setQuickAddLabel}
+                  onAcknowledgeCountUps={acknowledgeCountUps}
+                  onUnacknowledgeCountUps={unacknowledgeCountUps}
+                  heldCountUpTimerIds={heldCountUpTimerIds}
+                  reducedMotionCountUpTimerIds={reducedMotionCountUpTimerIds}
+                  onCountUpInteractionChange={handleCountUpInteractionChange}
+                  onCountUpSeen={queueCountUpSeen}
+                  revealCountUpKey={countUpRevealKey}
+                  handleEntrance={handleEntrance}
+                />
+              </div>
+              {props.promotion ? (
+                <div
+                  data-slot="dashboard-promotion"
+                  data-layout="inline"
+                  className="group/promotion hidden md:block [&>aside]:max-w-none [&>aside]:px-0 [&>aside]:pt-6"
+                >
+                  {props.promotion}
+                </div>
+              ) : null}
             </>
           ) : (
             <HomeMainLoadingSkeleton announce={false} />
           )}
         </main>
-        <FooterStatusBar />
+        <FooterStatusBar className="md:[&>div]:max-w-[992px]" />
       </section>
       <IosPwaPrompt />
       <HomeTickEffects

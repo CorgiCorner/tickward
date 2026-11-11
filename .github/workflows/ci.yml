@@ -15,7 +15,7 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7.0.1
       # Runs before npm ci/build so the scan does not traverse node_modules or .next.

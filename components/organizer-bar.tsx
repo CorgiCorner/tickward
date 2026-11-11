@@ -3,7 +3,6 @@
 import {
   ArrowDownAZIcon,
   ArrowDownWideNarrowIcon,
-  ArrowUpDownIcon,
   ArrowUpNarrowWideIcon,
   BellOffIcon,
   CheckIcon,
@@ -17,10 +16,13 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { toast } from "sonner"
 
 import { ColorSwatches } from "@/components/spaces-manager"
+import { useDashboardView } from "@/components/dashboard/dashboard-view"
+import { DashboardDialToggle } from "@/components/dashboard/dashboard-view-switch"
+import { MENU_MOTION_CLASSNAME, PRESS_CLASSNAME } from "@/components/dashboard/motion"
 import { useLocale } from "@/components/locale-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -34,14 +36,41 @@ import { useTimerStore } from "@/lib/store"
 import { activeTimerFilterCount, timerToggleFilterCount } from "@/lib/timer-filters"
 import type { Space, Timer, TimerFilterKey, TimerFilterType, TimerSortMode } from "@/lib/types"
 import { UNASSIGNED_SPACE_ID } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
+// Date order first, as on the iPhone; arranging by hand is a mode of its own,
+// set apart at the end of the list.
 const SORT_OPTIONS: Array<{ value: TimerSortMode; labelKey: MessageKey; icon: LucideIcon }> = [
-  { value: "manual", labelKey: "organizer.sort.label.manual", icon: GripVerticalIcon },
   { value: "soonest", labelKey: "organizer.sort.label.soonest", icon: ArrowUpNarrowWideIcon },
   { value: "latest", labelKey: "organizer.sort.label.latest", icon: ArrowDownWideNarrowIcon },
   { value: "name_asc", labelKey: "organizer.sort.label.nameAsc", icon: ArrowDownAZIcon },
   { value: "recently_added", labelKey: "organizer.sort.label.recentlyAdded", icon: ClockIcon },
+  { value: "manual", labelKey: "organizer.sort.label.manual", icon: GripVerticalIcon },
 ]
+
+/**
+ * The sort button shows the current order. The icons sit on top of each other and the one
+ * for the new order cross-fades in (220 ms in, 160 ms out) while the old one fades out.
+ */
+function SortModeIcon(props: Readonly<{ mode: TimerSortMode }>) {
+  return (
+    <span aria-hidden="true" data-sort-icon={props.mode} className="grid size-4 place-items-center">
+      {SORT_OPTIONS.map((option) => {
+        const Icon = option.icon
+        const active = option.value === props.mode
+        return (
+          <Icon
+            key={option.value}
+            className={cn(
+              "col-start-1 row-start-1 size-4 transition-[opacity,scale] ease-move motion-reduce:scale-100",
+              active ? "scale-100 opacity-100 duration-enter" : "scale-75 opacity-0 duration-exit",
+            )}
+          />
+        )
+      })}
+    </span>
+  )
+}
 
 const TYPE_OPTIONS: Array<{ value: TimerFilterType; labelKey: MessageKey }> = [
   { value: "all", labelKey: "organizer.filters.type.all" },
@@ -133,7 +162,8 @@ function SpacesControl() {
               disabled={atSpaceLimit}
               title={atSpaceLimit ? spaceLimitMessage(entitlements) : undefined}
               className={[
-                "grid size-7 shrink-0 place-items-center rounded-full transition-colors",
+                "grid size-7 shrink-0 place-items-center rounded-full transition-[color,background-color,scale]",
+                PRESS_CLASSNAME,
                 atSpaceLimit
                   ? "cursor-not-allowed text-muted-foreground/30"
                   : "text-muted-foreground/60 hover:bg-muted hover:text-foreground",
@@ -147,7 +177,7 @@ function SpacesControl() {
           {atSpaceLimit ? spaceLimitMessage(entitlements) : formatMessage("space.new")}
         </TooltipContent>
       </Tooltip>
-      <PopoverContent align="end" className="w-72 p-3">
+      <PopoverContent align="end" className={cn("w-72 p-3", MENU_MOTION_CLASSNAME)}>
         <div className="grid gap-2">
           <Label htmlFor="new-space-name">{formatMessage("space.new")}</Label>
           <Input
@@ -178,9 +208,16 @@ function SpacesControl() {
   )
 }
 
-function OrganizerBarContent(props: Readonly<{ nowMs: number }>) {
+type OrganizerBarProps = {
+  nowMs?: number
+  // Lets the page keep the visible order when Manual order starts, so nothing jumps.
+  onSelectSortMode?: (mode: TimerSortMode) => void
+}
+
+function OrganizerBarContent(props: Readonly<OrganizerBarProps & { nowMs: number }>) {
   const timers = useTimerStore((s) => s.timers)
   const spaces = useTimerStore((s) => s.spaces)
+  const [dashboardView, setDashboardView] = useDashboardView()
   const activeSpaceId = useTimerStore((s) => s.activeSpaceId)
   const setActiveSpace = useTimerStore((s) => s.setActiveSpace)
   const sortMode = useTimerStore((s) => s.sortMode)
@@ -250,6 +287,7 @@ function OrganizerBarContent(props: Readonly<{ nowMs: number }>) {
                   aria-label={formatMessage("organizer.filters.label")}
                   className={[
                     "relative size-8 shrink-0 border-border bg-background text-muted-foreground shadow-none hover:bg-muted hover:text-foreground",
+                    PRESS_CLASSNAME,
                     activeFilterCount > 0 ? "border-primary/40 bg-primary/[0.04] text-primary hover:text-primary" : "",
                   ].join(" ")}
                 >
@@ -266,7 +304,7 @@ function OrganizerBarContent(props: Readonly<{ nowMs: number }>) {
               {formatMessage("organizer.filters.label")}
             </TooltipContent>
           </Tooltip>
-          <PopoverContent align="end" className="w-72 p-1.5">
+          <PopoverContent align="end" className={cn("w-72 p-1.5", MENU_MOTION_CLASSNAME)}>
             <div className="px-1.5 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               {formatMessage("organizer.filters.type")}
             </div>
@@ -339,9 +377,12 @@ function OrganizerBarContent(props: Readonly<{ nowMs: number }>) {
                   variant="outline"
                   size="icon-sm"
                   aria-label={formatMessage("organizer.sort.action")}
-                  className="size-8 shrink-0 border-border bg-background text-muted-foreground shadow-none hover:bg-muted hover:text-foreground"
+                  className={cn(
+                    "size-8 shrink-0 border-border bg-background text-muted-foreground shadow-none hover:bg-muted hover:text-foreground",
+                    PRESS_CLASSNAME,
+                  )}
                 >
-                  <ArrowUpDownIcon className="size-4" />
+                  <SortModeIcon mode={sortMode} />
                 </Button>
               </PopoverTrigger>
             </TooltipTrigger>
@@ -349,7 +390,7 @@ function OrganizerBarContent(props: Readonly<{ nowMs: number }>) {
               {formatMessage("organizer.sort.action")}
             </TooltipContent>
           </Tooltip>
-          <PopoverContent align="end" className="w-52 p-1.5">
+          <PopoverContent align="end" className={cn("w-52 p-1.5", MENU_MOTION_CLASSNAME)}>
             <div className="px-1.5 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               {formatMessage("organizer.sort.heading")}
             </div>
@@ -357,38 +398,43 @@ function OrganizerBarContent(props: Readonly<{ nowMs: number }>) {
               const active = option.value === sortMode
               const Icon = option.icon
               return (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={active}
-                  className={[
-                    "flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-muted",
-                    active ? "bg-muted" : "",
-                  ].join(" ")}
-                  onClick={() => {
-                    setTimerSortMode(option.value)
-                    setSortOpen(false)
-                  }}
-                >
-                  <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1">{formatMessage(option.labelKey)}</span>
-                  <CheckIcon className={["size-4", active ? "opacity-100" : "opacity-0"].join(" ")} />
-                </button>
+                <Fragment key={option.value}>
+                  {option.value === "manual" ? <div className="-mx-1.5 my-1.5 h-px bg-border" /> : null}
+                  <button
+                    type="button"
+                    aria-pressed={active}
+                    className={[
+                      "flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-muted",
+                      active ? "bg-muted" : "",
+                    ].join(" ")}
+                    onClick={() => {
+                      if (props.onSelectSortMode) props.onSelectSortMode(option.value)
+                      else setTimerSortMode(option.value)
+                      setSortOpen(false)
+                    }}
+                  >
+                    <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">{formatMessage(option.labelKey)}</span>
+                    <CheckIcon className={["size-4", active ? "opacity-100" : "opacity-0"].join(" ")} />
+                  </button>
+                </Fragment>
               )
             })}
           </PopoverContent>
         </Popover>
+
+        <DashboardDialToggle value={dashboardView} onChange={setDashboardView} className="md:hidden" />
       </div>
     </section>
   )
 }
 
-function LiveOrganizerBar() {
+function LiveOrganizerBar(props: Readonly<OrganizerBarProps>) {
   const nowMs = useNow()
-  return <OrganizerBarContent nowMs={nowMs} />
+  return <OrganizerBarContent {...props} nowMs={nowMs} />
 }
 
-export function OrganizerBar(props: Readonly<{ nowMs?: number }>) {
-  if (props.nowMs !== undefined) return <OrganizerBarContent nowMs={props.nowMs} />
-  return <LiveOrganizerBar />
+export function OrganizerBar(props: Readonly<OrganizerBarProps>) {
+  if (props.nowMs !== undefined) return <OrganizerBarContent {...props} nowMs={props.nowMs} />
+  return <LiveOrganizerBar {...props} />
 }

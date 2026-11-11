@@ -3,7 +3,7 @@
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { ArchiveIcon, ArchiveRestoreIcon, GripVerticalIcon, TrashIcon } from "lucide-react"
-import type { CSSProperties, FocusEvent } from "react"
+import type { CSSProperties, FocusEvent, ReactNode } from "react"
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import {
   SwipeableList,
@@ -16,12 +16,31 @@ import {
 import "react-swipeable-list/dist/styles.css"
 import { toast } from "sonner"
 
+import { CompactTimerCardContent } from "@/components/dashboard/compact-timer-card"
+import { useCountUpFormat } from "@/components/dashboard/count-up-format"
+import {
+  TimerMilestoneLine,
+  TimerMilestoneReachedValue,
+  TimerReminderLine,
+} from "@/components/dashboard/timer-card-insight"
+import {
+  calendarElapsed,
+  calendarLead,
+  counterShowsMilestone,
+  elapsedDays,
+  milestoneInsight,
+  nextReminder,
+} from "@/components/dashboard/timer-insights"
+import { useMilestoneMoment } from "@/components/dashboard/use-milestone-moment"
+import { useMinuteNow } from "@/components/dashboard/use-minute-now"
 import {
   TimerCardContent,
   TimerCardDesktopActions,
   TimerCardMobileActions,
   TimerImageAttribution,
+  TimerOverflowActions,
 } from "@/components/timer-card-parts"
+import { useTimerDetailOpener } from "@/components/timer-detail/timer-detail-opener"
 import { useCountUpSeenCard } from "@/components/use-count-up-seen"
 import { trackCountUpAnalyticsEvent } from "@/components/plausible-analytics"
 import {
@@ -38,8 +57,6 @@ import type { TimerFormSubmitValue } from "@/components/timer-form"
 import { authClient } from "@/lib/auth/auth-client"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
 import { formatMessage } from "@/lib/i18n/messages"
-import { formatMilestoneDisplayLabel } from "@/lib/milestone-display"
-import { nextMilestoneAfter } from "@/lib/milestones"
 import { timerNotificationsEnabled } from "@/lib/notification-preferences"
 import { PublicClientError, publicClientErrorFromResponse } from "@/lib/public-errors"
 import { useTimerStore } from "@/lib/store"
@@ -69,6 +86,9 @@ const LazyTimerShareDialog = lazy(() =>
   })),
 )
 
+// Progress strips use the blue of the countdown bar when a timer has no colour.
+const DEFAULT_ACCENT = "#2563eb"
+
 function absoluteShareUrl(url: string) {
   return url.startsWith("http://") || url.startsWith("https://") ? url : `${globalThis.location.origin}${url}`
 }
@@ -77,19 +97,31 @@ type TimerCardProps = Readonly<{
   timer: Timer
   nowMs: number
   projectId?: string
+  // Manual order: the card shows its handle, can be dragged inside its section
+  // and offers Move earlier / Move later. Off in every other sort mode.
   sortable?: boolean
+  onMove?: (timerId: string, direction: -1 | 1) => void
+  canMoveEarlier?: boolean
+  canMoveLater?: boolean
+  // Set when Manual order has just started: the handle slides in after this delay.
+  handleEntranceDelayMs?: number
+  // Desktop grid view: the dense card. Phones keep the full card.
+  compact?: boolean
   countUpOccurrence?: CountUpOccurrence
   countUpPlacement?: "section" | "pinned"
   onCountUpInteractionChange?: (active: boolean) => void
   onCountUpSeen?: (key: string) => void
   countUpHolding?: boolean
   countUpCrossfade?: boolean
+  // "menu": only the actions menu and the dialogs it opens, for hosts that draw
+  // the timer themselves (the dial view). The card itself is not rendered.
+  variant?: "card" | "menu"
 }>
 
 export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
   const { timer, nowMs } = props
   const session = authClient.useSession()
-  const sortable = props.sortable ?? true
+  const sortable = props.sortable ?? false
   // Recurring timers count down to their next derived occurrence; the stored
   // `targetDate` is only the anchor and is never mutated.
   const occurrenceTarget = effectiveTargetDate(timer, nowMs)
@@ -154,24 +186,65 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
     }
   }
 
-  const nextMilestone =
-    timer.mode === "since" && timer.milestones
-      ? nextMilestoneAfter(timer.targetDate, timer.milestones.rules, timer.timezone, nowMs)
-      : null
-  const ladderComplete =
-    timer.mode === "since" &&
-    timer.milestones !== undefined &&
-    timer.milestones.rules.length > 0 &&
-    timer.milestones.rules.every((rule) => "at" in rule) &&
-    !nextMilestone
-  const milestoneSub = nextMilestone
-    ? formatMilestoneDisplayLabel("next", nextMilestone, timer.timezone)
-    : ladderComplete
-      ? formatMessage("timer.display.ladderComplete")
-      : null
-  const sub = [formatTargetInTimeZone(effectiveTarget, timer.timezone), timer.timezone, milestoneSub]
+  // The card's own clock for what comes next: minute precision is enough for
+  // reminders and milestone days, and it keeps the card from re-rendering every second.
+  const minuteNowMs = useMinuteNow()
+  const targetLine = formatTargetInTimeZone(effectiveTarget, timer.timezone)
+  const sub = [
+    targetLine && timer.mode === "since" ? formatMessage("timer.card.sinceDate", { date: targetLine }) : targetLine,
+    timer.timezone,
+  ]
     .filter(Boolean)
     .join(" · ")
+  const accent = timer.color || timerSpace?.color || DEFAULT_ACCENT
+  const [countUpFormat, , toggleCountUpFormat] = useCountUpFormat(timer.id)
+  const milestone = milestoneInsight(timer, minuteNowMs)
+  const reached = milestone?.kind === "reached" && !isArchived ? milestone.reached : null
+  // The menu-only variant (the dial's actions) shows no card, so it must not claim the card moment.
+  const moment = useMilestoneMoment("card", timer.id, props.variant === "menu" ? null : reached)
+  const reminder = nextReminder(timer, effectiveTarget, minuteNowMs)
+  // On a milestone day the corner shows the reached value, unless the counter
+  // already reads it (a days rule in total days, "3 years" in the calendar format).
+  // The compact counter always reads total days, whatever format is stored.
+  function reachedShownByCounter(compact: boolean) {
+    return (
+      reached !== null &&
+      counterShowsMilestone(
+        reached,
+        compact ? "days" : countUpFormat,
+        elapsedDays(timer.targetDate, minuteNowMs),
+        calendarLead(calendarElapsed(timer.targetDate, timer.timezone, minuteNowMs)),
+      )
+    )
+  }
+  function renderInsight(compact: boolean): ReactNode {
+    if (reached) {
+      return reachedShownByCounter(compact) ? null : (
+        <TimerMilestoneReachedValue
+          reached={reached}
+          accent={accent}
+          className={cn(
+            "transition-opacity ease-fade",
+            moment.phase === "done" ? "opacity-100 delay-[160ms] duration-enter" : "opacity-0 duration-0",
+          )}
+        />
+      )
+    }
+    if (milestone && milestone.kind !== "reached") {
+      return <TimerMilestoneLine insight={milestone} nowMs={minuteNowMs} compact={compact} />
+    }
+    if (reminder) {
+      return <TimerReminderLine reminder={reminder} nowMs={minuteNowMs} timezone={timer.timezone} compact={compact} />
+    }
+    return null
+  }
+  const insight = renderInsight(false)
+  const milestoneProgress =
+    milestone?.kind === "reached"
+      ? { value: 1, accent, phase: moment.phase }
+      : milestone?.kind === "next"
+        ? { value: milestone.progress, accent, phase: "done" as const }
+        : undefined
 
   const [shareOpen, setShareOpen] = useState(false)
   const [shareLoaded, setShareLoaded] = useState(false)
@@ -467,7 +540,11 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
     setEditOpen(true)
   }
 
-  function openFocusMode() {
+  // Focus mode returns focus to where it was opened from, or to the card when the
+  // detail view handed over to it (the detail view is gone by then).
+  const focusReturnRef = useRef<HTMLElement | null>(null)
+  function openFocusMode(returnFocusTo?: HTMLElement | null) {
+    focusReturnRef.current = returnFocusTo ?? null
     setFocusLoaded(true)
     setFocusOpen(true)
   }
@@ -501,14 +578,6 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
     setMoveOpen(false)
   }
 
-  function handleMobileCardTap() {
-    if (globalThis.window !== undefined && "matchMedia" in globalThis) {
-      const mobile = globalThis.matchMedia("(max-width: 767px)").matches
-      if (!mobile) return
-    }
-    if (!isFollowed) openEditDialog()
-  }
-
   const leadingActions = () => (
     <LeadingActions>
       <SwipeAction onClick={toggleArchive}>
@@ -537,13 +606,45 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
     <button
       type="button"
       data-timer-card-action=""
-      className="absolute left-1 top-4 z-20 grid size-6 cursor-grab touch-none place-items-center rounded-md text-muted-foreground/45 opacity-100 transition hover:bg-muted hover:text-muted-foreground active:cursor-grabbing"
-      aria-label={formatMessage("timer.dragReorder")}
+      data-slot="timer-drag-handle"
+      className={cn(
+        "relative z-20 -my-1 -ml-1 grid h-6 w-5 shrink-0 cursor-grab touch-manipulation select-none place-items-center rounded-md [-webkit-touch-callout:none] text-muted-foreground/60 outline-none hover:bg-muted hover:text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 active:cursor-grabbing",
+        props.handleEntranceDelayMs === undefined
+          ? ""
+          : "animate-in fade-in-0 slide-in-from-left-2 fill-mode-backwards duration-enter ease-move motion-reduce:slide-in-from-left-0",
+      )}
+      style={
+        props.handleEntranceDelayMs === undefined ? undefined : { animationDelay: `${props.handleEntranceDelayMs}ms` }
+      }
+      {...attributes}
       {...listeners}
+      aria-label={formatMessage("timer.dragReorder", { label: timer.label })}
     >
       <GripVerticalIcon className="size-3.5" />
     </button>
   ) : null
+  const reorder = sortable
+    ? {
+        onMoveEarlier: props.canMoveEarlier ? () => props.onMove?.(timer.id, -1) : undefined,
+        onMoveLater: props.canMoveLater ? () => props.onMove?.(timer.id, 1) : undefined,
+      }
+    : undefined
+
+  // One detail view per card. Its trigger is placed in the phone and the desktop
+  // tree; only the visible one can be clicked. Drags start on the handle, which
+  // stacks above it.
+  const { trigger: detailOpener, dialog: detailDialog } = useTimerDetailOpener({
+    timer,
+    space: timerSpace,
+    signedIn: Boolean(session.data?.user),
+    onEditSubmit: isFollowed ? undefined : handleEditSubmit,
+    onShare: openShareDialog,
+    onFocus: openFocusMode,
+    // Focus mode is mounted (closed) while the detail view is open, so the hand-over
+    // from the detail view starts at once.
+    onOpen: () => setFocusLoaded(true),
+    onCopyShareLink: shareUrl ? () => void copyShareLink(shareUrl) : undefined,
+  })
 
   const cardDiv = (
     <TimerCardContent
@@ -557,8 +658,14 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
       history={history}
       space={timerSpace}
       dragHandle={dragHandle}
+      insight={insight}
+      countUpFormat={timer.mode === "since" ? countUpFormat : undefined}
+      onToggleCountUpFormat={timer.mode === "since" ? toggleCountUpFormat : undefined}
+      milestoneDay={reached ? { accent, phase: moment.phase, rolling: moment.rolling, onReplay: moment.replay } : undefined}
+      milestoneProgress={milestoneProgress}
       mobileActions={
         <TimerCardMobileActions
+          timerId={timer.id}
           isArchived={isArchived}
           isPinned={isPinned}
           isFollowed={isFollowed}
@@ -567,7 +674,7 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
           onTogglePin={togglePin}
           onToggleNotification={() => void toggleNotification()}
           onOpenShare={openShareDialog}
-          onOpenFocus={openFocusMode}
+          onOpenFocus={() => openFocusMode()}
           onOpenEdit={openEditDialog}
           onOpenMove={openMoveDialog}
           onUnfollow={handleUnfollow}
@@ -575,10 +682,12 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
           onToggleArchive={toggleArchive}
           onDelete={requestDelete}
           onMenuOpenChange={setCountUpMenuOpen}
+          reorder={reorder}
         />
       }
       desktopActions={
         <TimerCardDesktopActions
+          timerId={timer.id}
           isArchived={isArchived}
           isPinned={isPinned}
           isFollowed={isFollowed}
@@ -587,7 +696,7 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
           onTogglePin={togglePin}
           onToggleNotification={() => void toggleNotification()}
           onOpenShare={openShareDialog}
-          onOpenFocus={openFocusMode}
+          onOpenFocus={() => openFocusMode()}
           onOpenMove={openMoveDialog}
           onOpenEdit={openEditDialog}
           onUnfollow={handleUnfollow}
@@ -595,9 +704,10 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
           onToggleArchive={toggleArchive}
           onDelete={requestDelete}
           onMenuOpenChange={setCountUpMenuOpen}
+          reorder={reorder}
         />
       }
-      onMobileCardTap={handleMobileCardTap}
+      detailOpener={detailOpener}
       nowCountingUp={Boolean(countUpOccurrence)}
       countUpBadgeLabel={
         countUpOccurrence
@@ -621,38 +731,8 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
     />
   )
 
-  return (
-    <div
-      ref={setCardNodeRef}
-      className={cn(
-        "min-w-0 rounded-2xl transition-[background-color,box-shadow] motion-reduce:transition-none data-[attention-highlighted=true]:bg-primary/[0.035] data-[attention-highlighted=true]:ring-2 data-[attention-highlighted=true]:ring-primary/40 data-[attention-highlighted=true]:ring-offset-2 data-[attention-highlighted=true]:ring-offset-background",
-        props.countUpCrossfade && "animate-in fade-in-0 duration-300",
-      )}
-      style={sortableStyle}
-      data-count-up-project-id={props.projectId ?? countUpOccurrence?.projectId ?? activeProjectId ?? undefined}
-      data-count-up-timer-id={timer.id}
-      data-count-up-target-at-ms={countUpOccurrence?.targetAtMs}
-      data-count-up-holding={props.countUpHolding || undefined}
-      data-count-up-crossfade={props.countUpCrossfade || undefined}
-      onFocusCapture={handleCardFocus}
-      onBlurCapture={handleCardBlur}
-      {...attributes}
-    >
-      {/* Mobile: swipeable wrapper. Swipe right = archive/restore, swipe left = delete */}
-      <div className="flex min-w-0 overflow-hidden md:hidden">
-        <SwipeableList type={Type.IOS} fullSwipe>
-          <SwipeableListItem
-            leadingActions={leadingActions()}
-            trailingActions={trailingActions()}
-            onSwipeStart={() => setCountUpSwipeActive(true)}
-            onSwipeEnd={() => setCountUpSwipeActive(false)}
-          >
-            {cardDiv}
-          </SwipeableListItem>
-        </SwipeableList>
-      </div>
-      <div className="hidden md:block">{cardDiv}</div>
-
+  const dialogs = (
+    <>
       {isFollowed || !editLoaded ? null : (
         <Suspense fallback={null}>
           <LazyTimerForm
@@ -685,6 +765,9 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
             open={focusOpen}
             timerLabel={timer.label}
             targetDateIsoUtc={effectiveTarget}
+            timer={timer}
+            accentColor={timer.color || timerSpace?.color}
+            returnFocusRef={focusReturnRef}
             onClose={() => setFocusOpen(false)}
           />
         </Suspense>
@@ -718,6 +801,104 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </>
+  )
+
+  if (props.variant === "menu") {
+    return (
+      <>
+        <TimerOverflowActions
+          isArchived={isArchived}
+          isFollowed={isFollowed}
+          notificationsEnabled={notificationsEnabled}
+          canMove={canMove}
+          onOpenMove={openMoveDialog}
+          onOpenEdit={openEditDialog}
+          onToggleNotification={() => void toggleNotification()}
+          onOpenShare={openShareDialog}
+          onUnfollow={handleUnfollow}
+          onDuplicate={handleDuplicate}
+          onToggleArchive={toggleArchive}
+          onDelete={requestDelete}
+        />
+        {dialogs}
+      </>
+    )
+  }
+
+  return (
+    <div
+      ref={setCardNodeRef}
+      className={cn(
+        "min-w-0 rounded-2xl transition-[background-color,box-shadow] motion-reduce:transition-none data-[attention-highlighted=true]:bg-primary/[0.035] data-[attention-highlighted=true]:ring-2 data-[attention-highlighted=true]:ring-primary/40 data-[attention-highlighted=true]:ring-offset-2 data-[attention-highlighted=true]:ring-offset-background",
+        props.countUpCrossfade && "animate-in fade-in-0 duration-enter ease-fade",
+      )}
+      style={sortableStyle}
+      data-count-up-project-id={props.projectId ?? countUpOccurrence?.projectId ?? activeProjectId ?? undefined}
+      data-count-up-timer-id={timer.id}
+      data-flip-key={timer.id}
+      data-count-up-target-at-ms={countUpOccurrence?.targetAtMs}
+      data-count-up-holding={props.countUpHolding || undefined}
+      data-count-up-crossfade={props.countUpCrossfade || undefined}
+      onFocusCapture={handleCardFocus}
+      onBlurCapture={handleCardBlur}
+    >
+      {/* Mobile: swipeable wrapper. Swipe right = archive/restore, swipe left = delete */}
+      <div className="flex min-w-0 overflow-hidden md:hidden">
+        <SwipeableList type={Type.IOS} fullSwipe>
+          <SwipeableListItem
+            leadingActions={leadingActions()}
+            trailingActions={trailingActions()}
+            onSwipeStart={() => setCountUpSwipeActive(true)}
+            onSwipeEnd={() => setCountUpSwipeActive(false)}
+          >
+            {cardDiv}
+          </SwipeableListItem>
+        </SwipeableList>
+      </div>
+      <div className="hidden h-full md:block">
+        {props.compact && !countUpOccurrence ? (
+          <CompactTimerCardContent
+            timer={timer}
+            effectiveTarget={effectiveTarget}
+            nowMs={nowMs}
+            sub={sub}
+            isArchived={isArchived}
+            isPinned={isPinned}
+            isRecurring={isRecurring}
+            history={history}
+            space={timerSpace}
+            dragHandle={dragHandle}
+            insight={renderInsight(true)}
+            milestoneDay={reached ? { accent, phase: moment.phase, rolling: moment.rolling, onReplay: moment.replay } : undefined}
+            milestoneProgress={milestoneProgress}
+            detailOpener={detailOpener}
+            onOpenFocus={() => openFocusMode()}
+            onTogglePin={togglePin}
+            menu={{
+              isArchived,
+              isFollowed,
+              notificationsEnabled,
+              canMove,
+              onOpenMove: openMoveDialog,
+              onOpenEdit: openEditDialog,
+              onToggleNotification: () => void toggleNotification(),
+              onOpenShare: openShareDialog,
+              onUnfollow: handleUnfollow,
+              onDuplicate: handleDuplicate,
+              onToggleArchive: toggleArchive,
+              onDelete: requestDelete,
+              onMenuOpenChange: setCountUpMenuOpen,
+              reorder,
+            }}
+          />
+        ) : (
+          cardDiv
+        )}
+      </div>
+
+      {dialogs}
+      {detailDialog}
 
       <TimerImageAttribution timer={timer} />
     </div>

@@ -1,13 +1,27 @@
 "use client"
 
-import { XIcon } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { BellIcon, XIcon } from "lucide-react"
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react"
 
-import { CountdownDisplay } from "@/components/countdown-display"
+import { MOTION_MS, prefersReducedMotion } from "@/components/dashboard/motion"
+import { GroupedNumber } from "@/components/timer-detail/grouped-number"
+import {
+  formatDetailDate,
+  formatDetailDateTime,
+  formatMilestoneAmount,
+  formatShortDate,
+} from "@/components/timer-detail/timer-detail-format"
+import {
+  countdownProgress,
+  countUpTrack,
+  detailTarget,
+  isCountUpTimer,
+} from "@/components/timer-detail/timer-detail-model"
 import { Button } from "@/components/ui/button"
 import { useNow } from "@/components/use-now"
-import { formatMessage } from "@/lib/i18n/messages"
-import { cn } from "@/lib/utils"
+import { formatMessage, formatPluralMessage } from "@/lib/i18n/messages"
+import type { Timer } from "@/lib/types"
+import { cn, getCountdownParts, pad2 } from "@/lib/utils"
 
 export { TimerFocusAction } from "@/components/timer-focus-action"
 
@@ -116,11 +130,6 @@ function storeThemeId(themeId: FocusThemeId) {
   }
 }
 
-function prefersReducedMotion() {
-  if (globalThis.window === undefined || !("matchMedia" in globalThis.window)) return false
-  return globalThis.window.matchMedia("(prefers-reduced-motion: reduce)").matches
-}
-
 const FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
@@ -141,11 +150,17 @@ export function TimerFocusMode(
     open: boolean
     timerLabel: string
     targetDateIsoUtc: string
+    /** The whole timer adds its date, note and a progress bar with reminder or milestone markers. */
+    timer?: Timer
+    /** The timer's colour (its own or its space's) for the dot and the bar. */
+    accentColor?: string
     nowMs?: number
+    /** Where focus goes when focus mode closes; the element focused when it opened by default. */
+    returnFocusRef?: RefObject<HTMLElement | null>
     onClose: () => void
   }>,
 ) {
-  const { nowMs, onClose, open, targetDateIsoUtc, timerLabel } = props
+  const { accentColor, nowMs, onClose, open, returnFocusRef, targetDateIsoUtc, timer, timerLabel } = props
   const [mounted, setMounted] = useState(open)
   const [visible, setVisible] = useState(false)
   const [themeId, setThemeId] = useState<FocusThemeId>(() => (open ? readStoredThemeId() : "default"))
@@ -178,7 +193,7 @@ export function TimerFocusMode(
   useEffect(() => {
     if (open || !mounted) return
 
-    const timeoutMs = prefersReducedMotion() ? 0 : 160
+    const timeoutMs = prefersReducedMotion() ? 0 : MOTION_MS.exit
     const closeStartId = globalThis.setTimeout(() => setVisible(false), 0)
     const closeId = globalThis.setTimeout(() => setMounted(false), timeoutMs)
     return () => {
@@ -200,10 +215,11 @@ export function TimerFocusMode(
   useEffect(() => {
     if (!open || !mounted) return
 
-    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    previousFocusRef.current =
+      returnFocusRef?.current ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
     const focusId = globalThis.setTimeout(() => closeButtonRef.current?.focus(), 0)
     return () => globalThis.clearTimeout(focusId)
-  }, [mounted, open])
+  }, [mounted, open, returnFocusRef])
 
   useEffect(() => {
     if (mounted) return
@@ -271,8 +287,10 @@ export function TimerFocusMode(
       tabIndex={-1}
       data-testid="timer-focus-mode"
       className={cn(
-        "fixed inset-0 z-[100] isolate flex min-h-dvh w-full flex-col overflow-hidden transition-opacity duration-200 motion-reduce:transition-none",
-        visible ? "opacity-100" : "opacity-0",
+        // Fades in over 220 ms while the content settles from 0.98; leaves in 160 ms.
+        // Reduced motion keeps the fade.
+        "fixed inset-0 z-[100] isolate flex min-h-dvh w-full flex-col overflow-hidden transition-opacity ease-fade",
+        visible ? "opacity-100 duration-enter" : "opacity-0 duration-exit",
         theme.backgroundClassName,
         theme.textClassName,
       )}
@@ -290,40 +308,66 @@ export function TimerFocusMode(
         <XIcon className="size-5" />
       </Button>
 
-      <main className="flex flex-1 items-center justify-center px-4 py-20 sm:px-8">
-        <div className="mx-auto grid w-full max-w-5xl gap-10 text-center sm:gap-14">
-          <h1 id="timer-focus-mode-title" className="text-balance text-3xl font-semibold sm:text-5xl">
-            {timerLabel}
-          </h1>
-          <FocusCountdownDisplay
+      <main
+        data-testid="timer-focus-mode-content"
+        className={cn(
+          "flex flex-1 items-center justify-center px-4 py-20 transition-transform ease-move motion-reduce:scale-100 sm:px-8",
+          visible ? "scale-100 duration-enter" : "scale-[0.98] duration-exit",
+        )}
+      >
+        <div className="mx-auto flex w-full max-w-5xl flex-col items-center text-center">
+          <div className="flex max-w-full items-center justify-center gap-3">
+            {timer ? (
+              <span
+                aria-hidden="true"
+                className="size-2 shrink-0 rounded-full bg-current opacity-40 sm:size-2.5"
+                style={accentColor ? { backgroundColor: accentColor, opacity: 1 } : undefined}
+              />
+            ) : null}
+            <h1
+              id="timer-focus-mode-title"
+              className="text-balance text-3xl font-semibold tracking-[-0.01em] sm:text-[44px] sm:leading-tight"
+            >
+              {timerLabel}
+            </h1>
+          </div>
+          {timer ? <FocusTimerDetails timer={timer} nowMs={nowMs} detailClassName={theme.detailClassName} /> : null}
+          <FocusCounter
             targetDateIsoUtc={targetDateIsoUtc}
             nowMs={nowMs}
-            className="mx-auto w-full max-w-4xl gap-3 font-mono tabular-nums sm:gap-8"
-            unitClassName="min-w-0 gap-3"
-            unitValueClassName="text-5xl tracking-normal sm:text-7xl md:text-8xl"
-            unitLabelClassName={cn("text-xs tracking-normal sm:text-sm", theme.detailClassName)}
-            sinceClassName={cn("mb-4 font-mono text-xs tracking-normal sm:text-sm", theme.detailClassName)}
+            labelClassName={theme.detailClassName}
+            className="mt-12 sm:mt-16"
           />
+          {timer ? (
+            <FocusProgress
+              timer={timer}
+              nowMs={nowMs}
+              accentColor={accentColor}
+              detailClassName={theme.detailClassName}
+            />
+          ) : null}
         </div>
       </main>
 
       <fieldset
-        className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-background/25 px-3 py-2 opacity-100 backdrop-blur-md transition-opacity hover:opacity-100 focus-within:opacity-100 pointer-fine:opacity-55 pointer-fine:hover:opacity-100 pointer-fine:focus-within:opacity-100 motion-reduce:transition-none"
+        className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 sm:bottom-11 sm:gap-3.5"
         aria-label={formatMessage("timer.focus.themePicker")}
       >
         {TIMER_FOCUS_THEMES.map((candidate) => {
           const label = formatMessage(candidate.labelKey)
+          const selected = candidate.id === theme.id
           return (
             <button
               key={candidate.id}
               type="button"
+              data-selected={selected || undefined}
               className={cn(
-                "size-5 rounded-full border border-foreground/20 shadow-sm outline-none transition-transform hover:scale-110 focus-visible:ring-ring/60 focus-visible:ring-[3px] motion-reduce:transition-none",
+                "size-8 rounded-full border border-foreground/15 outline-none transition-transform duration-press ease-move hover:scale-110 active:scale-[0.97] focus-visible:ring-[3px] focus-visible:ring-ring/60 motion-reduce:transition-none motion-reduce:hover:scale-100 sm:size-9",
                 candidate.swatchClassName,
-                candidate.id === theme.id ? "ring-2 ring-foreground/55 ring-offset-2 ring-offset-background/60" : "",
+                selected ? "ring-2 ring-foreground ring-offset-2 ring-offset-background" : "",
               )}
               aria-label={label}
-              aria-pressed={candidate.id === theme.id}
+              aria-pressed={selected}
               title={label}
               onClick={() => {
                 setThemeId(candidate.id)
@@ -337,33 +381,175 @@ export function TimerFocusMode(
   )
 }
 
-function LiveFocusCountdownDisplay(
-  props: Readonly<{
-    className?: string
-    targetDateIsoUtc: string
-    unitClassName?: string
-    unitLabelClassName?: string
-    unitValueClassName?: string
-    sinceClassName?: string
-  }>,
-) {
-  const nowMs = useNow()
-
-  return <CountdownDisplay {...props} nowMs={nowMs} />
+function FocusUnit(props: Readonly<{ value: ReactNode; label: string; labelClassName?: string; muted?: boolean }>) {
+  return (
+    <div className="flex min-w-0 flex-col items-center gap-3 sm:gap-[18px]">
+      <span
+        className={cn(
+          "text-5xl font-semibold leading-none tracking-normal sm:text-7xl md:text-8xl lg:text-[104px]",
+          props.muted && "opacity-55",
+        )}
+        suppressHydrationWarning
+      >
+        {props.value}
+      </span>
+      <span className={cn("text-xs uppercase leading-none tracking-[0.14em] sm:text-base", props.labelClassName)}>
+        {props.label}
+      </span>
+    </div>
+  )
 }
 
-function FocusCountdownDisplay(
-  props: Readonly<{
-    className?: string
-    targetDateIsoUtc: string
-    nowMs?: number
-    unitClassName?: string
-    unitLabelClassName?: string
-    unitValueClassName?: string
-    sinceClassName?: string
-  }>,
+function FocusCounterUnits(
+  props: Readonly<{ targetDateIsoUtc: string; nowMs: number; className?: string; labelClassName?: string }>,
 ) {
-  if (props.nowMs !== undefined) return <CountdownDisplay {...props} nowMs={props.nowMs} />
+  const parts = getCountdownParts(props.targetDateIsoUtc, props.nowMs)
+  return (
+    <div
+      data-testid="timer-focus-counter"
+      className={cn(
+        "flex w-full max-w-4xl items-start justify-center gap-5 font-mono tabular-nums sm:gap-12 lg:gap-[72px]",
+        props.className,
+      )}
+    >
+      {/* references: timer.countdown.dayUnit.one / timer.countdown.dayUnit.few / timer.countdown.dayUnit.many */}
+      <FocusUnit
+        value={<GroupedNumber value={parts.days} />}
+        label={formatPluralMessage("timer.countdown.dayUnit", parts.days)}
+        labelClassName={props.labelClassName}
+      />
+      <FocusUnit
+        value={pad2(parts.hours)}
+        label={formatMessage("timerDetail.unit.hours")}
+        labelClassName={props.labelClassName}
+      />
+      <FocusUnit
+        value={pad2(parts.minutes)}
+        label={formatMessage("timerDetail.unit.minutes")}
+        labelClassName={props.labelClassName}
+      />
+      <FocusUnit
+        value={pad2(parts.seconds)}
+        label={formatMessage("timerDetail.unit.seconds")}
+        labelClassName={props.labelClassName}
+        muted
+      />
+    </div>
+  )
+}
 
-  return <LiveFocusCountdownDisplay {...props} />
+function LiveFocusCounter(props: Readonly<{ targetDateIsoUtc: string; className?: string; labelClassName?: string }>) {
+  const nowMs = useNow()
+  return <FocusCounterUnits {...props} nowMs={nowMs} />
+}
+
+function FocusCounter(
+  props: Readonly<{ targetDateIsoUtc: string; nowMs?: number; className?: string; labelClassName?: string }>,
+) {
+  if (props.nowMs !== undefined) return <FocusCounterUnits {...props} nowMs={props.nowMs} />
+  return <LiveFocusCounter {...props} />
+}
+
+function FocusTimerDetails(props: Readonly<{ timer: Timer; nowMs?: number; detailClassName: string }>) {
+  const liveNowMs = useNow()
+  const nowMs = props.nowMs ?? liveNowMs
+  const { timer } = props
+  const countsUp = isCountUpTimer(timer)
+  const target = detailTarget(timer, nowMs)
+  const when = countsUp
+    ? formatMessage("timerDetail.since", { date: formatDetailDate(target, timer.timezone) ?? target })
+    : (formatDetailDateTime(target, timer.timezone, nowMs) ?? target)
+  const note = timer.description?.trim()
+
+  return (
+    <>
+      <p className={cn("mt-3 text-sm sm:mt-3.5 sm:text-xl", props.detailClassName)}>
+        {[when, timer.timezone].join(" · ")}
+      </p>
+      {note ? <p className="mt-2 max-w-2xl text-balance text-sm opacity-75 sm:mt-2.5 sm:text-lg">{note}</p> : null}
+    </>
+  )
+}
+
+type FocusMarker = { key: string; fraction: number; label?: string }
+
+function FocusProgress(
+  props: Readonly<{ timer: Timer; nowMs?: number; accentColor?: string; detailClassName: string }>,
+) {
+  const liveNowMs = useNow()
+  const nowMs = props.nowMs ?? liveNowMs
+  const { timer } = props
+
+  let fraction: number
+  let markers: FocusMarker[]
+  let start: string
+  let end: string
+  if (isCountUpTimer(timer)) {
+    const track = countUpTrack(timer, nowMs)
+    if (!track) return null
+    fraction = track.fraction
+    markers = track.markers.map((marker) => ({ key: `${marker.at}:${marker.unit}`, fraction: marker.fraction }))
+    start = formatMessage("timerDetail.progress.started", {
+      date: formatShortDate(track.startMs, timer.timezone) ?? "",
+    })
+    end = `${formatMilestoneAmount(track.next)} · ${formatShortDate(track.nextMs, timer.timezone) ?? ""}`
+  } else {
+    const progress = countdownProgress(timer, nowMs)
+    if (!progress) return null
+    fraction = progress.fraction
+    const nextReminder = progress.reminders.find((reminder) => !reminder.past)
+    markers = progress.reminders.map((reminder) => ({
+      key: String(reminder.offsetMinutes),
+      fraction: reminder.fraction,
+      label:
+        reminder === nextReminder
+          ? formatMessage("timer.focus.reminderMarker", {
+              date: formatDetailDateTime(reminder.atMs, timer.timezone, nowMs) ?? "",
+            })
+          : undefined,
+    }))
+    start = formatMessage("timerDetail.progress.started", {
+      date: formatDetailDateTime(progress.startMs, timer.timezone, nowMs) ?? "",
+    })
+    end = formatDetailDateTime(progress.targetMs, timer.timezone, nowMs) ?? ""
+  }
+
+  return (
+    <div data-testid="timer-focus-progress" className="mt-12 flex w-full max-w-[720px] flex-col gap-3 sm:mt-16">
+      <div role="img" aria-label={`${start} · ${end}`} className="relative h-1.5 rounded-full bg-current/15">
+        <div
+          className={cn("h-full min-w-1.5 rounded-full", props.accentColor ? "" : "bg-blue-600 dark:bg-blue-500")}
+          style={{
+            width: `${fraction * 100}%`,
+            ...(props.accentColor ? { backgroundColor: props.accentColor } : {}),
+          }}
+        />
+        {markers.map((marker) => (
+          <span
+            key={marker.key}
+            data-testid="timer-focus-marker"
+            className="absolute -top-[5px] h-4 w-0.5 -translate-x-1/2 rounded-full bg-current/50"
+            style={{ left: `${marker.fraction * 100}%` }}
+          >
+            {marker.label ? (
+              <span
+                className={cn(
+                  "absolute bottom-5 flex items-center gap-2 whitespace-nowrap text-xs sm:text-[15px]",
+                  marker.fraction > 0.6 ? "-mr-2 right-0" : "-ml-2 left-0",
+                  props.detailClassName,
+                )}
+              >
+                <BellIcon aria-hidden="true" className="size-3.5 sm:size-[18px]" />
+                {marker.label}
+              </span>
+            ) : null}
+          </span>
+        ))}
+      </div>
+      <div className={cn("flex justify-between gap-4 text-xs sm:text-[15px]", props.detailClassName)}>
+        <span className="text-left">{start}</span>
+        <span className="text-right">{end}</span>
+      </div>
+    </div>
+  )
 }

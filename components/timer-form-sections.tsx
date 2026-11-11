@@ -1,18 +1,11 @@
 import { formatInTimeZone } from "date-fns-tz"
-import {
-  BellIcon,
-  BellRingIcon,
-  ChevronDownIcon,
-  CircleHelpIcon,
-  ClockIcon,
-  ImageIcon,
-  LockIcon,
-  PencilIcon,
-} from "lucide-react"
-import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react"
+import { CalendarIcon, CircleHelpIcon, LockIcon, PlusIcon, TimerIcon } from "lucide-react"
+import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 import { Controller, useController, type Control, type UseFormRegister } from "react-hook-form"
 
-import { TimerRemindersField } from "@/components/timer-reminders-field"
+import { MENU_MOTION_CLASSNAME } from "@/components/dashboard/motion"
+import { CHIP_CLASS, TimerReminderChips, chipStateClass } from "@/components/timer-form/reminder-chips"
+import { Collapsible, FadeInText, PresenceRow, RevealRow, SmoothHeight } from "@/components/timer-form/reveal"
 import { TimezoneSelect } from "@/components/timezone-select"
 import { UnsplashPicker } from "@/components/unsplash-picker"
 import { Button } from "@/components/ui/button"
@@ -21,20 +14,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { DurationPicker, ScheduleModeToggle, TimePicker, type DurationPickerValue } from "@/components/ui/time-picker"
+import { DurationPicker, TimePicker, type DurationPickerValue } from "@/components/ui/time-picker"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { authClient } from "@/lib/auth/auth-client"
 import { formatMessage, type MessageKey } from "@/lib/i18n/messages"
 import { MILESTONE_PRESETS } from "@/lib/milestone-presets"
 import { MILESTONE_UNITS, type MilestoneRule, type MilestoneUnit } from "@/lib/milestones"
-import { type TimerFormRecurrenceType, type TimerFormValues } from "@/lib/schemas/timer"
+import { MAX_TIMER_REMINDERS, type TimerFormRecurrenceType, type TimerFormValues } from "@/lib/schemas/timer"
 import type { Space } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
-const TIMER_FORM_STEPS = ["timer.form.basics", "timer.form.schedule", "timer.form.customize"] as const
-
-// Small per-section glyphs (pen / clock / photo) shown in the stepper and in the
-// edit view section headers so each part of the form is scannable at a glance.
-const TIMER_FORM_STEP_ICONS: ComponentType<{ className?: string }>[] = [PencilIcon, ClockIcon, ImageIcon]
 const RECURRENCE_TYPES: TimerFormRecurrenceType[] = ["daily", "weekly", "monthly", "yearly"]
 const RECURRENCE_TYPE_LABEL_KEYS: Record<TimerFormRecurrenceType, MessageKey> = {
   daily: "timer.form.recurrence.daily",
@@ -42,6 +30,33 @@ const RECURRENCE_TYPE_LABEL_KEYS: Record<TimerFormRecurrenceType, MessageKey> = 
   monthly: "timer.form.recurrence.monthly",
   yearly: "timer.form.recurrence.yearly",
 }
+const NO_REPEAT = "none"
+
+type AfterZeroMode = TimerFormValues["afterZeroMode"]
+const AFTER_ZERO_OPTIONS: Array<{
+  value: AfterZeroMode
+  labelKey: MessageKey
+}> = [
+  { value: "use-default", labelKey: "timer.form.afterZero.useDefault" },
+  {
+    value: "move-directly-to-past",
+    labelKey: "timer.form.afterZero.moveDirectly",
+  },
+  { value: "keep-visible-5m", labelKey: "timer.form.afterZero.keep5m" },
+  { value: "keep-visible-15m", labelKey: "timer.form.afterZero.keep15m" },
+  { value: "keep-visible-1h", labelKey: "timer.form.afterZero.keep1h" },
+  { value: "keep-visible-1d", labelKey: "timer.form.afterZero.keep1d" },
+  { value: "keep-visible-custom", labelKey: "timer.form.afterZero.keepCustom" },
+  { value: "until-reviewed", labelKey: "timer.form.afterZero.untilReviewed" },
+]
+
+export function afterZeroHintKey(mode: AfterZeroMode): MessageKey {
+  if (mode === "use-default") return "timer.form.afterZero.hint.useDefault"
+  if (mode === "move-directly-to-past") return "timer.form.afterZero.hint.moveDirectly"
+  if (mode === "until-reviewed") return "timer.form.afterZero.hint.untilReviewed"
+  return "timer.form.afterZero.hint.keepFor"
+}
+
 // references: timer.form.mode.until / timer.form.mode.since
 // references: timer.form.milestones.unit.days / timer.form.milestones.unit.weeks
 // references: timer.form.milestones.unit.months / timer.form.milestones.unit.years
@@ -55,7 +70,10 @@ function parseMilestoneAmounts(value: string): number[] {
 }
 
 function ExplicitMilestoneAmountsInput(
-  props: Readonly<{ rule: Extract<MilestoneRule, { at: number[] }>; onChange: (at: number[]) => void }>,
+  props: Readonly<{
+    rule: Extract<MilestoneRule, { at: number[] }>
+    onChange: (at: number[]) => void
+  }>,
 ) {
   const serialized = props.rule.at.join(", ")
   const inputRef = useRef<HTMLInputElement>(null)
@@ -83,12 +101,6 @@ function ExplicitMilestoneAmountsInput(
       }}
     />
   )
-}
-
-function stepLabelClassName(args: { active: boolean; done: boolean }) {
-  if (args.active) return "font-medium text-primary"
-  if (args.done) return "text-muted-foreground"
-  return "text-muted-foreground/50"
 }
 
 export function repeatPreviewLabel(dates: string[], timezone: string) {
@@ -121,7 +133,10 @@ function MilestoneModeButton(
         <button
           type="button"
           aria-pressed={props.active}
-          className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs ${props.active ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+          className={cn(
+            "flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors duration-press ease-fade",
+            props.active ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+          )}
           onClick={props.onClick}
         >
           {formatMessage(props.labelKey)}
@@ -135,7 +150,7 @@ function MilestoneModeButton(
   )
 }
 
-function TimerMilestonesField(
+export function TimerMilestonesField(
   props: Readonly<{
     control: Control<TimerFormValues>
     preview: string[]
@@ -154,12 +169,12 @@ function TimerMilestonesField(
               <div className="text-sm font-medium">{formatMessage("timer.form.milestones.title")}</div>
               <p className="mt-1 text-xs text-muted-foreground">{formatMessage("timer.form.milestones.description")}</p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {MILESTONE_PRESETS.map((preset) => (
                 <button
                   key={preset.id}
                   type="button"
-                  className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  className={cn(CHIP_CLASS, chipStateClass(false))}
                   onClick={() => field.onChange(preset.rules)}
                 >
                   {formatMessage(preset.labelKey)}
@@ -212,7 +227,10 @@ function TimerMilestonesField(
                       value={rule.every}
                       onChange={(event) => {
                         const next = [...rules]
-                        next[index] = { ...rule, every: Number(event.target.value) }
+                        next[index] = {
+                          ...rule,
+                          every: Number(event.target.value),
+                        }
                         field.onChange(next)
                       }}
                     />
@@ -237,7 +255,7 @@ function TimerMilestonesField(
                     <SelectTrigger aria-label={formatMessage("timer.form.milestones.unit")}>
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className={MENU_MOTION_CLASSNAME}>
                       {MILESTONE_UNITS.map((unit) => (
                         <SelectItem key={unit} value={unit}>
                           {formatMessage(`timer.form.milestones.unit.${unit}` as MessageKey)}
@@ -249,15 +267,20 @@ function TimerMilestonesField(
               </div>
             ))}
             {rules.length < 4 ? (
-              <button
+              <Button
                 type="button"
-                className="justify-self-start text-xs font-medium text-primary"
+                variant="ghost"
+                size="sm"
+                className="-ml-2.5 justify-self-start text-primary"
                 onClick={() => field.onChange([...rules, { unit: "years", every: 1 }])}
               >
-                + {formatMessage("timer.form.milestones.addRule")}
-              </button>
+                <PlusIcon aria-hidden="true" className="size-3.5" />
+                {formatMessage("timer.form.milestones.addRule")}
+              </Button>
             ) : null}
-            {fieldState.error ? <p className="text-xs text-destructive">{fieldState.error.message}</p> : null}
+            {fieldState.error ? (
+              <FadeInText className="text-xs text-destructive">{fieldState.error.message}</FadeInText>
+            ) : null}
             <SchedulePreview dates={props.preview} timezone={props.timezone} />
           </div>
         )
@@ -266,46 +289,49 @@ function TimerMilestonesField(
   )
 }
 
-export function TimerFormStepper(props: Readonly<{ step: number }>) {
+function SpaceChips(props: Readonly<{ control: Control<TimerFormValues>; spaces: Space[] }>) {
   return (
-    <div className="flex items-center justify-center gap-1">
-      {TIMER_FORM_STEPS.map((labelKey, i) => {
-        const stepNumber = i + 1
-        const active = stepNumber === props.step
-        const done = stepNumber < props.step
-        const Icon = TIMER_FORM_STEP_ICONS[i]
-
-        return (
-          <div key={labelKey} className="flex items-center gap-1">
-            {i > 0 && <div className={["h-px w-4 transition-colors", done ? "bg-primary" : "bg-border"].join(" ")} />}
-            <span
-              className={[
-                "inline-flex items-center gap-1 text-xs transition-colors",
-                stepLabelClassName({ active, done }),
-              ].join(" ")}
+    <Controller
+      control={props.control}
+      name="spaceId"
+      render={({ field }) => (
+        <div className="grid gap-2">
+          <Label>{formatMessage("timer.form.space")}</Label>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              aria-pressed={!field.value}
+              className={cn(CHIP_CLASS, chipStateClass(!field.value))}
+              onClick={() => field.onChange("")}
             >
-              {Icon ? <Icon className="size-3.5" /> : null}
-              {formatMessage(labelKey)}
-            </span>
+              {formatMessage("timer.form.noneSpace")}
+            </button>
+            {props.spaces.map((space) => (
+              <button
+                key={space.id}
+                type="button"
+                aria-pressed={field.value === space.id}
+                className={cn(CHIP_CLASS, "max-w-full gap-1.5", chipStateClass(field.value === space.id))}
+                onClick={() => field.onChange(space.id)}
+              >
+                <span
+                  className="size-2 shrink-0 rounded-full bg-muted-foreground"
+                  style={space.color ? { backgroundColor: space.color } : undefined}
+                />
+                <span className="truncate">{space.name}</span>
+              </button>
+            ))}
           </div>
-        )
-      })}
-    </div>
+        </div>
+      )}
+    />
   )
 }
 
-// Compact icon + title used to delimit each section in the all-at-once edit view.
-export function TimerFormSectionHeading(props: Readonly<{ step: number; labelKey: MessageKey }>) {
-  const Icon = TIMER_FORM_STEP_ICONS[props.step - 1]
-  return (
-    <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-      {Icon ? <Icon className="size-3.5" /> : null}
-      {formatMessage(props.labelKey)}
-    </div>
-  )
-}
-
-export function TimerBasicsSection(
+/**
+ * Name, asked once, with description, link and space behind one disclosure.
+ */
+export function TimerNameSection(
   props: Readonly<{
     control: Control<TimerFormValues>
     register: UseFormRegister<TimerFormValues>
@@ -313,119 +339,152 @@ export function TimerBasicsSection(
     labelLength: number
     descriptionLength: number
     labelPlaceholder: string
-    detailsCollapsed?: boolean
+    autoFocus?: boolean
+    detailsInitiallyOpen?: boolean
   }>,
 ) {
-  const { control, register, spaces } = props
-  const [detailsOpen, setDetailsOpen] = useState(!props.detailsCollapsed)
+  const { control, register } = props
+  const detailsId = useId()
+  const [detailsOpen, setDetailsOpen] = useState(props.detailsInitiallyOpen === true)
 
   return (
-    <>
+    <div>
       <div className="grid gap-2">
         <Label htmlFor="label">{formatMessage("timer.form.label")}</Label>
-        <Input id="label" maxLength={60} placeholder={props.labelPlaceholder} autoFocus {...register("label")} />
-        <div className="text-xs text-muted-foreground">{props.labelLength}/60</div>
-      </div>
-
-      {props.detailsCollapsed ? (
-        <button
+        <Input
+          id="label"
+          maxLength={60}
+          placeholder={props.labelPlaceholder}
+          autoFocus={props.autoFocus}
+          {...register("label")}
+        />
+        {props.labelLength >= 50 ? (
+          <FadeInText className="text-xs text-muted-foreground">{props.labelLength}/60</FadeInText>
+        ) : null}
+        <Button
           type="button"
-          className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted/50"
+          variant="ghost"
+          size="xs"
+          className="-ml-1.5 justify-self-start text-muted-foreground"
           aria-expanded={detailsOpen}
+          aria-controls={detailsId}
           onClick={() => setDetailsOpen((open) => !open)}
         >
-          {formatMessage("timer.form.details")}
-          <ChevronDownIcon
-            className={["size-4 text-muted-foreground transition-transform", detailsOpen ? "rotate-180" : ""].join(" ")}
-          />
-        </button>
-      ) : null}
-
-      {detailsOpen ? (
-        <div className="grid gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="description">{formatMessage("timer.form.description")}</Label>
-            <textarea
-              id="description"
-              maxLength={200}
-              placeholder={formatMessage("timer.form.descriptionPlaceholder")}
-              rows={2}
-              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              {...register("description")}
-            />
-            <div className="text-xs text-muted-foreground">{props.descriptionLength}/200</div>
-          </div>
-
-          <Controller
-            control={control}
-            name="url"
-            render={({ field, fieldState }) => (
-              <div className="grid gap-2">
-                <Label htmlFor="url">{formatMessage("timer.form.url")}</Label>
-                <Input
-                  id="url"
-                  type="url"
-                  inputMode="url"
-                  maxLength={2048}
-                  placeholder={formatMessage("timer.form.urlPlaceholder")}
-                  value={field.value ?? ""}
-                  onChange={field.onChange}
-                  onBlur={field.onBlur}
-                  name={field.name}
-                  ref={field.ref}
-                />
-                {fieldState.error ? <div className="text-xs text-destructive">{fieldState.error.message}</div> : null}
-              </div>
+          <PlusIcon
+            aria-hidden="true"
+            className={cn(
+              "transition-transform duration-enter ease-move motion-reduce:transition-none",
+              detailsOpen && "rotate-45",
             )}
           />
-
-          {spaces.length > 0 ? (
-            <Controller
-              control={control}
-              name="spaceId"
-              render={({ field }) => (
-                <div className="grid gap-2">
-                  <Label>{formatMessage("timer.form.space")}</Label>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className={[
-                        "rounded-full border px-3 py-1 text-xs transition-colors",
-                        field.value
-                          ? "border-border text-muted-foreground hover:text-foreground"
-                          : "border-primary bg-primary text-primary-foreground",
-                      ].join(" ")}
-                      onClick={() => field.onChange("")}
-                    >
-                      {formatMessage("timer.form.noneSpace")}
-                    </button>
-                    {spaces.map((space) => (
-                      <button
-                        key={space.id}
-                        type="button"
-                        className={[
-                          "inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
-                          field.value === space.id
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border text-muted-foreground hover:text-foreground",
-                        ].join(" ")}
-                        onClick={() => field.onChange(space.id)}
-                      >
-                        <span
-                          className="size-2 rounded-full bg-muted-foreground"
-                          style={space.color ? { backgroundColor: space.color } : undefined}
-                        />
-                        <span className="truncate">{space.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            />
-          ) : null}
+          {formatMessage("timer.form.moreDetails")}
+        </Button>
+      </div>
+      <Collapsible open={detailsOpen} id={detailsId} className="grid gap-4 pt-3">
+        <div className="grid gap-2">
+          <Label htmlFor="description">{formatMessage("timer.form.description")}</Label>
+          <textarea
+            id="description"
+            maxLength={200}
+            placeholder={formatMessage("timer.form.descriptionPlaceholder")}
+            rows={2}
+            className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            {...register("description")}
+          />
+          <div className="text-xs text-muted-foreground">{props.descriptionLength}/200</div>
         </div>
-      ) : null}
-    </>
+
+        <Controller
+          control={control}
+          name="url"
+          render={({ field, fieldState }) => (
+            <div className="grid gap-2">
+              <Label htmlFor="url">{formatMessage("timer.form.url")}</Label>
+              <Input
+                id="url"
+                type="url"
+                inputMode="url"
+                maxLength={2048}
+                placeholder={formatMessage("timer.form.urlPlaceholder")}
+                aria-invalid={fieldState.error ? true : undefined}
+                value={field.value ?? ""}
+                onChange={field.onChange}
+                onBlur={field.onBlur}
+                name={field.name}
+                ref={field.ref}
+              />
+              {fieldState.error ? (
+                <FadeInText className="text-xs text-destructive">{fieldState.error.message}</FadeInText>
+              ) : null}
+            </div>
+          )}
+        />
+
+        {props.spaces.length > 0 ? <SpaceChips control={control} spaces={props.spaces} /> : null}
+      </Collapsible>
+    </div>
+  )
+}
+
+/**
+ * The direction switch with one plain sentence for the chosen mode. After
+ * creation the direction is shown read-only.
+ */
+export function TimerDirectionSection(
+  props: Readonly<{
+    timerMode: TimerFormValues["timerMode"]
+    onTimerModeChange: (mode: TimerFormValues["timerMode"]) => void
+    locked?: boolean
+    lockedAction?: ReactNode
+    hintAction?: ReactNode
+  }>,
+) {
+  if (props.locked) {
+    return (
+      <div className="grid gap-2 rounded-lg border bg-muted/30 p-3">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <span>
+            {formatMessage(props.timerMode === "since" ? "timer.form.mode.lockedSince" : "timer.form.mode.lockedUntil")}
+          </span>
+          <LockIcon className="size-3.5 text-muted-foreground" aria-hidden />
+        </div>
+        <p className="text-xs text-muted-foreground">{formatMessage("timer.form.mode.lockedDescription")}</p>
+        {props.lockedAction}
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid gap-2">
+      <div
+        role="group"
+        aria-label={formatMessage("timer.form.mode.label")}
+        className="grid grid-cols-2 gap-1 rounded-full border border-border p-1"
+      >
+        {(["until", "since"] as const).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            aria-pressed={props.timerMode === mode}
+            className={cn(
+              "min-h-8 rounded-full px-3 text-xs font-medium outline-none transition-[color,background-color,transform] duration-press ease-fade focus-visible:ring-[3px] focus-visible:ring-ring/50 active:scale-[0.97] motion-reduce:active:scale-100",
+              props.timerMode === mode
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => props.onTimerModeChange(mode)}
+          >
+            {formatMessage(`timer.form.mode.${mode}` as MessageKey)}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <FadeInText key={props.timerMode} className="text-xs text-muted-foreground">
+          {formatMessage(props.timerMode === "since" ? "timer.form.mode.sinceHint" : "timer.form.mode.untilHint")}
+        </FadeInText>
+        {props.hintAction}
+      </div>
+    </div>
   )
 }
 
@@ -463,90 +522,59 @@ function TimerDurationField(props: Readonly<{ control: Control<TimerFormValues> 
   )
 }
 
-export function TimerScheduleSection(
+// A countdown being created can run for a duration instead of to a date. The
+// switch is a quiet text action so it does not compete with the direction.
+export function ScheduleModeSwitch(props: Readonly<{ control: Control<TimerFormValues> }>) {
+  const { field } = useController({
+    control: props.control,
+    name: "scheduleMode",
+  })
+  const target = field.value === "in" ? "at" : "in"
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      className="-my-1 -ml-1.5 text-muted-foreground sm:mr-[-0.375rem] sm:ml-0"
+      onClick={() => field.onChange(target)}
+    >
+      {target === "in" ? <TimerIcon aria-hidden="true" /> : <CalendarIcon aria-hidden="true" />}
+      {formatMessage(target === "in" ? "timer.form.schedule.useDuration" : "timer.form.schedule.useDate")}
+    </Button>
+  )
+}
+
+/**
+ * Date, time and zone in one row with quick picks and the live sentence under
+ * it. Countdowns being created can switch to a duration instead.
+ */
+export function TimerWhenSection(
   props: Readonly<{
     control: Control<TimerFormValues>
     allowScheduleMode?: boolean
     localTz: string
-    timezone: string
     scheduleMode: TimerFormValues["scheduleMode"]
-    repeatEnabled: boolean
-    repeatType: TimerFormRecurrenceType
-    repeatPreview: string[]
     timerMode: TimerFormValues["timerMode"]
-    milestonePreview: string[]
-    isPastDate: boolean
     directionSuggestion?: "since" | "until"
     focusDateOnMount?: boolean
     livePreview?: string
-    onNotifyChange: (checked: boolean) => void
     onTimerModeChange: (mode: TimerFormValues["timerMode"]) => void
-    timerModeLocked?: boolean
-    lockedDirectionAction?: ReactNode
   }>,
 ) {
   const { control } = props
-  const session = authClient.useSession()
-  const signedIn = Boolean(session.data?.user)
-  const durationMode = props.allowScheduleMode === true && props.scheduleMode === "in"
   const sinceMode = props.timerMode === "since"
+  const durationMode = props.allowScheduleMode === true && props.scheduleMode === "in" && !sinceMode
   const directionSuggestion = props.directionSuggestion
 
   return (
-    <>
-      <div className="grid gap-2">
-        <Label>{formatMessage("timer.form.mode.label")}</Label>
-        {props.timerModeLocked ? (
-          <div className="grid gap-2 rounded-lg border bg-muted/30 p-3">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <span>
-                {formatMessage(
-                  props.timerMode === "since" ? "timer.form.mode.lockedSince" : "timer.form.mode.lockedUntil",
-                )}
-              </span>
-              <LockIcon className="size-3.5 text-muted-foreground" aria-hidden />
-            </div>
-            <p className="text-xs text-muted-foreground">{formatMessage("timer.form.mode.lockedDescription")}</p>
-            {props.lockedDirectionAction}
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-2">
-              {(["until", "since"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  aria-pressed={props.timerMode === mode}
-                  className={[
-                    "rounded-lg border px-3 py-2 text-xs transition-colors",
-                    props.timerMode === mode
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border text-muted-foreground hover:text-foreground",
-                  ].join(" ")}
-                  onClick={() => props.onTimerModeChange(mode)}
-                >
-                  {formatMessage(`timer.form.mode.${mode}` as MessageKey)}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">{formatMessage("timer.form.mode.description")}</p>
-          </>
-        )}
-      </div>
-
-      {props.allowScheduleMode && !sinceMode ? (
-        <Controller
-          control={control}
-          name="scheduleMode"
-          render={({ field }) => <ScheduleModeToggle value={field.value ?? "at"} onChange={field.onChange} compact />}
-        />
-      ) : null}
-
+    <div className="grid gap-2">
       {durationMode ? (
-        <TimerDurationField control={control} />
+        <RevealRow>
+          <TimerDurationField control={control} />
+        </RevealRow>
       ) : (
         <>
-          <div className="grid min-w-0 grid-cols-2 gap-3">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,1.3fr)]">
             <Controller
               control={control}
               name="date"
@@ -567,12 +595,41 @@ export function TimerScheduleSection(
                 </div>
               )}
             />
+            <Controller
+              control={control}
+              name="timezone"
+              render={({ field }) => (
+                <div className="col-span-2 grid min-w-0 gap-2 sm:col-span-1">
+                  <Label>{formatMessage("timer.form.timezone")}</Label>
+                  <TimezoneSelect value={field.value} onChange={field.onChange} localTz={props.localTz} />
+                </div>
+              )}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <Controller
+              control={control}
+              name="date"
+              render={({ field }) => (
+                <DatePresetChips
+                  className="gap-1.5"
+                  direction={sinceMode ? "past" : "future"}
+                  onChange={field.onChange}
+                />
+              )}
+            />
+            {props.livePreview ? (
+              <p className="text-xs text-muted-foreground" aria-live="polite">
+                {props.livePreview}
+              </p>
+            ) : null}
           </div>
 
           {directionSuggestion ? (
             <div
               role="status"
-              className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-50 px-3 py-2 text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"
+              className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-50 px-3 py-2 text-amber-950 opacity-100 transition-opacity duration-enter ease-fade starting:opacity-0 dark:bg-amber-950/30 dark:text-amber-100"
             >
               <p className="text-xs">
                 {formatMessage(
@@ -596,179 +653,240 @@ export function TimerScheduleSection(
               </Button>
             </div>
           ) : null}
-
-          <Controller
-            control={control}
-            name="date"
-            render={({ field }) => (
-              <DatePresetChips direction={sinceMode ? "past" : "future"} onChange={field.onChange} />
-            )}
-          />
-
-          <Controller
-            control={control}
-            name="timezone"
-            render={({ field }) => (
-              <div className="grid gap-2">
-                <Label>{formatMessage("timer.form.timezone")}</Label>
-                <TimezoneSelect value={field.value} onChange={field.onChange} localTz={props.localTz} />
-              </div>
-            )}
-          />
         </>
       )}
+    </div>
+  )
+}
 
-      {sinceMode ? (
-        <TimerMilestonesField control={control} preview={props.milestonePreview} timezone={props.timezone} />
-      ) : null}
+/**
+ * Alarm on this device and reminders as two rows of one block. Signed-out
+ * people see the reminders switched off with a sign-in action in the block.
+ */
+export function TimerAlertsSection(
+  props: Readonly<{
+    control: Control<TimerFormValues>
+    timerMode: TimerFormValues["timerMode"]
+    isPastDate: boolean
+    signedIn: boolean
+    signInAction?: ReactNode
+    onNotifyChange: (checked: boolean) => void
+  }>,
+) {
+  const sinceMode = props.timerMode === "since"
+  const reminderTitleId = useId()
 
-      {props.livePreview ? (
-        <p className="rounded-lg bg-primary/[0.035] px-3 py-2 text-sm font-medium text-foreground" aria-live="polite">
-          {props.livePreview}
-        </p>
-      ) : null}
-
-      <div className="grid gap-3 rounded-xl border border-border p-3">
-        <div className="text-sm font-medium">{formatMessage("timer.form.alertsReminders")}</div>
-        {!sinceMode ? (
-          <Controller
-            control={control}
-            name="notify"
-            render={({ field }) => (
-              <div
-                className={["rounded-lg p-3 transition-colors", field.value ? "bg-primary/[0.03]" : "bg-muted/30"].join(
-                  " ",
-                )}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 gap-3">
-                    <div
-                      className={[
-                        "mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border",
-                        field.value ? "border-primary/30 text-primary" : "text-muted-foreground",
-                      ].join(" ")}
-                    >
-                      {field.value ? <BellRingIcon className="size-4" /> : <BellIcon className="size-4" />}
-                    </div>
-                    <div className="min-w-0">
-                      <Label htmlFor="notify" className="text-sm font-medium">
-                        {formatMessage("timer.form.notifyMe")}
-                      </Label>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {formatMessage(
-                          field.value && !props.isPastDate
-                            ? "notifications.timerAlarm.ready"
-                            : "notifications.timerAlarm.description",
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                  <Switch
-                    id="notify"
-                    checked={field.value}
-                    onCheckedChange={(checked) => props.onNotifyChange(checked)}
-                  />
+  return (
+    <div className="grid rounded-xl border">
+      {!sinceMode ? (
+        <Controller
+          control={props.control}
+          name="notify"
+          render={({ field }) => (
+            <div className="grid gap-2 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="grid min-w-0 gap-0.5">
+                  <Label htmlFor="notify">{formatMessage("timer.form.alarm.title")}</Label>
+                  <p className="text-xs text-muted-foreground">{formatMessage("timer.form.alarm.description")}</p>
                 </div>
-                {field.value && props.isPastDate ? (
-                  <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
-                    {formatMessage("notifications.futureOnly.inline")}
-                  </p>
-                ) : null}
+                <Switch
+                  id="notify"
+                  checked={field.value}
+                  onCheckedChange={(checked) => props.onNotifyChange(checked)}
+                />
               </div>
-            )}
-          />
-        ) : null}
-        <div className="border-t pt-3">
-          <TimerRemindersField control={control} />
-          {!signedIn ? (
-            <p className="mt-2 text-xs text-muted-foreground">{formatMessage("timer.form.reminders.signInHint")}</p>
-          ) : null}
+              {field.value && props.isPastDate ? (
+                <FadeInText
+                  role="status"
+                  className="rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100"
+                >
+                  {formatMessage("notifications.futureOnly.inline")}
+                </FadeInText>
+              ) : null}
+            </div>
+          )}
+        />
+      ) : null}
+
+      <div role="group" aria-labelledby={reminderTitleId} className={cn("grid gap-2 p-3", !sinceMode && "border-t")}>
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+          <span id={reminderTitleId} className="text-sm font-medium">
+            {formatMessage("timer.form.reminders.remindMe")}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {formatMessage(sinceMode ? "timer.form.reminders.sinceHint" : "timer.form.reminders.untilHint", {
+              max: MAX_TIMER_REMINDERS,
+            })}
+          </span>
         </div>
+        <TimerReminderChips control={props.control} timerMode={props.timerMode} disabled={!props.signedIn} />
       </div>
 
-      {!durationMode && !sinceMode ? (
-        <div className="grid gap-2">
+      {props.signedIn ? null : (
+        <div
+          data-reminders-signed-out
+          className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-b-xl border-t bg-muted px-3 py-2.5"
+        >
+          <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+            {formatMessage("timer.form.reminders.signedOut")}
+          </p>
+          {props.signInAction}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TimerAfterZeroField(props: Readonly<{ control: Control<TimerFormValues> }>) {
+  const { field } = useController({
+    control: props.control,
+    name: "afterZeroMode",
+  })
+  const mode = field.value
+
+  return (
+    <>
+      <div className="grid min-w-0 gap-2">
+        <Label htmlFor="timer-after-zero">{formatMessage("timer.form.afterZero.label")}</Label>
+        <Select value={mode} onValueChange={(value) => field.onChange(value as AfterZeroMode)}>
+          <SelectTrigger id="timer-after-zero" aria-label={formatMessage("timer.form.afterZero.label")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className={MENU_MOTION_CLASSNAME}>
+            {AFTER_ZERO_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {formatMessage(option.labelKey)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {/* The hint follows the choice; the custom duration opens and closes in place. One
+          box spans the row so a closed field leaves no gap behind. */}
+      <div className="col-span-full grid">
+        <SmoothHeight>
+          <FadeInText key={afterZeroHintKey(mode)} className="text-xs text-muted-foreground">
+            {formatMessage(afterZeroHintKey(mode))}
+          </FadeInText>
+        </SmoothHeight>
+        <PresenceRow open={mode === "keep-visible-custom"} className="grid gap-2 pt-2">
+          <Label htmlFor="timer-after-zero-minutes">{formatMessage("timer.form.afterZero.customMinutes")}</Label>
           <Controller
-            control={control}
-            name="repeatEnabled"
-            render={({ field }) => (
-              <div className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  id="repeat"
-                  checked={field.value}
-                  onChange={(e) => field.onChange(e.target.checked)}
-                  className="size-4 rounded border accent-primary"
+            control={props.control}
+            name="afterZeroMinutes"
+            render={({ field: minutesField, fieldState }) => (
+              <>
+                <Input
+                  id="timer-after-zero-minutes"
+                  type="number"
+                  min={1}
+                  max={525_600}
+                  inputMode="numeric"
+                  aria-invalid={fieldState.error ? true : undefined}
+                  name={minutesField.name}
+                  ref={minutesField.ref}
+                  value={minutesField.value}
+                  onBlur={minutesField.onBlur}
+                  onChange={minutesField.onChange}
                 />
-                <Label htmlFor="repeat" className="text-sm font-normal">
-                  {formatMessage("timer.form.repeat")}
-                </Label>
-              </div>
+                {fieldState.error ? (
+                  <FadeInText className="text-xs text-destructive">{fieldState.error.message}</FadeInText>
+                ) : null}
+              </>
             )}
           />
-          {props.repeatEnabled ? (
-            <>
-              <div className="text-xs text-muted-foreground">{formatMessage("timer.form.repeatDescription")}</div>
-              <Controller
-                control={control}
-                name="repeatType"
-                render={({ field }) => (
-                  <div className="flex flex-wrap gap-2">
-                    {RECURRENCE_TYPES.map((type) => (
-                      <button
-                        key={type}
-                        type="button"
-                        className={[
-                          "rounded-full border px-3 py-1 text-xs transition-colors",
-                          field.value === type
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border text-muted-foreground hover:text-foreground",
-                        ].join(" ")}
-                        onClick={() => field.onChange(type)}
-                      >
-                        {formatMessage(RECURRENCE_TYPE_LABEL_KEYS[type])}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              />
-              {props.repeatType === "monthly" ? (
-                <Controller
-                  control={control}
-                  name="lastDay"
-                  render={({ field }) => (
-                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        checked={field.value}
-                        onChange={(e) => field.onChange(e.target.checked)}
-                        className="size-3.5 rounded border accent-primary"
-                      />
-                      <span>{formatMessage("timer.form.lastDayOfMonth")}</span>
-                    </label>
-                  )}
-                />
-              ) : null}
-              <SchedulePreview dates={props.repeatPreview} timezone={props.timezone} />
-            </>
-          ) : null}
-        </div>
-      ) : null}
+        </PresenceRow>
+      </div>
     </>
   )
 }
 
-export function TimerCustomizeSection(props: Readonly<{ control: Control<TimerFormValues> }>) {
+/**
+ * Repeat as a list, and what happens when a one-off countdown ends.
+ */
+export function TimerRepeatSection(
+  props: Readonly<{
+    control: Control<TimerFormValues>
+    repeatPreview: string[]
+    timezone: string
+    showRepeat: boolean
+  }>,
+) {
+  const repeatEnabled = useController({
+    control: props.control,
+    name: "repeatEnabled",
+  })
+  const repeatType = useController({
+    control: props.control,
+    name: "repeatType",
+  })
+  const enabled = repeatEnabled.field.value
+  const value = enabled ? repeatType.field.value : NO_REPEAT
+
+  return (
+    <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
+      {props.showRepeat ? (
+        <div className="grid min-w-0 gap-2">
+          <Label htmlFor="timer-repeat">{formatMessage("timer.form.repeat")}</Label>
+          <Select
+            value={value}
+            onValueChange={(next) => {
+              if (next === NO_REPEAT) {
+                repeatEnabled.field.onChange(false)
+                return
+              }
+              repeatType.field.onChange(next as TimerFormRecurrenceType)
+              repeatEnabled.field.onChange(true)
+            }}
+          >
+            <SelectTrigger id="timer-repeat" aria-label={formatMessage("timer.form.repeat")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className={MENU_MOTION_CLASSNAME}>
+              <SelectItem value={NO_REPEAT}>{formatMessage("timer.form.repeat.none")}</SelectItem>
+              {RECURRENCE_TYPES.map((type) => (
+                <SelectItem key={type} value={type}>
+                  {formatMessage(RECURRENCE_TYPE_LABEL_KEYS[type])}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+      {enabled && props.showRepeat ? (
+        <RevealRow outerClassName="sm:col-span-2" className="grid gap-2">
+          <p className="text-xs text-muted-foreground">{formatMessage("timer.form.repeat.hint")}</p>
+          {repeatType.field.value === "monthly" ? (
+            <Controller
+              control={props.control}
+              name="lastDay"
+              render={({ field }) => (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={field.value}
+                    onChange={(event) => field.onChange(event.target.checked)}
+                    className="size-3.5 rounded border accent-primary"
+                  />
+                  <span>{formatMessage("timer.form.lastDayOfMonth")}</span>
+                </label>
+              )}
+            />
+          ) : null}
+          <SchedulePreview dates={props.repeatPreview} timezone={props.timezone} />
+        </RevealRow>
+      ) : null}
+      {enabled ? null : <TimerAfterZeroField control={props.control} />}
+    </div>
+  )
+}
+
+export function TimerPhotoSection(props: Readonly<{ control: Control<TimerFormValues> }>) {
   return (
     <Controller
       control={props.control}
       name="image"
-      render={({ field }) => (
-        <div className="grid gap-2">
-          <Label>{formatMessage("timer.form.photo")}</Label>
-          <UnsplashPicker value={field.value} onChange={field.onChange} />
-        </div>
-      )}
+      render={({ field }) => <UnsplashPicker value={field.value} onChange={field.onChange} />}
     />
   )
 }

@@ -4,6 +4,32 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Motion tokens, one set for the whole app (mirrored for scripts in
+   components/dashboard/motion.ts). Moves use the move curve, fades ease out.
+   Four steps: a press answers in 120 ms, exits take 160 ms, entrances 220 ms,
+   and things that travel across the layout 260 ms. Utilities: ease-move,
+   ease-fade, duration-press, duration-exit, duration-enter, duration-move. */
+@theme static {
+  --ease-move: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-fade: cubic-bezier(0, 0, 0.2, 1);
+  --transition-duration-press: 120ms;
+  --transition-duration-exit: 160ms;
+  --transition-duration-enter: 220ms;
+  --transition-duration-move: 260ms;
+}
+
+/* The reduced-motion switch: multiply any travel distance by --motion-travel.
+   With reduced motion it is 0, so a fade stays and the movement goes. */
+:root {
+  --motion-travel: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-travel: 0;
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -123,8 +149,11 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* next/font defines --font-geist-sans on <body>, while Tailwind's preflight
+     resolves the default font on <html>, where the variable does not exist
+     yet. Apply the sans stack on body so text renders in Geist. */
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background font-sans text-foreground;
   }
 }
 

@@ -171,6 +171,63 @@ describe("prisma project repository", () => {
     expectNoRawRestoreKey(prisma, restoreKey)
   })
 
+  it("updates the project when a concurrent first save created the access token first", async () => {
+    const { prismaProjectRepository } = await import("./prisma-project-repository.server")
+    const prisma = prismaMock()
+    const restoreKey = "restoreKey_123"
+    const project = makeProjectSnapshot({ timers: [makeTimer({ id: "timer-a" })] })
+    // Both saves looked up the token before either created it; the other save won the insert.
+    prisma.projectAccessToken.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      projectId: "project_winner",
+      revokedAt: null,
+      expiresAt: null,
+      project: { ownerId: null },
+    })
+    prisma.project.create.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed on the constraint: `project_access_token_tokenHash_key`"), {
+        code: "P2002",
+      }),
+    )
+    prisma.$transaction.mockResolvedValue([])
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+
+    await expect(prismaProjectRepository.saveSnapshot(restoreKey, project)).resolves.toBe(true)
+
+    expect(prisma.project.create).toHaveBeenCalledTimes(1)
+    expect(prisma.projectAccessToken.findUnique).toHaveBeenCalledTimes(2)
+    expect(prisma.project.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "project_winner" }, data: expect.objectContaining({ snapshot: project }) }),
+    )
+    expectNoRawRestoreKey(prisma, restoreKey)
+  })
+
+  it("does not retry a failed first save for errors other than a duplicate token", async () => {
+    const { prismaProjectRepository } = await import("./prisma-project-repository.server")
+    const prisma = prismaMock()
+    prisma.projectAccessToken.findUnique.mockResolvedValue(null)
+    prisma.project.create.mockRejectedValue(Object.assign(new Error("connection lost"), { code: "P1001" }))
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+
+    await expect(prismaProjectRepository.saveSnapshot("restoreKey_123", makeProjectSnapshot())).rejects.toThrow(
+      "connection lost",
+    )
+    expect(prisma.projectAccessToken.findUnique).toHaveBeenCalledTimes(1)
+  })
+
+  it("surfaces a duplicate token error when the winning token cannot be found", async () => {
+    const { prismaProjectRepository } = await import("./prisma-project-repository.server")
+    const prisma = prismaMock()
+    prisma.projectAccessToken.findUnique.mockResolvedValue(null)
+    prisma.project.create.mockRejectedValue(Object.assign(new Error("duplicate token"), { code: "P2002" }))
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+
+    await expect(prismaProjectRepository.saveSnapshot("restoreKey_123", makeProjectSnapshot())).rejects.toThrow(
+      "duplicate token",
+    )
+    expect(prisma.project.create).toHaveBeenCalledTimes(1)
+    expect(prisma.projectAccessToken.findUnique).toHaveBeenCalledTimes(2)
+  })
+
   it("replaces timer and space relation rows when updating existing projects", async () => {
     const { prismaProjectRepository } = await import("./prisma-project-repository.server")
     const prisma = prismaMock()

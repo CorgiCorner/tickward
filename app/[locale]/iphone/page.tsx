@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import Image from "next/image"
 import Link from "next/link"
-import { BellRing, LayoutGrid, Library, Mic, RefreshCw, ShieldCheck } from "lucide-react"
+import { BellRing, Calendar, History, LayoutGrid, Library, Mic, Pin, RefreshCw, ShieldCheck } from "lucide-react"
 
 import type { ScaleStop } from "@/components/iphone/scale-demo"
 import styles from "@/components/iphone/iphone.module.css"
@@ -76,6 +76,24 @@ const FEATURES = [
     key: "privacy",
     title: "iphone.features.privacy.title",
     body: "iphone.features.privacy.body",
+  },
+  {
+    icon: Calendar,
+    key: "countFormat",
+    title: "iphone.features.countFormat.title",
+    body: "iphone.features.countFormat.body",
+  },
+  {
+    icon: History,
+    key: "runs",
+    title: "iphone.features.runs.title",
+    body: "iphone.features.runs.body",
+  },
+  {
+    icon: Pin,
+    key: "organize",
+    title: "iphone.features.organize.title",
+    body: "iphone.features.organize.body",
   },
 ] as const satisfies ReadonlyArray<{
   icon: unknown
@@ -195,6 +213,22 @@ export default async function IphonePage(props: Readonly<{ params: Promise<{ loc
                   {t("iphone.lock.title")}
                 </h2>
                 <p className={styles.sectionBody}>{t("iphone.lock.body")}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.stage} aria-labelledby="iphone-milestone-title">
+          <div className={styles.stageInner}>
+            <div className={styles.split}>
+              <div className={`${styles.splitCopy} ${styles.milestoneCopy}`}>
+                <h2 id="iphone-milestone-title" className={styles.sectionTitle}>
+                  {t("iphone.milestone.title")}
+                </h2>
+                <p className={styles.sectionBody}>{t("iphone.milestone.body")}</p>
+              </div>
+              <div className={`${styles.phone} ${styles.milestonePhone}`}>
+                <Image src="/iphone/05-since.jpg" alt={t("iphone.milestone.alt")} width={660} height={1434} />
               </div>
             </div>
           </div>

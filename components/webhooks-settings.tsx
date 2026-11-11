@@ -4,9 +4,9 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   BookOpenIcon,
   ChevronDownIcon,
-  ChevronUpIcon,
   CirclePlayIcon,
   CircleStopIcon,
+  EllipsisIcon,
   HistoryIcon,
   PencilIcon,
   PlusIcon,
@@ -15,15 +15,24 @@ import {
   Trash2Icon,
 } from "lucide-react"
 import type { ReactNode } from "react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Controller, useForm } from "react-hook-form"
 import { toast } from "sonner"
 import { z } from "zod"
 
-import { ConfirmActionButton } from "@/components/confirm-action-button"
 import { SecretRevealField } from "@/components/secret-reveal-field"
 import { SettingsDateMetadata } from "@/components/settings-metadata"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -34,6 +43,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { runInBackground } from "@/lib/background-task"
@@ -360,6 +370,15 @@ function WebhookEndpointRow(
   const [deliveriesOpen, setDeliveriesOpen] = useState(false)
   const [testMenuOpen, setTestMenuOpen] = useState(false)
   const [eventsOpen, setEventsOpen] = useState(false)
+  const [eventListOpen, setEventListOpen] = useState(false)
+  // The open flag and the kind are kept apart so the dialog keeps its wording while it fades out.
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [confirm, setConfirm] = useState<"disable" | "remove">("remove")
+  const actionsTriggerRef = useRef<HTMLButtonElement>(null)
+  function openConfirm(kind: "disable" | "remove") {
+    setConfirm(kind)
+    setConfirmOpen(true)
+  }
   const [selectedEvents, setSelectedEvents] = useState<WebhookEventType[]>(props.endpoint.event_types)
   const eventEditBusy = props.eventsLoading === props.endpoint.id
   const endpointBusy =
@@ -379,164 +398,229 @@ function WebhookEndpointRow(
     if (ok) setEventsOpen(false)
   }
 
+  const allEvents = props.endpoint.event_types.length === WEBHOOK_EVENT_TYPES.length
+  const eventsSummary = allEvents
+    ? formatMessage("webhooks.eventsSummaryAll", { total: WEBHOOK_EVENT_TYPES.length })
+    : formatMessage("webhooks.eventsSummary", {
+        count: props.endpoint.event_types.length,
+        total: WEBHOOK_EVENT_TYPES.length,
+      })
+  const eventListId = `webhook-events-${props.endpoint.id}`
+  const menuLoading = props.disableLoading === props.endpoint.id || props.removeLoading === props.endpoint.id
+
   return (
-    <div className="grid gap-3 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <div className="truncate text-sm font-medium">{props.endpoint.name}</div>
-            <span
-              className={
-                disabled
-                  ? "rounded-full border border-destructive/30 px-2 py-0.5 text-[11px] text-destructive"
-                  : "rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground"
-              }
-            >
-              {formatMessage(disabled ? "webhooks.status.disabled" : "webhooks.status.active")}
-            </span>
-          </div>
-          <div className="mt-1 truncate font-mono text-xs text-muted-foreground">{props.endpoint.url}</div>
+    <div data-slot="webhook-endpoint" className="grid min-w-0 grid-cols-1 gap-3 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="truncate text-sm font-medium">{props.endpoint.name}</div>
+          <span
+            className={
+              disabled
+                ? "shrink-0 rounded-full border border-destructive/30 px-2 py-0.5 text-[11px] text-destructive"
+                : "shrink-0 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground"
+            }
+          >
+            {formatMessage(disabled ? "webhooks.status.disabled" : "webhooks.status.active")}
+          </span>
         </div>
-        <div className="flex shrink-0 flex-wrap justify-end gap-2">
-          {disabled ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
             <Button
+              ref={actionsTriggerRef}
               type="button"
-              variant="outline"
-              size="sm"
-              loading={props.reenableLoading === props.endpoint.id}
-              disabled={endpointBusy && props.reenableLoading !== props.endpoint.id}
-              onClick={() => props.onReenable(props.endpoint.id)}
+              variant="ghost"
+              size="icon-sm"
+              aria-label={formatMessage("webhooks.actions")}
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              loading={menuLoading}
+              disabled={endpointBusy && !menuLoading}
             >
-              {props.reenableLoading !== props.endpoint.id ? <CirclePlayIcon className="size-4" /> : null}
-              {formatMessage("webhooks.reenable")}
+              <EllipsisIcon className="size-4" />
             </Button>
-          ) : (
-            <Popover open={testMenuOpen} onOpenChange={setTestMenuOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  loading={props.testLoading === props.endpoint.id}
-                  disabled={endpointBusy && props.testLoading !== props.endpoint.id}
-                >
-                  {props.testLoading !== props.endpoint.id ? <SendIcon className="size-4" /> : null}
-                  {formatMessage("webhooks.test")}
-                  <ChevronDownIcon className="size-3.5" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="grid w-56 gap-0.5 p-1">
-                <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
-                  {formatMessage("webhooks.testMenuLabel")}
-                </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => setDeliveriesOpen((open) => !open)}>
+              <HistoryIcon className="mr-2 size-4" />
+              {formatMessage(deliveriesOpen ? "webhooks.hideDeliveries" : "webhooks.deliveries")}
+            </DropdownMenuItem>
+            {!disabled ? (
+              <DropdownMenuItem onSelect={() => openConfirm("disable")}>
+                <CircleStopIcon className="mr-2 size-4" />
+                {formatMessage("webhooks.disable")}
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuItem variant="destructive" onSelect={() => openConfirm("remove")}>
+              <Trash2Icon className="mr-2 size-4" />
+              {formatMessage("webhooks.remove")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <div className="-mt-2 truncate font-mono text-xs text-muted-foreground">{props.endpoint.url}</div>
+      <div data-slot="webhook-endpoint-actions" className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        {disabled ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            loading={props.reenableLoading === props.endpoint.id}
+            disabled={endpointBusy && props.reenableLoading !== props.endpoint.id}
+            onClick={() => props.onReenable(props.endpoint.id)}
+          >
+            {props.reenableLoading !== props.endpoint.id ? <CirclePlayIcon className="size-4" /> : null}
+            {formatMessage("webhooks.reenable")}
+          </Button>
+        ) : (
+          <Popover open={testMenuOpen} onOpenChange={setTestMenuOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                loading={props.testLoading === props.endpoint.id}
+                disabled={endpointBusy && props.testLoading !== props.endpoint.id}
+              >
+                {props.testLoading !== props.endpoint.id ? <SendIcon className="size-4" /> : null}
+                {formatMessage("webhooks.test")}
+                <ChevronDownIcon className="size-3.5" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="grid w-56 gap-0.5 p-1">
+              <div className="px-2 py-1.5 text-[11px] text-muted-foreground">{formatMessage("webhooks.testMenuLabel")}</div>
+              <button
+                type="button"
+                className="rounded-sm px-2 py-1.5 text-left font-mono text-xs hover:bg-muted"
+                onClick={() => {
+                  setTestMenuOpen(false)
+                  props.onSendTest(props.endpoint.id)
+                }}
+              >
+                webhook.test
+              </button>
+              {props.endpoint.event_types.map((type) => (
                 <button
+                  key={type}
                   type="button"
                   className="rounded-sm px-2 py-1.5 text-left font-mono text-xs hover:bg-muted"
                   onClick={() => {
                     setTestMenuOpen(false)
-                    props.onSendTest(props.endpoint.id)
+                    props.onSendTest(props.endpoint.id, type)
                   }}
                 >
-                  webhook.test
+                  {type}
                 </button>
-                {props.endpoint.event_types.map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    className="rounded-sm px-2 py-1.5 text-left font-mono text-xs hover:bg-muted"
-                    onClick={() => {
-                      setTestMenuOpen(false)
-                      props.onSendTest(props.endpoint.id, type)
-                    }}
-                  >
-                    {type}
-                  </button>
-                ))}
-              </PopoverContent>
-            </Popover>
-          )}
-          <Dialog open={eventsOpen} onOpenChange={(open) => (open ? openEventsDialog() : setEventsOpen(false))}>
-            <DialogTrigger asChild>
-              <Button type="button" variant="outline" size="sm" disabled={endpointBusy} onClick={openEventsDialog}>
-                <PencilIcon className="size-4" />
-                {formatMessage("webhooks.editEvents")}
+              ))}
+            </PopoverContent>
+          </Popover>
+        )}
+        <Dialog open={eventsOpen} onOpenChange={(open) => (open ? openEventsDialog() : setEventsOpen(false))}>
+          <DialogTrigger asChild>
+            <Button type="button" variant="outline" size="sm" disabled={endpointBusy} onClick={openEventsDialog}>
+              <PencilIcon className="size-4" />
+              {formatMessage("webhooks.editEvents")}
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-h-[min(680px,90dvh)] sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{formatMessage("webhooks.editEventsTitle")}</DialogTitle>
+              <DialogDescription>{formatMessage("webhooks.editEventsDescription")}</DialogDescription>
+            </DialogHeader>
+            <EventTypeChoice selected={selectedEvents} setSelected={setSelectedEvents} />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEventsOpen(false)}>
+                {formatMessage("common.cancel")}
               </Button>
-            </DialogTrigger>
-            <DialogContent className="max-h-[min(680px,90dvh)] sm:max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>{formatMessage("webhooks.editEventsTitle")}</DialogTitle>
-                <DialogDescription>{formatMessage("webhooks.editEventsDescription")}</DialogDescription>
-              </DialogHeader>
-              <EventTypeChoice selected={selectedEvents} setSelected={setSelectedEvents} />
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setEventsOpen(false)}>
-                  {formatMessage("common.cancel")}
-                </Button>
-                <Button
-                  type="button"
-                  loading={eventEditBusy}
-                  disabled={selectedEvents.length === 0}
-                  onClick={() => runInBackground("webhooks.eventsUpdate", submitEventsUpdate())}
-                >
-                  {formatMessage("common.save")}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-          {!disabled ? (
-            <ConfirmActionButton
-              actionLabel={formatMessage("webhooks.disableAction")}
-              confirmAction={() => props.onDisable(props.endpoint.id)}
-              description={formatMessage("webhooks.disableConfirmDescription")}
-              icon={<CircleStopIcon className="size-4" />}
-              loading={props.disableLoading === props.endpoint.id}
-              disabled={endpointBusy && props.disableLoading !== props.endpoint.id}
-              title={formatMessage("webhooks.disableConfirmTitle")}
-            >
-              {formatMessage("webhooks.disable")}
-            </ConfirmActionButton>
-          ) : null}
-          <ConfirmActionButton
-            actionLabel={formatMessage("webhooks.removeAction")}
-            confirmAction={() => props.onRemove(props.endpoint.id)}
-            description={formatMessage("webhooks.removeConfirmDescription")}
-            icon={<Trash2Icon className="size-4" />}
-            loading={props.removeLoading === props.endpoint.id}
-            disabled={endpointBusy && props.removeLoading !== props.endpoint.id}
-            title={formatMessage("webhooks.removeConfirmTitle")}
+              <Button
+                type="button"
+                loading={eventEditBusy}
+                disabled={selectedEvents.length === 0}
+                onClick={() => runInBackground("webhooks.eventsUpdate", submitEventsUpdate())}
+              >
+                {formatMessage("common.save")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+      <div className="grid">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">{eventsSummary}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-expanded={eventListOpen}
+            aria-controls={eventListId}
+            className="text-xs"
+            onClick={() => setEventListOpen((open) => !open)}
           >
-            {formatMessage("webhooks.remove")}
-          </ConfirmActionButton>
+            {formatMessage(eventListOpen ? "webhooks.hideEvents" : "webhooks.showEvents")}
+            <ChevronDownIcon className={eventListOpen ? "size-3.5 rotate-180" : "size-3.5"} />
+          </Button>
         </div>
-      </div>
-      <div className="flex flex-wrap gap-1">
-        {props.endpoint.event_types.map((type) => (
-          <span key={type} className="rounded-full bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
-            {type}
-          </span>
-        ))}
-      </div>
-      <div className="grid gap-3 border-t pt-3 sm:grid-cols-[1fr_auto] sm:items-start">
-        <div data-slot="webhook-endpoint-metadata" className="grid gap-1 text-xs">
-          <WebhookDateMetadata label={formatMessage("apiKeys.createdLabel")} value={props.endpoint.created_at} />
-          <WebhookDateMetadata
-            label={formatMessage("webhooks.lastDeliveredLabel")}
-            value={props.endpoint.last_delivered_at}
-          />
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          className="justify-self-start sm:justify-self-end"
-          onClick={() => setDeliveriesOpen((open) => !open)}
+        {/* Height and opacity grow together on open; the close is faster. With
+            reduced motion the height snaps and only the fade remains. */}
+        <div
+          id={eventListId}
+          data-slot="webhook-event-list"
+          data-state={eventListOpen ? "open" : "closed"}
+          aria-hidden={!eventListOpen}
+          inert={!eventListOpen}
+          className="grid grid-rows-[0fr] opacity-0 [transition:grid-template-rows_150ms_cubic-bezier(.2,.8,.2,1),opacity_150ms_ease-out] data-[state=open]:grid-rows-[1fr] data-[state=open]:opacity-100 data-[state=open]:[transition:grid-template-rows_200ms_cubic-bezier(.2,.8,.2,1),opacity_200ms_ease-out] motion-reduce:[transition:opacity_150ms_ease-out] motion-reduce:data-[state=open]:[transition:opacity_200ms_ease-out]"
         >
-          <HistoryIcon className="size-3.5" />
-          {formatMessage("webhooks.deliveries")}
-          {deliveriesOpen ? <ChevronUpIcon className="size-3.5" /> : <ChevronDownIcon className="size-3.5" />}
-        </Button>
+          <div className="min-h-0 overflow-hidden">
+            <div className="flex flex-wrap gap-1 pt-2">
+              {props.endpoint.event_types.map((type) => (
+                <span
+                  key={type}
+                  className="rounded-full bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground"
+                >
+                  {type}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div
+        data-slot="webhook-endpoint-metadata"
+        className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"
+      >
+        <WebhookDateMetadata label={formatMessage("apiKeys.createdLabel")} value={props.endpoint.created_at} />
+        <WebhookDateMetadata label={formatMessage("webhooks.lastDeliveredLabel")} value={props.endpoint.last_delivered_at} />
       </div>
       {deliveriesOpen ? <WebhookDeliveriesSection endpointId={props.endpoint.id} /> : null}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            // The menu item that opened the dialog is gone; return focus to the menu's trigger.
+            event.preventDefault()
+            actionsTriggerRef.current?.focus()
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {formatMessage(confirm === "disable" ? "webhooks.disableConfirmTitle" : "webhooks.removeConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {formatMessage(
+                confirm === "disable" ? "webhooks.disableConfirmDescription" : "webhooks.removeConfirmDescription",
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{formatMessage("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() =>
+                confirm === "disable" ? props.onDisable(props.endpoint.id) : props.onRemove(props.endpoint.id)
+              }
+            >
+              {formatMessage(confirm === "disable" ? "webhooks.disableAction" : "webhooks.removeAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
