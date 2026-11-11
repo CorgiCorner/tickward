@@ -1,7 +1,7 @@
 "use client"
 
 import { BellIcon, CheckIcon, ChevronDownIcon, ExternalLinkIcon, FlagIcon } from "lucide-react"
-import { useState, type CSSProperties, type ReactNode } from "react"
+import { useId, useState, type CSSProperties, type ReactNode } from "react"
 
 import {
   capitalizeFirst,
@@ -25,6 +25,8 @@ import {
 import type { MilestoneMomentPhase } from "@/components/dashboard/use-milestone-moment"
 import { Button } from "@/components/ui/button"
 import { DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { formatMessage } from "@/lib/i18n/messages"
 import type { MilestoneOccurrence } from "@/lib/milestones"
 import { timerNotificationsEnabled } from "@/lib/notification-preferences"
@@ -390,9 +392,11 @@ export function TimerDetailFacts(
     space?: Space
     signedIn: boolean
     onCopyShareLink?: () => void
+    shareDescription?: { value: boolean; disabled: boolean; onChange: (value: boolean) => void }
   }>,
 ) {
   const { timer } = props
+  const descriptionId = useId()
   const countsUp = isCountUpTimer(timer)
   const notificationsOn = timerNotificationsEnabled(timer.notification, timer.notify)
   const shared = Boolean(timer.sharedAt)
@@ -425,6 +429,15 @@ export function TimerDetailFacts(
           </Button>
         ) : null}
       </Fact>
+      {timer.description?.trim() && props.shareDescription ? (
+        <div className="col-span-2 flex items-center justify-between gap-3">
+          <div className="grid min-w-0 gap-0.5">
+            <Label htmlFor={descriptionId}>{formatMessage("share.showDescription")}</Label>
+            <p className="text-xs text-muted-foreground">{formatMessage("share.showDescriptionHint")}</p>
+          </div>
+          <Switch id={descriptionId} checked={props.shareDescription.value} disabled={props.shareDescription.disabled} onCheckedChange={props.shareDescription.onChange} />
+        </div>
+      ) : null}
       <Fact label={formatMessage("timerDetail.space.title")}>
         {props.space ? (
           <span className="flex min-w-0 items-center gap-2">

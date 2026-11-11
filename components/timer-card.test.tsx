@@ -1338,4 +1338,160 @@ describe("TimerCard", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/share/create", expect.anything())
     expect(writeText).toHaveBeenCalledWith(shareUrl)
   })
+  it("creates a link with the selected description visibility", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => url === "/api/share/status"
+      ? Response.json({ url: null, showDescription: true })
+      : Response.json({ url: "/share/timer_staticShareId1234567890" }))
+    vi.stubGlobal("fetch", fetchMock)
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } })
+    render(<TimerCard timer={makeTimer({ description: "Private note" })} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+    await clickFirstTimerAction(user, "Share")
+    const toggle = await screen.findByRole("switch", { name: "Show description" })
+    await waitFor(() => expect(toggle).toBeEnabled())
+    await user.click(toggle)
+    await user.click(screen.getByRole("button", { name: "Create link" }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/share/create", expect.anything()))
+    const call = fetchMock.mock.calls.find(([url]) => url === "/api/share/create")
+    expect(JSON.parse(call![1]!.body as string).showDescription).toBe(false)
+  })
+
+  it("saves an existing link setting and rolls back a failed update", async () => {
+    const user = userEvent.setup()
+    let saves = 0
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => url === "/api/share/status"
+      ? Response.json({ url: "/share/timer_existingShareId1234567890", showDescription: false })
+      : ++saves === 1 ? Response.json({ url: "/share/timer_existingShareId1234567890" }) : new Response(null, { status: 500 }))
+    vi.stubGlobal("fetch", fetchMock)
+    render(<TimerCard timer={makeTimer({ description: "Private note", sharedAt: "2026-05-23T00:00:00.000Z" })} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+    await clickFirstTimerAction(user, "Share")
+    const toggle = await screen.findByRole("switch", { name: "Show description" })
+    await waitFor(() => expect(toggle).toBeEnabled())
+    expect(toggle).not.toBeChecked()
+    await user.click(toggle)
+    await waitFor(() => expect(toggle).toBeEnabled())
+    expect(toggle).toBeChecked()
+    const call = fetchMock.mock.calls.find(([url]) => url === "/api/share/create")
+    expect(JSON.parse(call![1]!.body as string).showDescription).toBe(true)
+    await user.click(toggle)
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalled())
+    expect(toggle).toBeChecked()
+  })
+
+  it("persists and rolls back visibility after an inline edit clears the cached URL", async () => {
+    const user = userEvent.setup()
+    let saves = 0
+    const fetchMock = vi.fn(async (...[url]: [string, RequestInit?]) => url === "/api/share/status"
+      ? Response.json({ url: "/share/timer_existingShareId1234567890", showDescription: true })
+      : ++saves === 1 ? new Response(null, { status: 500 }) : Response.json({}))
+    vi.stubGlobal("fetch", fetchMock)
+    render(<TimerCard timer={makeTimer({ description: "Private note", targetDate: "2035-05-25T12:00:00.000Z", sharedAt: "2026-05-23T00:00:00.000Z" })} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+    await user.click(screen.getAllByRole("button", { name: "Open Launch" })[1])
+    await screen.findByRole("dialog", { name: "Launch" }, { timeout: 4000 })
+    await screen.findByRole("switch", { name: "Show description" })
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0])
+    await user.click(await screen.findByRole("button", { name: "Save" }))
+    const returnedToggle = await screen.findByRole("switch", { name: "Show description" })
+    expect(returnedToggle).toBeChecked()
+    await user.click(returnedToggle)
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalled())
+    const call = fetchMock.mock.calls.find(([url]) => url === "/api/share/create")
+    expect(JSON.parse(call![1]!.body as string).showDescription).toBe(false)
+    expect(returnedToggle).toBeChecked()
+    await user.click(returnedToggle)
+    await waitFor(() => expect(returnedToggle).toBeEnabled())
+    expect(returnedToggle).not.toBeChecked()
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/share/create")).toHaveLength(2)
+  })
+
+  it.each(["status-first", "write-first"])("keeps a pending visibility change through reopening: %s", async (order) => {
+    const user = userEvent.setup()
+    let resolveStatus!: (response: Response) => void
+    let resolveWrite!: (response: Response) => void
+    const status = new Promise<Response>((resolve) => { resolveStatus = resolve })
+    const write = new Promise<Response>((resolve) => { resolveWrite = resolve })
+    let statusCalls = 0
+    const fetchMock = vi.fn((url: string) => url === "/api/share/status"
+      ? ++statusCalls === 1 ? Promise.resolve(Response.json({ url: "/share/timer_existingShareId1234567890", showDescription: false })) : status
+      : write)
+    vi.stubGlobal("fetch", fetchMock)
+    render(<TimerCard timer={makeTimer({ description: "Private note", sharedAt: "2026-05-23T00:00:00.000Z" })} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+    await clickFirstTimerAction(user, "Share")
+    const toggle = await screen.findByRole("switch", { name: "Show description" })
+    await waitFor(() => expect(toggle).toBeEnabled())
+    await user.click(toggle)
+    expect(toggle).toBeChecked()
+    await user.keyboard("{Escape}")
+    await user.click(screen.getAllByRole("button", { name: "Open Launch" })[1])
+    await screen.findByRole("dialog", { name: "Launch" })
+    expect(statusCalls).toBe(2)
+    if (order === "status-first") {
+      await act(async () => { resolveStatus(Response.json({ url: "/share/timer_existingShareId1234567890", showDescription: false })); await status })
+      const current = await screen.findByRole("switch", { name: "Show description" })
+      expect(current).toBeChecked()
+      expect(current).toBeDisabled()
+      await act(async () => { resolveWrite(Response.json({})); await write })
+    } else {
+      await act(async () => { resolveWrite(Response.json({})); await write })
+      await act(async () => { resolveStatus(Response.json({ url: "/share/timer_existingShareId1234567890", showDescription: false })); await status })
+    }
+    const current = await screen.findByRole("switch", { name: "Show description" })
+    await waitFor(() => expect(current).toBeEnabled())
+    expect(current).toBeChecked()
+  })
+
+  it.each(["timer", "owner"])("ignores a status response from a previous %s identity", async (identity) => {
+    const user = userEvent.setup()
+    let finishStatus!: (response: Response) => void
+    const oldStatus = new Promise<Response>((resolve) => { finishStatus = resolve })
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => {
+      const owner = JSON.parse(init!.body as string).owner
+      return owner.timerId === "timer-a" && owner.restoreKey === "restoreKey_123" ? oldStatus : Promise.resolve(Response.json({ url: "/share/timer_existingShareId1234567890", showDescription: true }))
+    }))
+    const { rerender } = render(<TimerCard timer={makeTimer({ description: "Private note", sharedAt: "2026-05-23T00:00:00.000Z" })} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+    await user.click(screen.getAllByRole("button", { name: "Open Launch" })[1])
+    await screen.findByRole("dialog", { name: "Launch" })
+    if (identity === "owner") storeState.restoreKey = "restoreKey_456"
+    rerender(<TimerCard timer={makeTimer({ id: identity === "timer" ? "timer-b" : "timer-a", label: "Other", description: "Another note", sharedAt: "2026-05-23T00:00:00.000Z" })} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+    await user.keyboard("{Escape}")
+    await user.click(screen.getAllByRole("button", { name: "Open Other" })[1])
+    const current = await screen.findByRole("switch", { name: "Show description" })
+    await waitFor(() => expect(current).toBeChecked())
+    await act(async () => { finishStatus(Response.json({ url: "/share/timer_existingShareId1234567890", showDescription: false })); await oldStatus })
+    expect(current).toBeChecked()
+  })
+
+  it("ignores a visibility write completed after the timer identity changes", async () => {
+    const user = userEvent.setup()
+    let finishWrite!: (response: Response) => void
+    const write = new Promise<Response>((resolve) => { finishWrite = resolve })
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/share/create") return write
+      const owner = JSON.parse(init!.body as string).owner
+      return Promise.resolve(Response.json({ url: "/share/timer_existingShareId1234567890", showDescription: owner.timerId !== "timer-a" }))
+    }))
+    const { rerender } = render(<TimerCard timer={makeTimer({ description: "Private note", sharedAt: "2026-05-23T00:00:00.000Z" })} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+    await clickFirstTimerAction(user, "Share")
+    const first = await screen.findByRole("switch", { name: "Show description" })
+    await waitFor(() => expect(first).toBeEnabled())
+    await user.click(first)
+    rerender(<TimerCard timer={makeTimer({ id: "timer-b", label: "Other", description: "Another note", sharedAt: "2026-05-23T00:00:00.000Z" })} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+    await user.keyboard("{Escape}")
+    await user.click(screen.getAllByRole("button", { name: "Open Other" })[1])
+    const current = await screen.findByRole("switch", { name: "Show description" })
+    await waitFor(() => expect(current).toBeChecked())
+    await act(async () => { finishWrite(new Response(null, { status: 500 })); await write })
+    expect(current).toBeChecked()
+    expect(toastMock.error).not.toHaveBeenCalled()
+  })
+
+  it("does not offer description visibility without a description", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ url: null })))
+    render(<TimerCard timer={makeTimer()} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+    await clickFirstTimerAction(user, "Share")
+    await screen.findByRole("button", { name: "Create link" })
+    expect(screen.queryByRole("switch", { name: "Show description" })).not.toBeInTheDocument()
+  })
+
 })

@@ -5,8 +5,7 @@ description: "What a share link is, how share ids are derived, which timer field
 
 A share is a routable pointer to one timer, served at `/share/<shareId>`. It is
 not a copy of the timer: the server stores a small share record and rebuilds a
-public projection from the timer's current data every time the link is
-resolved.
+public projection from the timer's current data when the cache is refreshed.
 
 ## Static share IDs
 
@@ -54,7 +53,7 @@ The public projection is built by `sharedTimerFromTimer` in
 | `targetDate` | the effective target as a UTC timestamp; for recurring timers, the next occurrence computed at resolve time |
 | `timezone` | the time zone used to format the target for display |
 | `color` | the timer color |
-| `description` | the timer description, if set |
+| `description` | the timer description, if set and enabled for the link |
 | `refreshOnFinish` | present only when recurrence is enabled; tells viewers to refetch when the countdown finishes |
 | `sharedAt` | when the share was created |
 
@@ -66,16 +65,20 @@ image, created/updated timestamps, and every other timer in the project.
 
 ## Live, not a snapshot
 
-The stored share record is only `{ timerId, sharedAt }`. Resolution reads the
-timer's current row on every request and rebuilds the projection, which is why
+The stored share record contains `{ timerId, sharedAt, showDescription? }`. The
+optional boolean `showDescription` defaults to `true` for existing links.
+Resolution rebuilds the projection from the timer's current row, subject to
+caching, which is why
 the resolved type in `lib/share-model.ts` is marked `resolvedFrom: "live"`.
-Edits to the label, target date, color, or description show up on the share
-page; `sharedAt` is the only value frozen at share time.
+Edits to the label, target date, color, or public description show up on the share
+page. The owner controls description visibility per link.
 
-The resolve API (`GET /api/share/resolve`) is served with
-`Cache-Control: public, s-maxage=30, stale-while-revalidate=60`, so followers
-and embeds can lag up to about a minute behind an edit. The share page itself
-resolves server-side on each request.
+`POST /api/share/create` accepts an optional boolean `showDescription`. Omit it
+to preserve an existing link setting or use the default for a new link.
+`POST /api/share/status` returns the effective value. Hiding the description
+can take a few minutes to reach every viewer because HTTP responses may be cached.
+The resolve endpoint sends `Cache-Control: public, s-maxage=30, stale-while-revalidate=60`.
+The share page resolves on the server for each page request; resolution can use Redis.
 
 Viewers can also save a shared timer into their own list. The saved copy stores
 the share id as its source and refreshes from the share, so it tracks later

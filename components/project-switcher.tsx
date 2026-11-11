@@ -4,30 +4,30 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type D
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import {
-  ArrowRightIcon,
+  ArrowLeftIcon,
   CheckIcon,
   ChevronDownIcon,
   CopyIcon,
   FolderIcon,
   GripVerticalIcon,
-  LayersIcon,
   PlusIcon,
-  TimerIcon,
 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { SettingsSheet } from "@/components/settings-sheet"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
 import { getEntitlements, projectLimitMessage } from "@/lib/entitlements"
-import { formatMessage } from "@/lib/i18n/messages"
+import { formatMessage, formatPluralMessage } from "@/lib/i18n/messages"
 import type { ProjectMeta } from "@/lib/project-model"
 import { accountProjectMemberships, readOnlyProjectIds } from "@/lib/project-lock"
+import { authClient } from "@/lib/auth/auth-client"
 import { useTimerStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
@@ -40,15 +40,6 @@ function projectTimerCount(args: {
   return args.projectTimerCount ?? (args.projectId === args.activeProjectId ? args.activeTimerCount : 0)
 }
 
-function projectSpaceCount(args: {
-  projectId: string
-  activeProjectId: string | null
-  projectSpaceCount?: number
-  activeSpaceCount: number
-}) {
-  return args.projectSpaceCount ?? (args.projectId === args.activeProjectId ? args.activeSpaceCount : 0)
-}
-
 function SortableProjectRow(
   props: Readonly<{
     project: ProjectMeta
@@ -58,9 +49,6 @@ function SortableProjectRow(
     newCountUpCount: number
     waitingCountUpCount: number
     timerCount: number
-    maxTimers: number
-    spaceCount: number
-    maxSpaces: number
     readOnly: boolean
     onSwitch: (projectId: string) => void
   }>,
@@ -132,11 +120,6 @@ function SortableProjectRow(
                 title={formatMessage("countUp.project.waiting", { project: project.name })}
               />
             ) : null}
-            {!project.cloudProjectId ? (
-              <span className="shrink-0 rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase leading-none text-muted-foreground">
-                {formatMessage("project.local")}
-              </span>
-            ) : null}
             {project.cloudProjectId && props.readOnly ? (
               <span
                 className="min-w-0 max-w-24 truncate rounded border border-border px-1 py-0.5 text-[9px] font-medium uppercase leading-none text-muted-foreground"
@@ -146,31 +129,10 @@ function SortableProjectRow(
               </span>
             ) : null}
           </span>
-          <span className="mt-0.5 flex items-center gap-2.5 text-[11px] text-muted-foreground">
-            <span
-              className="inline-flex items-center gap-1"
-              aria-label={formatMessage("project.timerUsage", {
-                count: props.timerCount,
-                max: props.maxTimers,
-              })}
-            >
-              <TimerIcon className="size-3" />
-              <span className="tabular-nums">
-                {formatMessage("project.usageFraction", { count: props.timerCount, max: props.maxTimers })}
-              </span>
-            </span>
-            <span
-              className="inline-flex items-center gap-1"
-              aria-label={formatMessage("project.spaceUsage", {
-                count: props.spaceCount,
-                max: props.maxSpaces,
-              })}
-            >
-              <LayersIcon className="size-3" />
-              <span className="tabular-nums">
-                {formatMessage("project.usageFraction", { count: props.spaceCount, max: props.maxSpaces })}
-              </span>
-            </span>
+          <span className="mt-0.5 block text-[11px] text-muted-foreground">
+            {formatMessage(project.cloudProjectId ? "project.timerLocationSynced" : "project.timerLocationLocal", {
+              timers: formatPluralMessage("timer.count", props.timerCount),
+            })}
           </span>
         </span>
       </button>
@@ -203,7 +165,6 @@ export function ProjectSwitcher() {
   const projects = useTimerStore((s) => s.projects)
   const activeProjectId = useTimerStore((s) => s.activeProjectId)
   const timers = useTimerStore((s) => s.timers)
-  const spaces = useTimerStore((s) => s.spaces)
   const countUpOccurrences = useTimerStore((s) => s.countUpOccurrences)
   const hasHydrated = useTimerStore((s) => s.hasHydrated)
   const switchProject = useTimerStore((s) => s.switchProject)
@@ -214,6 +175,13 @@ export function ProjectSwitcher() {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
   const [open, setOpen] = useState(false)
+  const session = authClient.useSession()
+  const [view, setView] = useState<"list" | "new">("list")
+  const [mode, setMode] = useState<"empty" | "restore">("empty")
+  const [name, setName] = useState("")
+  const fieldRef = useRef<HTMLInputElement>(null)
+  const newButtonRef = useRef<HTMLButtonElement>(null)
+  const returningRef = useRef(false)
   const [restoreInput, setRestoreInput] = useState("")
   const [restoreLoading, setRestoreLoading] = useState(false)
 
@@ -224,17 +192,48 @@ export function ProjectSwitcher() {
 
   const readOnlyIds = readOnlyProjectIds(accountProjectMemberships(projects), entitlements.maxProjects)
 
+  useEffect(() => {
+    if (open && view === "new") fieldRef.current?.focus()
+    if (open && view === "list" && returningRef.current) {
+      newButtonRef.current?.focus()
+      returningRef.current = false
+    }
+  }, [open, view, mode])
+
   if (hasHydrated && projects.length === 0) return null
+
+  function changeOpen(next: boolean) {
+    setOpen(next)
+    if (!next) {
+      setView("list")
+      setMode("empty")
+      setName("")
+      setRestoreInput("")
+      returningRef.current = false
+    }
+  }
+
+  function backToList() {
+    returningRef.current = true
+    setView("list")
+  }
+
+  function handleCreate() {
+    const trimmed = name.trim()
+    if (!trimmed || restoreLoading) return
+    createProject(trimmed)
+    toast.success(formatMessage("project.created"))
+    changeOpen(false)
+  }
 
   async function handleRestore() {
     const key = restoreInput.trim()
-    if (!key) return
+    if (!key || restoreLoading) return
     setRestoreLoading(true)
     try {
       await restoreProjectFromCloud(key)
       toast.success(formatMessage("project.restored"))
-      setRestoreInput("")
-      setOpen(false)
+      changeOpen(false)
     } catch (err) {
       logClientError("projectSwitcher.restoreProject", err)
       toast.error(safeClientErrorMessage(err, "errors.restoreFailed"))
@@ -253,7 +252,7 @@ export function ProjectSwitcher() {
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={changeOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
@@ -269,118 +268,163 @@ export function ProjectSwitcher() {
         </Button>
       </PopoverTrigger>
       <PopoverContent forceMount hidden={!open} align="start" className="w-[296px] p-1.5">
-        <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5 pt-1">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            {formatMessage("project.listHeading", { count: projects.length, max: entitlements.maxProjects })}
-          </span>
-          <SettingsSheet
-            className="size-6 rounded text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5"
-            showTriggerTooltip={false}
-            onTriggerClick={() => setOpen(false)}
-          />
-        </div>
-
-        {/* Negative margin + matching padding keep the focus-visible ring of
-            the row buttons inside the horizontally clipped scrollport. */}
-        <div className="-mx-1.5 grid max-h-56 gap-0.5 overflow-y-auto overflow-x-hidden px-1.5">
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={projects.map((project) => project.id)} strategy={verticalListSortingStrategy}>
-              {projects.map((project) => {
-                const countUpProjectId = project.cloudProjectId ?? project.id
-                const activeCountUpOccurrences = countUpOccurrences.filter(
-                  (occurrence) => occurrence.projectId === countUpProjectId && occurrence.acknowledgedAt === null,
-                )
-                const newCountUpCount = activeCountUpOccurrences.filter(
-                  (occurrence) => occurrence.firstSeenAt === null,
-                ).length
-
-                return (
-                  <SortableProjectRow
-                    key={project.id}
-                    project={project}
-                    selected={project.id === activeProjectId}
-                    hasHydrated={hasHydrated}
-                    countUpProjectId={countUpProjectId}
-                    newCountUpCount={newCountUpCount}
-                    waitingCountUpCount={activeCountUpOccurrences.length - newCountUpCount}
-                    timerCount={projectTimerCount({
-                      projectId: project.id,
-                      activeProjectId,
-                      projectTimerCount: project.timerCount,
-                      activeTimerCount: timers.length,
-                    })}
-                    maxTimers={entitlements.maxTimers}
-                    spaceCount={projectSpaceCount({
-                      projectId: project.id,
-                      activeProjectId,
-                      projectSpaceCount: project.spaceCount,
-                      activeSpaceCount: spaces.length,
-                    })}
-                    maxSpaces={entitlements.maxSpaces}
-                    readOnly={Boolean(project.cloudProjectId && readOnlyIds.has(project.cloudProjectId))}
-                    onSwitch={(projectId) => {
-                      switchProject(projectId)
-                      setOpen(false)
-                    }}
-                  />
-                )
-              })}
-            </SortableContext>
-          </DndContext>
-        </div>
-
-        <Separator className="my-1.5" />
-
-        <div className="grid gap-1">
-          <Button
-            variant="ghost"
-            className="h-auto w-full justify-start px-2 py-2 text-sm font-normal"
-            disabled={atProjectLimit}
-            title={atProjectLimit ? projectLimitMessage(entitlements) : undefined}
-            onClick={() => {
-              createProject(formatMessage("project.new"))
-              toast.success(formatMessage("project.created"))
-              setOpen(false)
-            }}
+        {view === "list" ? (
+          <div
+            key="list"
+            className="animate-in fade-in slide-in-from-left-2 duration-enter ease-move motion-reduce:slide-in-from-left-0"
           >
-            <PlusIcon className="size-4" />
-            {formatMessage("project.new")}
-          </Button>
-          <div className="px-2 pb-1 pt-1.5">
-            <label
-              htmlFor="project-restore-key"
-              className="mb-1.5 block text-[10px] font-medium uppercase tracking-[0.1em] text-muted-foreground/70"
-            >
-              {formatMessage("project.restoreFromKey")}
-            </label>
-            <div className="flex gap-1.5">
-              <Input
-                id="project-restore-key"
-                value={restoreInput}
-                onChange={(event) => setRestoreInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void handleRestore()
-                }}
-                placeholder={formatMessage("project.restoreKeyPlaceholder")}
-                className="h-8 min-w-0 flex-1 px-2 font-mono text-xs placeholder:font-sans"
+            <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5 pt-1">
+              <span className="text-xs font-medium text-muted-foreground">
+                {formatMessage("project.listHeading", { count: projects.length, max: entitlements.maxProjects })}
+              </span>
+              <SettingsSheet
+                className="size-6 rounded text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-3.5"
+                showTriggerTooltip={false}
+                onTriggerClick={() => changeOpen(false)}
               />
+            </div>
+
+            {/* Negative margin + matching padding keep the focus-visible ring of
+            the row buttons inside the horizontally clipped scrollport. */}
+            <div className="-mx-1.5 grid max-h-56 gap-0.5 overflow-y-auto overflow-x-hidden px-1.5">
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={projects.map((project) => project.id)} strategy={verticalListSortingStrategy}>
+                  {projects.map((project) => {
+                    const countUpProjectId = project.cloudProjectId ?? project.id
+                    const activeCountUpOccurrences = countUpOccurrences.filter(
+                      (occurrence) => occurrence.projectId === countUpProjectId && occurrence.acknowledgedAt === null,
+                    )
+                    const newCountUpCount = activeCountUpOccurrences.filter(
+                      (occurrence) => occurrence.firstSeenAt === null,
+                    ).length
+
+                    return (
+                      <SortableProjectRow
+                        key={project.id}
+                        project={project}
+                        selected={project.id === activeProjectId}
+                        hasHydrated={hasHydrated}
+                        countUpProjectId={countUpProjectId}
+                        newCountUpCount={newCountUpCount}
+                        waitingCountUpCount={activeCountUpOccurrences.length - newCountUpCount}
+                        timerCount={projectTimerCount({
+                          projectId: project.id,
+                          activeProjectId,
+                          projectTimerCount: project.timerCount,
+                          activeTimerCount: timers.length,
+                        })}
+                        readOnly={Boolean(project.cloudProjectId && readOnlyIds.has(project.cloudProjectId))}
+                        onSwitch={(projectId) => {
+                          switchProject(projectId)
+                          changeOpen(false)
+                        }}
+                      />
+                    )
+                  })}
+                </SortableContext>
+              </DndContext>
+            </div>
+
+            <Separator className="my-1.5" />
+
+            <Button
+              ref={newButtonRef}
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start font-normal"
+              disabled={atProjectLimit}
+              title={atProjectLimit ? projectLimitMessage(entitlements) : undefined}
+              onClick={() => setView("new")}
+            >
+              <PlusIcon className="size-4" />
+              {formatMessage("project.new")}
+            </Button>
+          </div>
+        ) : (
+          <div
+            key="new"
+            className="animate-in fade-in slide-in-from-right-2 duration-enter ease-move motion-reduce:slide-in-from-right-0 p-1.5"
+          >
+            <div className="mb-3 flex items-center gap-2">
               <Button
                 type="button"
+                variant="ghost"
                 size="icon-sm"
-                variant="outline"
-                loading={restoreLoading}
-                disabled={!restoreInput.trim()}
-                onClick={() => void handleRestore()}
-                aria-label={formatMessage("project.restore")}
+                aria-label={formatMessage("project.backToProjects")}
+                onClick={backToList}
               >
-                {!restoreLoading && <ArrowRightIcon className="size-4" />}
+                <ArrowLeftIcon />
               </Button>
+              <span className="text-sm font-semibold">{formatMessage("project.new")}</span>
             </div>
-            <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground/80">
-              {formatMessage("project.restoreKeySwitchDescription")}
-            </p>
+            <div
+              role="group"
+              aria-label={formatMessage("project.creationMode")}
+              className="mb-4 flex h-8 rounded-full ring-1 ring-inset ring-border"
+            >
+              {(["empty", "restore"] as const).map((option) => (
+                <Button
+                  key={option}
+                  type="button"
+                  size="sm"
+                  variant={mode === option ? "default" : "ghost"}
+                  aria-pressed={mode === option}
+                  onClick={() => setMode(option)}
+                  className="min-w-0 flex-1 rounded-full px-1 text-xs"
+                >
+                  {formatMessage(option === "empty" ? "project.startEmpty" : "project.restoreFromKey")}
+                </Button>
+              ))}
+            </div>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (mode === "empty") handleCreate()
+                else void handleRestore()
+              }}
+            >
+              <div className="grid gap-2">
+                <Label htmlFor="project-create-field">
+                  {formatMessage(mode === "empty" ? "project.name" : "project.restoreKey")}
+                </Label>
+                <Input
+                  ref={fieldRef}
+                  id="project-create-field"
+                  inputSize="sm"
+                  className={cn(mode === "restore" && "font-mono placeholder:font-sans")}
+                  value={mode === "empty" ? name : restoreInput}
+                  maxLength={mode === "empty" ? 40 : undefined}
+                  onChange={(event) =>
+                    mode === "empty" ? setName(event.target.value) : setRestoreInput(event.target.value)
+                  }
+                  placeholder={formatMessage(
+                    mode === "empty" ? "project.namePlaceholder" : "project.restoreKeyPlaceholder",
+                  )}
+                />
+                <p className="min-h-8 text-xs text-muted-foreground">
+                  {mode === "restore"
+                    ? formatMessage("project.restoreStepHint")
+                    : !session.data?.user && !session.isPending
+                      ? formatMessage("project.localStepHint")
+                      : null}
+                </p>
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={backToList}>
+                  {formatMessage("common.cancel")}
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  loading={restoreLoading}
+                  disabled={restoreLoading || (mode === "empty" ? !name.trim() : !restoreInput.trim())}
+                >
+                  {formatMessage(mode === "empty" ? "project.create" : "project.restore")}
+                </Button>
+              </div>
+            </form>
           </div>
-        </div>
+        )}
       </PopoverContent>
     </Popover>
   )

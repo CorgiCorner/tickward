@@ -4,7 +4,7 @@ import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { ArchiveIcon, ArchiveRestoreIcon, GripVerticalIcon, TrashIcon } from "lucide-react"
 import type { CSSProperties, FocusEvent, ReactNode } from "react"
-import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import {
   SwipeableList,
   SwipeableListItem,
@@ -250,6 +250,25 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
   const [shareLoaded, setShareLoaded] = useState(false)
   const [shareUrl, setShareUrl] = useState("")
   const [shareLoading, setShareLoading] = useState(false)
+  const [showDescription, setShowDescription] = useState(true)
+  const [descriptionChoiceMade, setDescriptionChoiceMade] = useState(false)
+  const [shareStatusKnown, setShareStatusKnown] = useState(false)
+  const [sharePublished, setSharePublished] = useState(false)
+  const shareIdentity = JSON.stringify([session.data?.user?.id, activeProject?.cloudProjectId, restoreKey, timer.id])
+  const shareRequests = useRef({ identity: shareIdentity, generation: 0, mutating: false })
+  useLayoutEffect(() => {
+    if (shareRequests.current.identity !== shareIdentity) {
+      shareRequests.current = { identity: shareIdentity, generation: 0, mutating: false }
+      setShareUrl("")
+      setShareLoading(false)
+      setShareStatusKnown(false)
+      setSharePublished(false)
+      setShowDescription(true)
+      setDescriptionChoiceMade(false)
+    }
+    const scope = shareRequests.current
+    return () => { scope.generation += 1 }
+  }, [shareIdentity])
   const [editOpen, setEditOpen] = useState(false)
   const [editLoaded, setEditLoaded] = useState(false)
   const [focusOpen, setFocusOpen] = useState(false)
@@ -427,27 +446,41 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
   }
 
   async function loadExistingShareLink() {
-    setShareLoading(true)
+    const scope = shareRequests.current
+    const duringMutation = scope.mutating
+    const generation = duringMutation ? scope.generation : ++scope.generation
+    const current = () => !duringMutation && shareRequests.current === scope && scope.generation === generation
+    if (!duringMutation) {
+      setShareStatusKnown(false)
+      setShareLoading(true)
+    }
     try {
       const res = await fetch("/api/share/status", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ owner: shareOwnerPayload() }),
       })
-      if (!res.ok) return
+      if (!res.ok || !current()) return
 
-      const data = (await res.json()) as { url?: string | null }
+      const data = (await res.json()) as { url?: string | null; showDescription?: boolean }
+      if (!current()) return
+      setShareStatusKnown(true)
+      setSharePublished(Boolean(data?.url))
       if (data?.url) {
+        setShowDescription(data.showDescription ?? true)
+        setDescriptionChoiceMade(false)
         setShareUrl(absoluteShareUrl(data.url))
         if (!timer.sharedAt) {
           updateTimer(timer.id, { sharedAt: new Date().toISOString() })
           await syncToCloud({ force: true })
         }
+      } else {
+        setShareUrl("")
       }
     } catch (err) {
-      logClientError("timerCard.shareStatus", err)
+      if (current()) logClientError("timerCard.shareStatus", err)
     } finally {
-      setShareLoading(false)
+      if (current()) setShareLoading(false)
     }
   }
 
@@ -457,13 +490,21 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
       return
     }
 
+    const scope = shareRequests.current
+    if (scope.mutating) return
+    const generation = ++scope.generation
+    scope.mutating = true
+    const current = () => shareRequests.current === scope && scope.generation === generation
+    let refreshStatus = false
     setShareLoading(true)
     try {
       const synced = await syncToCloud({ force: true })
+      if (!current()) return
       if (!synced) throw new PublicClientError("errors.shareLinkFailed")
 
       const body: Record<string, unknown> = {
         owner: shareOwnerPayload(),
+        ...(shareStatusKnown || descriptionChoiceMade ? { showDescription } : {}),
       }
 
       const res = await fetch("/api/share/create", {
@@ -471,20 +512,62 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       })
+      if (!current()) return
       if (!res.ok) throw await publicClientErrorFromResponse(res, "errors.shareLinkFailed")
 
       const data = (await res.json()) as { url?: string }
+      if (!current()) return
       if (!data?.url) throw new PublicClientError("errors.shareLinkFailed")
       const url = absoluteShareUrl(data.url)
       setShareUrl(url)
+      setSharePublished(true)
+      refreshStatus = !shareStatusKnown
       updateTimer(timer.id, { sharedAt: new Date().toISOString() })
       await syncToCloud({ force: true })
-      await copyShareLink(url)
+      if (current()) await copyShareLink(url)
     } catch (err) {
-      logClientError("timerCard.shareTimer", err)
-      toast.error(safeClientErrorMessage(err, "errors.shareLinkFailed"))
+      if (current()) {
+        logClientError("timerCard.shareTimer", err)
+        toast.error(safeClientErrorMessage(err, "errors.shareLinkFailed"))
+      }
     } finally {
-      setShareLoading(false)
+      if (current()) {
+        scope.mutating = false
+        setShareLoading(false)
+        if (refreshStatus) void loadExistingShareLink()
+      }
+    }
+  }
+
+  async function changeShowDescription(value: boolean) {
+    const scope = shareRequests.current
+    if (scope.mutating) return
+    const previous = showDescription
+    setShowDescription(value)
+    setDescriptionChoiceMade(true)
+    if (!sharePublished) return
+    const generation = ++scope.generation
+    scope.mutating = true
+    const current = () => shareRequests.current === scope && scope.generation === generation
+    setShareLoading(true)
+    try {
+      const res = await fetch("/api/share/create", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ owner: shareOwnerPayload(), showDescription: value }),
+      })
+      if (!res.ok) throw await publicClientErrorFromResponse(res, "errors.shareLinkFailed")
+    } catch (err) {
+      if (current()) {
+        setShowDescription(previous)
+        logClientError("timerCard.shareTimer", err)
+        toast.error(safeClientErrorMessage(err, "errors.shareLinkFailed"))
+      }
+    } finally {
+      if (current()) {
+        scope.mutating = false
+        setShareLoading(false)
+      }
     }
   }
 
@@ -532,7 +615,7 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
   function openShareDialog() {
     setShareLoaded(true)
     setShareOpen(true)
-    if (!shareUrl) void loadExistingShareLink()
+    if (!shareLoading) void loadExistingShareLink()
   }
 
   function openEditDialog() {
@@ -642,8 +725,12 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
     onFocus: openFocusMode,
     // Focus mode is mounted (closed) while the detail view is open, so the hand-over
     // from the detail view starts at once.
-    onOpen: () => setFocusLoaded(true),
+    onOpen: () => {
+      setFocusLoaded(true)
+      if (!isFollowed) void loadExistingShareLink()
+    },
     onCopyShareLink: shareUrl ? () => void copyShareLink(shareUrl) : undefined,
+    shareDescription: isFollowed || !shareStatusKnown ? undefined : { value: showDescription, disabled: shareLoading, onChange: (value) => void changeShowDescription(value) },
   })
 
   const cardDiv = (
@@ -754,6 +841,9 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
             shareLoading={shareLoading}
             hasSharedMarker={Boolean(timer.sharedAt)}
             timerLabel={timer.label}
+            hasDescription={Boolean(timer.description?.trim()) && shareStatusKnown}
+            showDescription={showDescription}
+            onShowDescriptionChange={(value) => void changeShowDescription(value)}
             onCreateAndCopy={() => void createAndCopyShareLink()}
           />
         </Suspense>

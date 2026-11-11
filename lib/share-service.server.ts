@@ -1,7 +1,7 @@
 import "server-only"
 
-import type { Actor } from "@/lib/contracts"
 import { getRedis } from "@/lib/redis"
+import type { Actor } from "@/lib/contracts"
 import type { TimerShareAccess } from "@/lib/repositories"
 import type { ResolvedShare } from "@/lib/share-model"
 import { getServerAdapters } from "@/lib/server-adapters.server"
@@ -25,6 +25,7 @@ export type CreateTimerShareInput = {
   actor: Actor
   timerId: string
   projectId?: string
+  showDescription?: boolean
 }
 
 export type CreateTimerShareResult = {
@@ -72,18 +73,34 @@ export async function createTimerShare(input: CreateTimerShareInput): Promise<Cr
     if (timer?.url) throw new TimerShareLinkRequiresAuthError()
   }
 
+  let shareId = location.shareId
+  if (!(await shareRepository.hasPublishedTimer({ access: location.access, shareId, timerId: input.timerId }))) {
+    const existing = await shareRepository.findPublishedTimer({ access: location.access, timerId: input.timerId })
+    if (existing) shareId = existing.shareId
+  }
+
   const published = await shareRepository.publishTimer({
     access: location.access,
-    shareId: location.shareId,
+    shareId,
     timerId: input.timerId,
+    ...(input.showDescription === undefined ? {} : { showDescription: input.showDescription }),
     sharedAt: new Date().toISOString(),
   })
   if (!published) return null
 
-  return { shareId: location.shareId, url: location.url }
+  try {
+    // A republished share may have changed description visibility.
+    await getRedis().del(`${RESOLVE_CACHE_PREFIX}${shareId}`)
+  } catch {
+    // Cache invalidation is best effort and must not fail publishing.
+  }
+
+  return { shareId, url: `/share/${shareId}` }
 }
 
-export async function getExistingTimerShare(input: CreateTimerShareInput): Promise<CreateTimerShareResult | null> {
+export async function getExistingTimerShare(
+  input: CreateTimerShareInput,
+): Promise<(CreateTimerShareResult & { showDescription: boolean }) | null> {
   const location = timerShareLocation(input)
   if (!location) return null
 
@@ -93,13 +110,22 @@ export async function getExistingTimerShare(input: CreateTimerShareInput): Promi
     shareId: location.shareId,
     timerId: input.timerId,
   })
-  if (exists) return { shareId: location.shareId, url: location.url }
+  if (exists) {
+    const record = await shareRepository.load(location.shareId)
+    if (record) return { shareId: location.shareId, url: location.url, showDescription: record.showDescription ?? true }
+  }
 
   const published = await shareRepository.findPublishedTimer({
     access: location.access,
     timerId: input.timerId,
   })
-  return published ? { shareId: published.shareId, url: `/share/${published.shareId}` } : null
+  return published
+    ? {
+        shareId: published.shareId,
+        url: `/share/${published.shareId}`,
+        showDescription: published.showDescription ?? true,
+      }
+    : null
 }
 
 export async function resolveTimerShare(shareId: string): Promise<ResolvedShare | null> {

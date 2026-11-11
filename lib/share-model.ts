@@ -19,6 +19,7 @@ export type SharedTimerSnapshot = {
 export type ShareRecord = {
   timerId: string
   sharedAt: string
+  showDescription?: boolean
 }
 
 export type ResolvedShare = {
@@ -33,6 +34,7 @@ export function sharedTimerFromTimer(
   sharedAt?: string,
   nowMs = Date.now(),
   space?: Pick<Space, "name" | "color"> | null,
+  showDescription = true,
 ): ResolvedShare["timer"] {
   return {
     label: timer.label,
@@ -42,7 +44,7 @@ export function sharedTimerFromTimer(
     color: timer.color,
     ...(space?.name ? { spaceName: space.name } : {}),
     ...(space?.color ? { spaceColor: space.color } : {}),
-    description: timer.description,
+    ...(showDescription ? { description: timer.description } : {}),
     ...(timer.recurrence?.enabled ? { refreshOnFinish: true } : {}),
     ...(timer.mode ? { mode: timer.mode } : {}),
     ...(timer.milestones ? { milestones: timer.milestones } : {}),

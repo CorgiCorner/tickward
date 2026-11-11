@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.18.0 - 2026-11-11
+
+### Added
+
+- Choose whether a shared timer includes its description, from the Share dialog or timer details.
+
+### Changed
+
+- New project now offers Start empty and Restore from key before creating anything.
+- Project settings save names on Enter or blur and group device access, Spaces and cleanup.
+
+### Fixed
+
+- Keep description visibility when republishing a timer or changing settings while requests are pending.
+
 ## 0.17.0 - 2026-11-11
 
 ### Added

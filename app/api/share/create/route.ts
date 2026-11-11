@@ -3,7 +3,12 @@ import { NextResponse } from "next/server"
 import { apiErrorResponse } from "@/lib/api-error-response"
 import { PUBLIC_ERROR_CODES } from "@/lib/public-errors"
 import { enforceRateLimit } from "@/lib/rate-limit.server"
-import { parseTimerShareOwner, resolveTimerShareActor, timerShareRateLimitKey } from "@/lib/share-request.server"
+import {
+  parseShowDescription,
+  parseTimerShareOwner,
+  resolveTimerShareActor,
+  timerShareRateLimitKey,
+} from "@/lib/share-request.server"
 import { createTimerShare, TimerShareLinkRequiresAuthError } from "@/lib/share-service.server"
 
 export const runtime = "nodejs"
@@ -17,7 +22,8 @@ export async function POST(req: Request) {
   }
 
   const owner = parseTimerShareOwner(body)
-  if (!owner) {
+  const showDescription = parseShowDescription(body)
+  if (!owner || showDescription === null) {
     return apiErrorResponse(PUBLIC_ERROR_CODES.invalidShareOwner, "errors.invalidShareOwner", { status: 400 })
   }
 
@@ -42,6 +48,7 @@ export async function POST(req: Request) {
       actor,
       timerId: owner.timerId,
       projectId: owner.projectId ?? undefined,
+      ...(showDescription === undefined ? {} : { showDescription }),
     })
   } catch (error) {
     if (error instanceof TimerShareLinkRequiresAuthError) {

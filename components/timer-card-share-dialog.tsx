@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useId, useState } from "react"
 
 import { EmbedSnippetControls, parseShareUrl } from "@/components/embed-snippet"
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { formatMessage } from "@/lib/i18n/messages"
 import { cn } from "@/lib/utils"
 
@@ -24,9 +26,13 @@ export function TimerShareDialog(
     shareLoading: boolean
     hasSharedMarker: boolean
     timerLabel: string
+    hasDescription: boolean
+    showDescription: boolean
+    onShowDescriptionChange: (value: boolean) => void
     onCreateAndCopy: () => void
   }>,
 ) {
+  const descriptionId = useId()
   const [tab, setTab] = useState<"link" | "embed">("link")
   let actionLabel = formatMessage("share.createLink")
   if (props.shareUrl) actionLabel = formatMessage("share.copyLinkAction")
@@ -79,6 +85,15 @@ export function TimerShareDialog(
                 <Input value={props.shareUrl} readOnly aria-label={formatMessage("share.timerDialog.linkInputLabel")} />
               ) : null}
             </div>
+            {props.hasDescription ? (
+              <div className="flex items-center justify-between gap-3 rounded-xl border p-3">
+                <div className="grid min-w-0 gap-0.5">
+                  <Label htmlFor={descriptionId}>{formatMessage("share.showDescription")}</Label>
+                  <p className="text-xs text-muted-foreground">{formatMessage("share.showDescriptionHint")}</p>
+                </div>
+                <Switch id={descriptionId} checked={props.showDescription} disabled={props.shareLoading} onCheckedChange={props.onShowDescriptionChange} />
+              </div>
+            ) : null}
             <DialogFooter>
               <Button type="button" loading={props.shareLoading} onClick={props.onCreateAndCopy}>
                 {actionLabel}

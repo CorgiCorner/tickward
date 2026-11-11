@@ -137,4 +137,15 @@ describe("POST /api/share/create", () => {
     expect(res.status).toBe(404)
     await expectPublicError(res, PUBLIC_ERROR_CODES.notFound, "errors.notFound")
   })
+  it("accepts a boolean visibility setting and rejects other values", async () => {
+    const { POST } = await import("./route")
+    const owner = { restoreKey: "restoreKey_123", timerId: "timer-a" }
+    const valid = await POST(jsonRequest("https://example.com/api/share/create", { owner, showDescription: false }))
+    expect(valid.status).toBe(200)
+    expect(mocks.createTimerShare).toHaveBeenCalledWith(expect.objectContaining({ showDescription: false }))
+    const invalid = await POST(jsonRequest("https://example.com/api/share/create", { owner, showDescription: "false" }))
+    expect(invalid.status).toBe(400)
+    await expectPublicError(invalid, PUBLIC_ERROR_CODES.invalidShareOwner, "errors.invalidShareOwner")
+    expect(mocks.createTimerShare).toHaveBeenCalledTimes(1)
+  })
 })

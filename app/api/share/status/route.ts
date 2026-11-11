@@ -33,5 +33,5 @@ export async function POST(req: Request) {
     projectId: owner.projectId ?? undefined,
   })
 
-  return NextResponse.json(result ?? { shareId: null, url: null })
+  return NextResponse.json(result ?? { shareId: null, url: null, showDescription: true })
 }

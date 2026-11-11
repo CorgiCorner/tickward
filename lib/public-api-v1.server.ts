@@ -963,6 +963,7 @@ const shareCreateSchema = z.object({
 const shareDataSchema = z.object({
   sharedAt: z.string(),
   timerId: z.string(),
+  showDescription: z.boolean().optional(),
 })
 
 const webhookPublicPatchSchema = z
@@ -2290,7 +2291,7 @@ async function createShare(ctx: PublicApiContext, projectId: string, req: Reques
     const share = await tx.share.upsert({
       where: { id: shareId },
       update: {
-        data: jsonInput({ sharedAt, timerId: timer.id }),
+        // This API has no visibility input; leave the current data intact.
         kind: "timer",
         ownerId: row.ownerId,
         projectId,

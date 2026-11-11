@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { toast } from "sonner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -21,6 +21,8 @@ const settingsSheetMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/store", () => ({
   useTimerStore: <T,>(selector: (store: TimerStore) => T) => selector(storeState as TimerStore),
 }))
+
+vi.mock("@/lib/auth/auth-client", () => ({ authClient: { useSession: () => ({ data: null }) } }))
 
 vi.mock("sonner", () => ({
   toast: {
@@ -102,15 +104,99 @@ describe("ProjectSwitcher", () => {
     await user.click(screen.getByRole("button", { name: "Switch project" }))
 
     expect(screen.getAllByText("Alpha")).toHaveLength(2)
-    expect(screen.getByText("Projects 1/10")).toBeVisible()
-    expect(screen.getByText("Local")).toBeVisible()
-    expect(screen.getByLabelText("Timers 2 of 20")).toBeVisible()
-    expect(screen.getByLabelText("Spaces 1 of 2")).toBeVisible()
-    expect(screen.queryByText("rest..._123")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /new project/i })).toBeInTheDocument()
-    expect(screen.getByText("Restore from key")).toBeVisible()
-    expect(screen.getByPlaceholderText("Paste restore key")).toBeInTheDocument()
-    expect(screen.getByText("No account needed. Keep your key to sync this project on another device.")).toBeVisible()
+    expect(screen.getByText("Projects 1 of 10")).toBeVisible()
+    expect(screen.getByText("2 timers, on this device")).toBeVisible()
+    expect(screen.getByRole("button", { name: "New project" })).toBeVisible()
+    expect(screen.queryByText("Restore from key")).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText("Paste restore key")).not.toBeInTheDocument()
+  })
+
+  it("opens the step without creating, validates and submits a trimmed name on Enter", async () => {
+    const user = userEvent.setup()
+    renderSwitcher()
+    await user.click(screen.getByRole("button", { name: "Switch project" }))
+    await user.click(screen.getByRole("button", { name: "New project" }))
+    expect(storeState.createProject).not.toHaveBeenCalled()
+    const name = screen.getByLabelText("Name")
+    expect(name).toHaveFocus()
+    expect(screen.getByRole("button", { name: "Create project" })).toBeDisabled()
+    await user.type(name, "   ")
+    expect(screen.getByRole("button", { name: "Create project" })).toBeDisabled()
+    await user.type(name, "Trip  {Enter}")
+    expect(storeState.createProject).toHaveBeenCalledOnce()
+    expect(storeState.createProject).toHaveBeenCalledWith("Trip")
+    await waitFor(() => expect(screen.queryByLabelText("Name")).not.toBeInTheDocument())
+  })
+
+  it("returns with back and cancel and resets when closed", async () => {
+    const user = userEvent.setup()
+    renderSwitcher()
+    await user.click(screen.getByRole("button", { name: "Switch project" }))
+    await user.click(screen.getByRole("button", { name: "New project" }))
+    await user.click(screen.getByRole("button", { name: "Restore from key" }))
+    expect(screen.getByLabelText("Restore key")).toHaveFocus()
+    await user.type(screen.getByLabelText("Restore key"), "key")
+    await user.click(screen.getByRole("button", { name: "Back to projects" }))
+    expect(screen.getByRole("button", { name: "New project" })).toHaveFocus()
+    await user.click(screen.getByRole("button", { name: "New project" }))
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    await user.click(screen.getByRole("button", { name: "Switch project" }))
+    await user.click(screen.getByRole("button", { name: "Switch project" }))
+    await user.click(screen.getByRole("button", { name: "New project" }))
+    expect(screen.getByLabelText("Name")).toHaveValue("")
+    expect(screen.getByRole("button", { name: "Start empty" })).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("retains a failed restore key and closes on success", async () => {
+    const user = userEvent.setup()
+    const restore = vi.fn().mockRejectedValueOnce(new Error("failure")).mockResolvedValueOnce(undefined)
+    storeState.restoreProjectFromCloud = restore
+    renderSwitcher()
+    await user.click(screen.getByRole("button", { name: "Switch project" }))
+    await user.click(screen.getByRole("button", { name: "New project" }))
+    await user.click(screen.getByRole("button", { name: "Restore from key" }))
+    await user.type(screen.getByLabelText("Restore key"), "  key  {Enter}")
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+    expect(screen.getByLabelText("Restore key")).toHaveValue("  key  ")
+    await user.click(screen.getByRole("button", { name: "Restore project" }))
+    await waitFor(() => expect(screen.queryByLabelText("Restore key")).not.toBeInTheDocument())
+    expect(restore).toHaveBeenNthCalledWith(1, "key")
+    expect(restore).toHaveBeenNthCalledWith(2, "key")
+  })
+
+  it("prevents another operation while a restore is pending across mode switches", async () => {
+    const user = userEvent.setup()
+    let finishRestore!: () => void
+    storeState.restoreProjectFromCloud = vi.fn(() => new Promise<void>((resolve) => { finishRestore = resolve }))
+    renderSwitcher()
+    await user.click(screen.getByRole("button", { name: "Switch project" }))
+    await user.click(screen.getByRole("button", { name: "New project" }))
+    await user.click(screen.getByRole("button", { name: "Restore from key" }))
+    await user.type(screen.getByLabelText("Restore key"), "key{Enter}")
+    expect(storeState.restoreProjectFromCloud).toHaveBeenCalledTimes(1)
+    await user.click(screen.getByRole("button", { name: "Start empty" }))
+    const name = screen.getByLabelText("Name")
+    await user.type(name, "New trip")
+    const create = screen.getByRole("button", { name: "Create project" })
+    expect(create).toBeDisabled()
+    await user.type(name, "{Enter}")
+    await user.click(create)
+    fireEvent.submit(name.closest("form")!)
+    expect(storeState.createProject).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Restore from key" }))
+    fireEvent.submit(screen.getByLabelText("Restore key").closest("form")!)
+    expect(storeState.restoreProjectFromCloud).toHaveBeenCalledTimes(1)
+    await act(async () => finishRestore())
+    await waitFor(() => expect(screen.queryByLabelText("Restore key")).not.toBeInTheDocument())
+  })
+
+  it("disables the new project action at the limit", async () => {
+    vi.stubEnv("NEXT_PUBLIC_TICKWARD_MAX_PROJECTS", "1")
+    const user = userEvent.setup()
+    renderSwitcher()
+    await user.click(screen.getByRole("button", { name: "Switch project" }))
+    expect(screen.getByRole("button", { name: "New project" })).toBeDisabled()
+    vi.unstubAllEnvs()
   })
 
   it("does not apply row hover styling to the selected project", async () => {
@@ -428,10 +514,12 @@ describe("ProjectSwitcher", () => {
 
     renderSwitcher()
     await user.click(screen.getByRole("button", { name: "Switch project" }))
+    await user.click(screen.getByRole("button", { name: "New project" }))
+    await user.click(screen.getByRole("button", { name: "Restore from key" }))
     await user.type(screen.getByPlaceholderText("Paste restore key"), "restoreKey_456")
 
     const restoreButton = screen.getByRole("button", { name: "Restore project" })
-    expect(restoreButton.querySelectorAll("svg")).toHaveLength(1)
+    expect(restoreButton.querySelectorAll("svg")).toHaveLength(0)
 
     await user.click(restoreButton)
 
@@ -447,6 +535,8 @@ describe("ProjectSwitcher", () => {
 
     renderSwitcher()
     await user.click(screen.getByRole("button", { name: "Switch project" }))
+    await user.click(screen.getByRole("button", { name: "New project" }))
+    await user.click(screen.getByRole("button", { name: "Restore from key" }))
     await user.type(screen.getByPlaceholderText("Paste restore key"), "restoreKey_456")
     await user.click(screen.getByRole("button", { name: "Restore project" }))
 

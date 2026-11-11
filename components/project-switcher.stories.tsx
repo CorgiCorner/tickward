@@ -27,6 +27,30 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
 
+export const List: Story = {
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Switch project" }))
+    await within(document.body).findByRole("button", { name: "New project" })
+  },
+}
+
+export const StartEmpty: Story = {
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Switch project" }))
+    await userEvent.click(await within(document.body).findByRole("button", { name: "New project" }))
+    await within(document.body).findByLabelText("Name")
+  },
+}
+
+export const RestoreFromKey: Story = {
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Switch project" }))
+    await userEvent.click(await within(document.body).findByRole("button", { name: "New project" }))
+    await userEvent.click(within(document.body).getByRole("button", { name: "Restore from key" }))
+    await within(document.body).findByLabelText("Restore key")
+  },
+}
+
 export const NarrowContainer: Story = {
   render: () => (
     <div className="w-44">
@@ -78,7 +102,7 @@ export const OverLimitReadOnly: Story = {
       if (!list) throw new Error("project list container not found")
       expect(list.scrollWidth, "project list must not overflow horizontally").toBeLessThanOrEqual(list.clientWidth + 1)
 
-      const content = list.parentElement
+      const content = list.closest<HTMLElement>("[data-slot=popover-content]")
       if (content) {
         expect(content.scrollWidth, "popover content must not overflow horizontally").toBeLessThanOrEqual(
           content.clientWidth + 1,

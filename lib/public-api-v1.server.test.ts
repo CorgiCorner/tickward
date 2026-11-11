@@ -3215,9 +3215,113 @@ describe("public API v1", () => {
       expect(tx.share.upsert).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: scenario === "existing" ? legacyId : scopedId } }),
       )
+      expect(tx.share.upsert.mock.calls[0][0].create.data).toEqual({
+        timerId: "timer-a",
+        sharedAt: expect.any(String),
+      })
       expect(shares.get(legacyId)).toEqual(scenario === "new" ? undefined : oldShare)
     },
   )
+
+  it.each(["legacy", "project-scoped"])("preserves private descriptions when the API republishes a %s share", async (kind) => {
+    const { stableShareId } = await import("./static-share-id.server")
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const { prismaShareRepository } = await import("./adapters/prisma-share-repository.server")
+    const actor = { kind: "user" as const, user: fullKey.user }
+    const id = stableShareId({ actor, entityId: kind === "legacy" ? "timer-a" : "project_123:timer-a", kind: "timer" })
+    const timer = makeTimer({ id: "timer-a", description: "Private note" })
+    const snapshot = makeProjectSnapshot({ timers: [timer] })
+    let share = { id, projectId: "project_123", data: { timerId: "timer-a", sharedAt: "2026-06-01T00:00:00.000Z", showDescription: false } }
+    const tx = {
+      $queryRaw: lockedProjectQuery(projectRow(snapshot)),
+      project: { update: vi.fn() },
+      timer: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findFirst: vi.fn().mockResolvedValue({ data: timer }) },
+      space: { findFirst: vi.fn().mockResolvedValue(null) },
+      share: {
+        findUnique: vi.fn(async ({ where }: { where: { id: string } }) => where.id === id ? share : null),
+        findFirst: vi.fn(async () => share),
+        upsert: vi.fn(async ({ update }: { update: { data?: typeof share.data } }) => {
+          share = { ...share, data: update.data ?? share.data }
+          return { ...share, createdAt: new Date(), updatedAt: new Date() }
+        }),
+      },
+    }
+    const prisma = { ...tx, $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)) }
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+    mocks.authenticateApiKey.mockResolvedValue(fullKey)
+    const response = await handlePublicApiV1Request(
+      "POST", publicApiRequest("POST", "/projects/project_123/shares", { timer_id: "timer-a" }),
+      ["projects", "project_123", "shares"],
+    )
+    expect(response.status).toBe(201)
+    expect(share.data.showDescription).toBe(false)
+    const resolved = await prismaShareRepository.resolve(id)
+    expect(resolved).not.toBeNull()
+    expect(JSON.stringify(resolved)).not.toContain("Private note")
+    expect(resolved?.timer).not.toHaveProperty("description")
+  })
+
+  it.each([
+    ["legacy", "absent"],
+    ["legacy", "true"],
+    ["project-scoped", "absent"],
+    ["project-scoped", "true"],
+  ])("preserves a concurrent hide on a %s share with initial visibility %s", async (kind, initialVisibility) => {
+    const { stableShareId } = await import("./static-share-id.server")
+    const { handlePublicApiV1Request } = await import("./public-api-v1.server")
+    const { prismaShareRepository } = await import("./adapters/prisma-share-repository.server")
+    const actor = { kind: "user" as const, user: fullKey.user }
+    const id = stableShareId({ actor, entityId: kind === "legacy" ? "timer-a" : "project_123:timer-a", kind: "timer" })
+    const timer = makeTimer({ id: "timer-a", description: "Private note" })
+    const snapshot = makeProjectSnapshot({ timers: [timer] })
+    const sharedAt = "2026-06-01T00:00:00.000Z"
+    let share: { id: string; projectId: string; data: { timerId: string; sharedAt: string; showDescription?: boolean } } = {
+      id, projectId: "project_123", data: { timerId: "timer-a", sharedAt, ...(initialVisibility === "true" ? { showDescription: true } : {}) },
+    }
+    let apiAtUpsert!: () => void
+    let resumeApi!: () => void
+    const apiWaiting = new Promise<void>((resolve) => { apiAtUpsert = resolve })
+    const apiResume = new Promise<void>((resolve) => { resumeApi = resolve })
+    const findUnique = vi.fn(async ({ where }: { where: { id: string } }) => where.id === id ? structuredClone(share) : null)
+    const upsert = vi.fn(async ({ update }: { update: { data?: typeof share.data } }) => {
+      share = { ...share, data: update.data ?? share.data }
+      return { ...share, createdAt: new Date(), updatedAt: new Date() }
+    })
+    const tx = {
+      $queryRaw: lockedProjectQuery(projectRow(snapshot)),
+      project: { findFirst: vi.fn().mockResolvedValue(projectRow(snapshot)), update: vi.fn() },
+      timer: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findFirst: vi.fn().mockResolvedValue({ id: "timer-a", data: timer }) },
+      space: { findFirst: vi.fn().mockResolvedValue(null) },
+      share: { findUnique, findFirst: vi.fn(async () => share), upsert },
+    }
+    const apiTx = { ...tx, share: { ...tx.share, upsert: vi.fn(async (args: Parameters<typeof upsert>[0]) => {
+      apiAtUpsert()
+      await apiResume
+      return upsert(args)
+    }) } }
+    const prisma = { ...tx, $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)) }
+    prisma.$transaction.mockImplementationOnce(async (callback) => callback(apiTx))
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+    mocks.authenticateApiKey.mockResolvedValue(fullKey)
+    const apiRequest = handlePublicApiV1Request(
+      "POST", publicApiRequest("POST", "/projects/project_123/shares", { timer_id: "timer-a" }),
+      ["projects", "project_123", "shares"],
+    )
+    await apiWaiting
+    expect(await prismaShareRepository.publishTimer({
+      access: { kind: "user-project", projectId: "project_123", user: fullKey.user },
+      shareId: id, timerId: "timer-a", sharedAt, showDescription: false,
+    })).toBe(true)
+    expect(share.data.showDescription).toBe(false)
+    resumeApi()
+    const response = await apiRequest
+    expect(response.status).toBe(201)
+    expect(share.data.showDescription).toBe(false)
+    const resolved = await prismaShareRepository.resolve(id)
+    expect(resolved).not.toBeNull()
+    expect(JSON.stringify(resolved)).not.toContain("Private note")
+    expect(resolved?.timer).not.toHaveProperty("description")
+  })
 
   it("deletes shares, emits share.deleted, clears timer sharing, and syncs the snapshot", async () => {
     const { handlePublicApiV1Request } = await import("./public-api-v1.server")

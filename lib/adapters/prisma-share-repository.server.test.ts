@@ -90,7 +90,6 @@ describe("prisma share repositories", () => {
         kind: "timer",
         projectId: "project_123",
         ownerId: "user_123",
-        data: shareRecord,
       },
       create: {
         id: "shareId_12345",
@@ -279,4 +278,55 @@ describe("prisma share repositories", () => {
     expect(results.get("shareId_67890")).toBeNull()
     expect(results.has("bad")).toBe(false)
   })
+  it("preserves the stored setting on republish and omits private descriptions", async () => {
+    const { prismaShareRepository } = await import("./prisma-share-repository.server")
+    const prisma = prismaMock()
+    prisma.projectAccessToken.findFirst.mockResolvedValue({ projectId: "project_123", project: { ownerId: "user_123" } })
+    prisma.timer.findFirst.mockResolvedValue({ id: "timer-a", data: { ...timerData, description: "Private note" } })
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+    const args = { access: { kind: "restore-key" as const, restoreKey: "restoreKey_123" }, shareId: "shareId_12345", timerId: "timer-a", sharedAt: shareRecord.sharedAt }
+    await prismaShareRepository.publishTimer({ ...args, showDescription: false })
+    expect(prisma.share.upsert.mock.calls[0][0].create.data.showDescription).toBe(false)
+    await prismaShareRepository.publishTimer(args)
+    expect(prisma.share.upsert.mock.calls[1][0].update).not.toHaveProperty("data")
+    prisma.share.findFirst.mockResolvedValue({ data: { ...shareRecord, showDescription: false }, projectId: "project_123" })
+    prisma.share.findMany.mockResolvedValue([{ id: args.shareId, projectId: "project_123", data: { ...shareRecord, showDescription: false } }])
+    prisma.timer.findMany.mockResolvedValue([{ id: "timer-a", projectId: "project_123", data: { ...timerData, description: "Private note" } }])
+    prisma.space.findMany.mockResolvedValue([])
+    const single = await prismaShareRepository.resolve(args.shareId)
+    const batch = await prismaShareRepository.resolveBatch([args.shareId])
+    expect(JSON.stringify(single)).not.toContain("Private note")
+    expect(JSON.stringify(batch.get(args.shareId))).not.toContain("Private note")
+    expect(single?.timer).not.toHaveProperty("description")
+    prisma.share.findFirst.mockResolvedValue({ data: { ...shareRecord, showDescription: "false" } })
+    expect(await prismaShareRepository.load(args.shareId)).toBeNull()
+  })
+
+  it("preserves private visibility through the transactional publisher and resolution", async () => {
+    const { prismaShareRepository } = await import("./prisma-share-repository.server")
+    const base = prismaMock()
+    let data = { ...shareRecord, showDescription: false }
+    const prisma = {
+      ...base,
+      $transaction: vi.fn(),
+      share: {
+        ...base.share,
+        findUnique: vi.fn(async () => ({ data })),
+        upsert: vi.fn(async ({ update }: { update: { data?: typeof data } }) => { if (update.data) data = update.data }),
+      },
+    }
+    prisma.$transaction.mockImplementation(async (callback: (client: typeof prisma) => unknown) => callback(prisma))
+    prisma.project.findFirst.mockResolvedValue({ id: "project_123", name: "Main", ownerId: "user_123" })
+    prisma.timer.findFirst.mockResolvedValue({ id: "timer-a", data: { ...timerData, description: "Private note" } })
+    prisma.share.findFirst.mockImplementation(async () => ({ data, projectId: "project_123" }))
+    prisma.space.findFirst.mockResolvedValue(null)
+    mocks.requirePrismaClient.mockReturnValue(prisma)
+    await prismaShareRepository.publishTimer({ access: { kind: "user-project", projectId: "project_123", user: { id: "user_123", role: "user" } }, shareId: "shareId_12345", timerId: "timer-a", sharedAt: shareRecord.sharedAt })
+    const result = await prismaShareRepository.resolve("shareId_12345")
+    expect(prisma.$transaction).toHaveBeenCalledOnce()
+    expect(result).not.toBeNull()
+    expect(JSON.stringify(result)).not.toContain("Private note")
+    expect(result?.timer).not.toHaveProperty("description")
+  })
+
 })

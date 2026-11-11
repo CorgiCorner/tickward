@@ -33,6 +33,12 @@ export function parseTimerShareOwner(body: unknown): ParsedTimerShareOwner | nul
   return { projectId, restoreKey, timerId }
 }
 
+export function parseShowDescription(body: unknown): boolean | undefined | null {
+  if (!isRecord(body)) return null
+  if (!("showDescription" in body)) return undefined
+  return typeof body.showDescription === "boolean" ? body.showDescription : null
+}
+
 export function timerShareRateLimitKey(owner: ParsedTimerShareOwner) {
   return owner.projectId ? `project:${owner.projectId}` : owner.restoreKey
 }

@@ -364,4 +364,14 @@ describe("TimerDetailOpener", () => {
     // Focus mode owns focus now; the closing view does not pull it back to the card.
     expect(opener).not.toHaveFocus()
   })
+  it("offers the link description setting in the sharing block", async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    renderDialog({ timer: { ...countdown, description: "Private note" }, shareDescription: { value: false, disabled: false, onChange } })
+    const toggle = screen.getByRole("switch", { name: "Show description" })
+    expect(toggle).not.toBeChecked()
+    await user.click(toggle)
+    expect(onChange).toHaveBeenCalledWith(true)
+  })
+
 })

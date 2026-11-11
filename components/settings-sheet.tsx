@@ -1,17 +1,7 @@
 "use client"
 
-import {
-  AlertCircleIcon,
-  CloudIcon,
-  CloudDownloadIcon,
-  CloudUploadIcon,
-  CopyIcon,
-  EyeIcon,
-  EyeOffIcon,
-  SettingsIcon,
-  Trash2Icon,
-} from "lucide-react"
-import { useRef, useState, type ComponentProps, type ReactNode, type WheelEvent } from "react"
+import { AlertCircleIcon, CloudIcon, CopyIcon, SettingsIcon, ChevronRightIcon } from "lucide-react"
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode, type WheelEvent } from "react"
 import { toast } from "sonner"
 
 import {
@@ -34,6 +24,8 @@ import { ProjectClaimSlot } from "@/components/project-claim-slot"
 import { SpacesManager } from "@/components/spaces-manager"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { logClientError, safeClientErrorMessage } from "@/lib/client-errors"
+import { authClient } from "@/lib/auth/auth-client"
+import { getEntitlements } from "@/lib/entitlements"
 import { formatMessage, formatPluralMessage } from "@/lib/i18n/messages"
 import { useTimerStore } from "@/lib/store"
 
@@ -52,10 +44,16 @@ function ProjectIdRow(props: Readonly<{ cloudProjectId: string }>) {
     <div className="mt-3 grid gap-2 border-t pt-3">
       <Label htmlFor="projectId">{formatMessage("project.idLabel")}</Label>
       <div className="flex items-center gap-2">
-        <Input className="min-w-0 font-mono text-xs" id="projectId" value={props.cloudProjectId} readOnly />
+        <Input
+          inputSize="sm"
+          className="min-w-0 font-mono text-xs"
+          id="projectId"
+          value={props.cloudProjectId}
+          readOnly
+        />
         <Button
           variant="outline"
-          size="icon"
+          size="icon-sm"
           className="shrink-0"
           aria-label={formatMessage("project.copyId")}
           onClick={async () => {
@@ -91,11 +89,6 @@ async function syncProjectAction(syncToCloud: (opts?: { force?: boolean }) => Pr
   } else {
     toast.error(formatMessage("project.syncNeedsAttention"))
   }
-}
-
-async function refreshProjectAction(refreshActiveProjectFromCloud: () => Promise<void>) {
-  await refreshActiveProjectFromCloud()
-  toast.success(formatMessage("project.refreshed"))
 }
 
 async function deleteProjectAction(args: {
@@ -205,9 +198,10 @@ function ProjectStorageSection(
   }>,
 ) {
   const claimActiveProject = useTimerStore((s) => s.claimActiveProject)
+  const session = authClient.useSession()
   if (props.accountBackedProject) {
     return (
-      <div className="rounded-xl border bg-muted/30 p-3">
+      <div className="grid gap-2">
         <div className="flex gap-3">
           <CloudIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
@@ -225,10 +219,11 @@ function ProjectStorageSection(
 
   return (
     <div className="grid gap-2">
-      <Label htmlFor="restoreKey">{formatMessage("project.restoreKey")}</Label>
+      <Label htmlFor="restoreKey">{formatMessage("project.useAnotherDevice")}</Label>
       <div className="flex items-center gap-2">
         <Input
-          className="min-w-0"
+          inputSize="sm"
+          className="min-w-0 font-mono"
           id="restoreKey"
           type={props.restoreKeyRevealed ? "text" : "password"}
           value={props.visibleRestoreKey ?? ""}
@@ -238,17 +233,17 @@ function ProjectStorageSection(
         />
         <Button
           variant="outline"
-          size="icon"
+          size="sm"
           className="shrink-0"
           aria-label={formatMessage(props.restoreKeyRevealed ? "project.hideRestoreKey" : "project.showRestoreKey")}
           disabled={!props.visibleRestoreKey}
           onClick={props.onToggleRestoreKey}
         >
-          {props.restoreKeyRevealed ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+          {formatMessage(props.restoreKeyRevealed ? "project.hide" : "project.show")}
         </Button>
         <Button
           variant="outline"
-          size="icon"
+          size="sm"
           className="shrink-0"
           aria-label={formatMessage("project.copyRestoreKey")}
           disabled={!props.visibleRestoreKey}
@@ -258,19 +253,21 @@ function ProjectStorageSection(
             toast.success(formatMessage("project.keyCopied"))
           }}
         >
-          <CopyIcon className="size-4" />
+          {formatMessage("project.copy")}
         </Button>
       </div>
       {props.visibleRestoreKey ? (
-        <div className="text-xs text-muted-foreground">{formatMessage("project.restoreKeyDescription")}</div>
+        <div className="text-xs text-muted-foreground">{formatMessage("project.restoreDeviceHint")}</div>
       ) : null}
-      <div className="text-xs text-muted-foreground">{formatMessage("project.idAnonymousHint")}</div>
-      <ProjectClaimSlot
-        claimActiveProject={claimActiveProject}
-        restoreKey={props.restoreKey}
-        projectName={props.activeProjectName}
-        cloudProjectId={props.cloudProjectId}
-      />
+      {session.data?.user ? (
+        <ProjectClaimSlot
+          variant="button"
+          claimActiveProject={claimActiveProject}
+          restoreKey={props.restoreKey}
+          projectName={props.activeProjectName}
+          cloudProjectId={props.cloudProjectId}
+        />
+      ) : null}
       <SyncErrorStatus message={props.lastSyncError} />
     </div>
   )
@@ -315,112 +312,95 @@ function ProjectCleanupSection(
   }>,
 ) {
   return (
-    <div data-settings-section="cleanup" className="grid scroll-mt-3 gap-4 rounded-lg border p-4">
-      <div className="grid gap-1">
-        <div className="text-sm font-medium">{formatMessage("settings.projectCleanup")}</div>
-        <div className="text-xs text-muted-foreground">{formatMessage("settings.projectCleanupDescription")}</div>
-      </div>
-
-      <div className="rounded-xl border p-3">
-        <div className="text-sm font-medium">{formatMessage("timer.clearProjectTitle")}</div>
-        <div className="mt-1 text-xs text-muted-foreground">{formatMessage("timer.clearProjectDescription")}</div>
-        <AlertDialog
-          onOpenChange={(nextOpen) => {
-            if (nextOpen) props.onClearProjectConfirmationChange("")
-          }}
-        >
-          <AlertDialogTrigger asChild>
-            <Button variant="destructive" size="sm" className="mt-3 w-full">
-              <Trash2Icon className="mr-1.5 size-4" />
-              {formatMessage("timer.clearProject")}
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{formatMessage("timer.clearProjectTitle")}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {formatMessage("timer.removeAllDescription", {
-                  count: props.timerCount,
-                  timerLabel: formatPluralMessage("timer.count", props.timerCount),
-                })}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <ConfirmProjectNameField
-              id="clear-project-confirm"
-              projectName={props.activeProjectName}
-              value={props.clearProjectConfirmation}
-              onChange={props.onClearProjectConfirmationChange}
-            />
-            <AlertDialogFooter>
-              <AlertDialogCancel>{formatMessage("common.cancel")}</AlertDialogCancel>
-              <AlertDialogAction
-                variant="destructive"
-                disabled={!props.canClearProject}
-                onClick={(event) => {
-                  if (!props.canClearProject) {
-                    event.preventDefault()
-                    return
-                  }
-                  props.clearAllTimers()
-                  toast.success(formatMessage("timer.removedAll"))
-                }}
-              >
-                {formatMessage("timer.clearAll")}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-
-      <div className="rounded-xl border p-3">
-        <div className="text-sm font-medium">{formatMessage("project.delete")}</div>
-        <div className="mt-1 text-xs text-muted-foreground">
-          {formatMessage(props.accountBackedProject ? "project.deleteAccountDescription" : "project.deleteDescription")}
-        </div>
-        <AlertDialog
-          onOpenChange={(nextOpen) => {
-            if (nextOpen) props.onDeleteProjectConfirmationChange("")
-          }}
-        >
-          <AlertDialogTrigger asChild>
-            <Button variant="destructive" size="sm" className="mt-3 w-full">
-              <Trash2Icon className="mr-1.5 size-4" />
-              {formatMessage("project.delete")}
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{formatMessage("project.deleteTitle")}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {formatMessage(props.accountBackedProject ? "project.deleteAccountWarning" : "project.deleteWarning")}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <ConfirmProjectNameField
-              id="delete-project-confirm"
-              projectName={props.activeProjectName}
-              value={props.deleteProjectConfirmation}
-              onChange={props.onDeleteProjectConfirmationChange}
-            />
-            <AlertDialogFooter>
-              <AlertDialogCancel>{formatMessage("common.cancel")}</AlertDialogCancel>
-              <AlertDialogAction
-                variant="destructive"
-                disabled={props.deleteProjectLoading || !props.canDeleteProject}
-                onClick={(event) => {
-                  if (!props.canDeleteProject) {
-                    event.preventDefault()
-                    return
-                  }
+    <div data-settings-section="cleanup" className="flex scroll-mt-3 items-center justify-between gap-2 border-t pt-4">
+      <AlertDialog
+        onOpenChange={(nextOpen) => {
+          if (nextOpen) props.onClearProjectConfirmationChange("")
+        }}
+      >
+        <AlertDialogTrigger asChild>
+          <Button variant="outline" size="sm" disabled={props.timerCount === 0}>
+            {formatMessage("timer.clearAll")}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{formatMessage("timer.clearProjectTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {formatMessage("timer.removeAllDescription", {
+                count: props.timerCount,
+                timerLabel: formatPluralMessage("timer.count", props.timerCount),
+              })}{" "}{formatMessage("timer.clearProjectDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ConfirmProjectNameField
+            id="clear-project-confirm"
+            projectName={props.activeProjectName}
+            value={props.clearProjectConfirmation}
+            onChange={props.onClearProjectConfirmationChange}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel>{formatMessage("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={!props.canClearProject}
+              onClick={(event) => {
+                if (!props.canClearProject) {
                   event.preventDefault()
-                  props.onDeleteProject()
-                }}
-              >
-                {formatMessage("project.delete")}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
+                  return
+                }
+                props.clearAllTimers()
+                toast.success(formatMessage("timer.removedAll"))
+              }}
+            >
+              {formatMessage("timer.clearAll")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        onOpenChange={(nextOpen) => {
+          if (nextOpen) props.onDeleteProjectConfirmationChange("")
+        }}
+      >
+        <AlertDialogTrigger asChild>
+          <Button variant="outline" size="sm" className="border-destructive/40 text-destructive hover:text-destructive">
+            {formatMessage("project.delete")}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{formatMessage("project.deleteTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {formatMessage(props.accountBackedProject ? "project.deleteAccountWarning" : "project.deleteWarning")}
+              {!props.accountBackedProject ? <>{" "}{formatMessage("project.deleteDescription")}</> : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ConfirmProjectNameField
+            id="delete-project-confirm"
+            projectName={props.activeProjectName}
+            value={props.deleteProjectConfirmation}
+            onChange={props.onDeleteProjectConfirmationChange}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel>{formatMessage("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={props.deleteProjectLoading || !props.canDeleteProject}
+              onClick={(event) => {
+                if (!props.canDeleteProject) {
+                  event.preventDefault()
+                  return
+                }
+                event.preventDefault()
+                props.onDeleteProject()
+              }}
+            >
+              {formatMessage("project.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -434,33 +414,41 @@ export function SettingsSheet({ showTriggerTooltip = true, ...props }: Readonly<
   const restoreKey = useTimerStore((s) => s.restoreKey)
   const renameActiveProject = useTimerStore((s) => s.renameActiveProject)
   const syncToCloud = useTimerStore((s) => s.syncToCloud)
-  const refreshActiveProjectFromCloud = useTimerStore((s) => s.refreshActiveProjectFromCloud)
   const deleteActiveProjectFromCloud = useTimerStore((s) => s.deleteActiveProjectFromCloud)
   const clearAllTimers = useTimerStore((s) => s.clearAllTimers)
   const timers = useTimerStore((s) => s.timers)
+  const spaces = useTimerStore((s) => s.spaces)
   const lastSyncError = useTimerStore((s) => s.lastSyncError)
   const isSyncing = useTimerStore((s) => s.isSyncing)
-  const isCheckingCloud = useTimerStore((s) => s.isCheckingCloud)
   const isDesktop = useMediaQuery("(min-width: 768px)")
 
   const activeProject = projects.find((project) => project.id === activeProjectId)
   const accountBackedProject = Boolean(activeProject?.cloudProjectId)
   const visibleRestoreKey = accountBackedProject ? null : restoreKey
 
+  const [spacesOpen, setSpacesOpen] = useState(false)
+  const lastSavedName = useRef<string | undefined>(undefined)
   const [projectName, setProjectName] = useState(activeProject?.name ?? "")
   const [syncLoading, setSyncLoading] = useState(false)
-  const [refreshLoading, setRefreshLoading] = useState(false)
   const [deleteProjectLoading, setDeleteProjectLoading] = useState(false)
   const [restoreKeyRevealed, setRestoreKeyRevealed] = useState(false)
   const [clearProjectConfirmation, setClearProjectConfirmation] = useState("")
   const [deleteProjectConfirmation, setDeleteProjectConfirmation] = useState("")
   const activeProjectName = activeProject?.name ?? formatMessage("project.defaultName")
-  const canClearProject = clearProjectConfirmation.trim() === activeProjectName
-  const canDeleteProject = deleteProjectConfirmation.trim() === activeProjectName
+  const canClearProject = clearProjectConfirmation === activeProjectName
+  const canDeleteProject = deleteProjectConfirmation === activeProjectName
+
+  useEffect(() => {
+    lastSavedName.current = activeProject?.name
+  }, [activeProjectId, activeProject?.name])
 
   function handleOpenChange(nextOpen: boolean) {
     setProjectName(projectNameForSheetOpen(nextOpen, activeProject?.name, projectName))
-    if (!nextOpen) setRestoreKeyRevealed(false)
+    if (nextOpen) lastSavedName.current = activeProject?.name
+    if (!nextOpen) {
+      setRestoreKeyRevealed(false)
+      setSpacesOpen(false)
+    }
     setOpen(nextOpen)
   }
 
@@ -476,16 +464,17 @@ export function SettingsSheet({ showTriggerTooltip = true, ...props }: Readonly<
     }
   }
 
-  async function handleRefresh() {
-    setRefreshLoading(true)
-    try {
-      await refreshProjectAction(refreshActiveProjectFromCloud)
-    } catch (err) {
-      logClientError("settings.refreshProject", err)
-      toast.error(safeClientErrorMessage(err, "errors.refreshFailed"))
-    } finally {
-      setRefreshLoading(false)
+  function saveName() {
+    const trimmed = projectName.trim()
+    if (!trimmed) {
+      setProjectName(activeProjectName)
+      return
     }
+    setProjectName(trimmed)
+    if (trimmed === (lastSavedName.current ?? activeProjectName)) return
+    lastSavedName.current = trimmed
+    renameActiveProject(trimmed)
+    toast.success(formatMessage("project.renamed"))
   }
 
   async function handleDeleteProject() {
@@ -513,7 +502,6 @@ export function SettingsSheet({ showTriggerTooltip = true, ...props }: Readonly<
   }
 
   const side = isDesktop ? "right" : "bottom"
-  const canRename = projectName.trim().length > 0 && projectName.trim() !== activeProject?.name
   const trigger = (
     <SheetTrigger asChild>
       <SettingsTriggerButton {...props} />
@@ -542,79 +530,74 @@ export function SettingsSheet({ showTriggerTooltip = true, ...props }: Readonly<
           className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
         >
           <div className="grid gap-4 pt-4">
-            <div data-settings-section="project" className="grid scroll-mt-3 gap-4 rounded-lg border p-4">
-              <div className="grid gap-1">
-                <div className="text-sm font-medium">{formatMessage("project.current")}</div>
-                <div className="text-xs text-muted-foreground">{formatMessage("settings.projectDescription")}</div>
-              </div>
+            <div data-settings-section="project" className="grid scroll-mt-3 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="projectName">{formatMessage("project.name")}</Label>
-                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                  <Input
-                    id="projectName"
-                    value={projectName}
-                    maxLength={40}
-                    {...passwordManagerIgnoreProps}
-                    onChange={(event) => setProjectName(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && canRename) {
-                        renameActiveProject(projectName)
-                        toast.success(formatMessage("project.renamed"))
-                      }
-                    }}
-                  />
+                <Input
+                  id="projectName"
+                  inputSize="sm"
+                  value={projectName}
+                  maxLength={40}
+                  {...passwordManagerIgnoreProps}
+                  onChange={(event) => setProjectName(event.target.value)}
+                  onBlur={saveName}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault()
+                      saveName()
+                    }
+                  }}
+                />
+              </div>
+              <div className="grid gap-2 border-t pt-4">
+                {accountBackedProject ? <Label>{formatMessage("project.useAnotherDevice")}</Label> : null}
+                <ProjectStorageSection
+                  accountBackedProject={accountBackedProject}
+                  activeProjectName={activeProjectName}
+                  cloudProjectId={activeProject?.cloudProjectId}
+                  lastSyncError={lastSyncError}
+                  restoreKey={restoreKey}
+                  restoreKeyRevealed={restoreKeyRevealed}
+                  visibleRestoreKey={visibleRestoreKey}
+                  onToggleRestoreKey={() => setRestoreKeyRevealed((revealed) => !revealed)}
+                />
+                {lastSyncError ? (
                   <Button
                     variant="outline"
-                    disabled={!canRename}
-                    onClick={() => {
-                      renameActiveProject(projectName)
-                      toast.success(formatMessage("project.renamed"))
-                    }}
+                    size="sm"
+                    className="w-fit"
+                    loading={syncLoading || isSyncing}
+                    onClick={() => void handleSyncNow()}
                   >
-                    {formatMessage("common.save")}
+                    {formatMessage("project.tryAgain")}
                   </Button>
-                </div>
+                ) : null}
               </div>
-
-              <ProjectStorageSection
-                accountBackedProject={accountBackedProject}
-                activeProjectName={activeProjectName}
-                cloudProjectId={activeProject?.cloudProjectId}
-                lastSyncError={lastSyncError}
-                restoreKey={restoreKey}
-                restoreKeyRevealed={restoreKeyRevealed}
-                visibleRestoreKey={visibleRestoreKey}
-                onToggleRestoreKey={() => setRestoreKeyRevealed((revealed) => !revealed)}
-              />
-
-              <div className="grid grid-cols-2 gap-2">
+              <div data-settings-section="spaces" className="scroll-mt-3 border-t pt-2">
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
-                  loading={syncLoading || isSyncing}
-                  onClick={() => void handleSyncNow()}
+                  className="-mx-3 w-[calc(100%+1.5rem)] justify-between"
+                  aria-expanded={spacesOpen}
+                  onClick={() => setSpacesOpen((value) => !value)}
                 >
-                  <CloudUploadIcon className="size-4" />
-                  {formatMessage("project.sync")}
+                  <span>{formatMessage("space.dialogTitle")}</span>
+                  <span className="flex items-center gap-1 text-muted-foreground">
+                    {formatMessage("project.countOfMax", {
+                      count: spaces?.length ?? 0,
+                      max: getEntitlements().maxSpaces,
+                    })}
+                    <ChevronRightIcon
+                      className={spacesOpen ? "rotate-90 transition-transform" : "transition-transform"}
+                    />
+                  </span>
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  loading={refreshLoading || isCheckingCloud}
-                  onClick={() => void handleRefresh()}
-                >
-                  <CloudDownloadIcon className="size-4" />
-                  {formatMessage("project.refresh")}
-                </Button>
+                {spacesOpen ? (
+                  <div className="animate-in fade-in duration-enter pt-3">
+                    <SpacesManager />
+                  </div>
+                ) : null}
               </div>
-            </div>
-
-            <div data-settings-section="spaces" className="grid scroll-mt-3 gap-4 rounded-lg border p-4">
-              <div className="grid gap-1">
-                <div className="text-sm font-medium">{formatMessage("space.dialogTitle")}</div>
-                <div className="text-xs text-muted-foreground">{formatMessage("space.dialogDescription")}</div>
-              </div>
-              <SpacesManager />
             </div>
 
             <ProjectCleanupSection

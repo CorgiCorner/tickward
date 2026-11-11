@@ -1,3 +1,4 @@
+import { sharedTimerFromTimer } from "@/lib/share-model"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
@@ -154,5 +155,26 @@ describe("GET /api/embed/[token]", () => {
     expectEmbedHeaders(res)
     await expect(res.json()).resolves.toMatchObject({ state: "counting" })
     expect(mocks.resolveTimerShare).toHaveBeenCalledWith(routableToken)
+  })
+  it("omits a hidden description from the serialized response", async () => {
+    const timer = sharedTimerFromTimer(
+      {
+        id: "timer-a",
+        label: "Launch",
+        targetDate: "2026-12-01T10:00:00.000Z",
+        timezone: "UTC",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        description: "Private note",
+      },
+      undefined,
+      Date.now(),
+      null,
+      false,
+    )
+    mocks.resolveTimerShare.mockResolvedValue({ resolvedFrom: "live", timer })
+    const { GET } = await import("./route")
+    const res = await GET(request(routableToken), context(routableToken))
+    expect(await res.text()).not.toContain("Private note")
   })
 })

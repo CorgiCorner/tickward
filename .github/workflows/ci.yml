@@ -13,7 +13,10 @@ permissions:
   contents: read
 
 jobs:
-  checks:
+  # The required check is the "checks" gate job below. It succeeds only when
+  # this job and every unit-test shard succeeded.
+  static-checks:
+    name: Lint, typecheck and build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -56,7 +59,6 @@ jobs:
       - run: npm run lint
       - name: Typecheck
         run: npm exec tsc -- --noEmit
-      - run: npm run test:unit
       - name: Public-mirror guardrails
         if: github.event.repository.private
         run: npm run test:release-guardrails
@@ -68,6 +70,51 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nextjs-${{ hashFiles('package-lock.json') }}-
       - run: npm run build
+
+  unit-tests:
+    name: Unit tests (${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Pin npm
+        run: npm install --global npm@10.9.3
+      - name: Check development runtime
+        run: npm run check:node
+      - run: npm ci
+      - name: Unit tests
+        run: npm run test:unit -- --shard=${{ matrix.shard }}/2
+
+  checks:
+    needs: [static-checks, unit-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every needed job to succeed
+        env:
+          NEEDS_RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Needed job results: ${NEEDS_RESULTS}"
+          read -r -a results <<< "${NEEDS_RESULTS}"
+          if [ "${#results[@]}" -ne 2 ]; then
+            echo "::error::Expected 2 needed job results, got ${#results[@]}."
+            exit 1
+          fi
+          for result in "${results[@]}"; do
+            if [ "${result}" != "success" ]; then
+              echo "::error::A needed job finished with result '${result}'."
+              exit 1
+            fi
+          done
 
   public-snapshot:
     name: Public snapshot

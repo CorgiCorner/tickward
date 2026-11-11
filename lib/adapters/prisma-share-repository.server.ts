@@ -20,7 +20,7 @@ function isString(value: unknown): value is string {
 }
 
 function isShareRecord(value: unknown): value is ShareRecord {
-  return isRecord(value) && isString(value.timerId) && isString(value.sharedAt)
+  return isRecord(value) && isString(value.timerId) && isString(value.sharedAt) && (value.showDescription === undefined || typeof value.showDescription === "boolean")
 }
 
 function timerFromData(data: unknown) {
@@ -72,8 +72,8 @@ async function projectForShareAccess(
   return project ? { id: project.id, name: "name" in project ? project.name : "", ownerId: project.ownerId } : null
 }
 
-function shareRecord(timerId: string, sharedAt: string): ShareRecord {
-  return { timerId, sharedAt }
+function shareRecord(timerId: string, sharedAt: string, showDescription?: boolean): ShareRecord {
+  return { timerId, sharedAt, ...(showDescription === undefined ? {} : { showDescription }) }
 }
 
 async function hasPublishedTimer(args: { shareId: string; timerId: string; access: TimerShareAccess }) {
@@ -145,7 +145,7 @@ export const prismaShareRepository: ShareRepository = {
     })
     if (!timer) return false
 
-    const data = jsonInput(shareRecord(args.timerId, args.sharedAt))
+    const data = jsonInput(shareRecord(args.timerId, args.sharedAt, args.showDescription))
 
     if (typeof (prisma as { $transaction?: unknown }).$transaction !== "function") {
       await prisma.share.upsert({
@@ -154,7 +154,7 @@ export const prismaShareRepository: ShareRepository = {
           kind: SHARE_KIND_TIMER,
           projectId: project.id,
           ownerId: project.ownerId,
-          data,
+          ...(args.showDescription === undefined ? {} : { data }),
         },
         create: {
           id: args.shareId,
@@ -175,7 +175,7 @@ export const prismaShareRepository: ShareRepository = {
           kind: SHARE_KIND_TIMER,
           projectId: project.id,
           ownerId: project.ownerId,
-          data,
+          ...(args.showDescription === undefined ? {} : { data }),
         },
         create: {
           id: args.shareId,
@@ -252,7 +252,7 @@ export const prismaShareRepository: ShareRepository = {
 
     return {
       resolvedFrom: "live",
-      timer: sharedTimerFromTimer(parsedTimer, share.data.sharedAt, Date.now(), parsedSpace),
+      timer: sharedTimerFromTimer(parsedTimer, share.data.sharedAt, Date.now(), parsedSpace, share.data.showDescription),
     }
   },
 
@@ -325,7 +325,7 @@ export const prismaShareRepository: ShareRepository = {
       const space = timer.spaceId ? spacesByProjectAndId.get(`${record.projectId}:${timer.spaceId}`) : null
       results.set(id, {
         resolvedFrom: "live",
-        timer: sharedTimerFromTimer(timer, record.data.sharedAt, nowMs, space),
+        timer: sharedTimerFromTimer(timer, record.data.sharedAt, nowMs, space, record.data.showDescription),
       })
     }
 

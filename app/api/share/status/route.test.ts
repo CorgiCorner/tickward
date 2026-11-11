@@ -60,6 +60,7 @@ describe("POST /api/share/status", () => {
     mocks.getExistingTimerShare.mockResolvedValueOnce({
       shareId: "timer_existingShareId1234567890",
       url: "/share/timer_existingShareId1234567890",
+      showDescription: false,
     })
 
     const res = await POST(
@@ -72,6 +73,7 @@ describe("POST /api/share/status", () => {
     await expect(res.json()).resolves.toEqual({
       shareId: "timer_existingShareId1234567890",
       url: "/share/timer_existingShareId1234567890",
+      showDescription: false,
     })
     expect(mocks.getCurrentActor).toHaveBeenCalledWith({ request: expect.any(Request) })
     expect(mocks.getExistingTimerShare).toHaveBeenCalledWith({
@@ -91,7 +93,7 @@ describe("POST /api/share/status", () => {
     )
 
     expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toEqual({ shareId: null, url: null })
+    await expect(res.json()).resolves.toEqual({ shareId: null, url: null, showDescription: true })
     expect(mocks.getCurrentActor).toHaveBeenCalledWith({
       restoreKey: "restoreKey_123",
       request: expect.any(Request),

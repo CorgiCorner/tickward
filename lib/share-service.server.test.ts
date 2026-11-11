@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { Actor } from "@/lib/contracts"
+import { sharedTimerFromTimer } from "@/lib/share-model"
 
 const actor: Actor = { kind: "anonymous", restoreKey: "restoreKey_123" }
 
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   redis: {
     get: vi.fn(),
     set: vi.fn(),
+    del: vi.fn(),
   },
 }))
 
@@ -43,6 +45,7 @@ describe("share service", () => {
     // the repository unless a test opts into a cache hit.
     mocks.redis.get.mockReset().mockResolvedValue(null)
     mocks.redis.set.mockReset().mockResolvedValue("OK")
+    mocks.redis.del.mockReset().mockResolvedValue(1)
   })
 
   afterEach(() => {
@@ -78,6 +81,74 @@ describe("share service", () => {
     expect(again?.shareId).toBe(result.shareId)
   })
 
+  it("updates an existing link when its stable id has changed", async () => {
+    const { createTimerShare } = await import("./share-service.server")
+    mocks.shareRepository.hasPublishedTimer.mockResolvedValue(false)
+    mocks.shareRepository.findPublishedTimer.mockResolvedValue({
+      shareId: "timer_existingShareId1234567890",
+      timerId: "timer-a",
+      sharedAt: "2026-05-24T00:00:00.000Z",
+      showDescription: true,
+    })
+    mocks.shareRepository.publishTimer.mockResolvedValue(true)
+    const result = await createTimerShare({ actor, timerId: "timer-a", showDescription: false })
+    expect(result).toEqual({
+      shareId: "timer_existingShareId1234567890",
+      url: "/share/timer_existingShareId1234567890",
+    })
+    expect(mocks.redis.del).toHaveBeenCalledWith("tickward:share:resolve:timer_existingShareId1234567890")
+    expect(mocks.shareRepository.publishTimer).toHaveBeenCalledWith(
+      expect.objectContaining({ shareId: result?.shareId, showDescription: false }),
+    )
+    const legacy = await createTimerShare({ actor, timerId: "timer-a" })
+    expect(legacy?.shareId).toBe(result?.shareId)
+    expect(mocks.shareRepository.publishTimer.mock.lastCall?.[0]).not.toHaveProperty("showDescription")
+  })
+
+  it("invalidates the published share after the write", async () => {
+    const { createTimerShare } = await import("./share-service.server")
+    mocks.shareRepository.publishTimer.mockResolvedValue(true)
+    const result = await createTimerShare({ actor, timerId: "timer-a", showDescription: false })
+    expect(mocks.redis.del).toHaveBeenCalledWith(`tickward:share:resolve:${result?.shareId}`)
+    expect(mocks.shareRepository.publishTimer.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.redis.del.mock.invocationCallOrder[0],
+    )
+  })
+
+  it("succeeds when cache invalidation fails", async () => {
+    const { createTimerShare } = await import("./share-service.server")
+    mocks.shareRepository.publishTimer.mockResolvedValue(true)
+    mocks.redis.del.mockRejectedValue(new Error("redis down"))
+    await expect(createTimerShare({ actor, timerId: "timer-a" })).resolves.toEqual({
+      shareId: expect.any(String),
+      url: expect.stringMatching(/^\/share\//),
+    })
+  })
+
+  it("caches a fresh projection without a hidden description", async () => {
+    const { resolveTimerShare } = await import("./share-service.server")
+    const timer = sharedTimerFromTimer(
+      {
+        id: "timer-a",
+        label: "Launch",
+        targetDate: "2026-12-01T10:00:00.000Z",
+        timezone: "UTC",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        description: "Private note",
+      },
+      undefined,
+      Date.now(),
+      null,
+      false,
+    )
+    const resolved = { resolvedFrom: "live" as const, timer }
+    mocks.shareRepository.resolve.mockResolvedValue(resolved)
+    await resolveTimerShare("shareId_12345")
+    expect(timer).not.toHaveProperty("description")
+    expect(mocks.redis.set).toHaveBeenCalledWith("tickward:share:resolve:shareId_12345", { v: resolved }, { ex: 30 })
+  })
+
   it("blocks an anonymous actor from sharing a timer that has a link", async () => {
     const { createTimerShare, TimerShareLinkRequiresAuthError } = await import("./share-service.server")
     mocks.shareRepository.findTimerForShare.mockResolvedValue({ url: "https://example.com/" })
@@ -107,11 +178,17 @@ describe("share service", () => {
     mocks.shareRepository.publishTimer.mockResolvedValue(false)
 
     await expect(createTimerShare({ actor, timerId: "timer-a" })).resolves.toBeNull()
+    expect(mocks.redis.del).not.toHaveBeenCalled()
   })
 
   it("returns an existing live timer share without publishing it again", async () => {
     const { getExistingTimerShare } = await import("./share-service.server")
     mocks.shareRepository.hasPublishedTimer.mockResolvedValue(true)
+    mocks.shareRepository.load.mockResolvedValue({
+      timerId: "timer-a",
+      sharedAt: "2026-05-24T00:00:00.000Z",
+      showDescription: false,
+    })
 
     const result = await getExistingTimerShare({ actor, timerId: "timer-a" })
 
@@ -119,6 +196,7 @@ describe("share service", () => {
     if (!result) throw new Error("expected share result")
     expect(result.shareId).toMatch(/^timer_[A-Za-z0-9_-]{43}$/)
     expect(result.url).toBe(`/share/${result.shareId}`)
+    expect(result.showDescription).toBe(false)
     expect(mocks.shareRepository.hasPublishedTimer).toHaveBeenCalledWith({
       access: { kind: "restore-key", restoreKey: "restoreKey_123" },
       shareId: result.shareId,
@@ -141,6 +219,7 @@ describe("share service", () => {
     expect(result).toEqual({
       shareId: "timer_existingShareId1234567890",
       url: "/share/timer_existingShareId1234567890",
+      showDescription: true,
     })
     expect(mocks.shareRepository.findPublishedTimer).toHaveBeenCalledWith({
       access: { kind: "restore-key", restoreKey: "restoreKey_123" },

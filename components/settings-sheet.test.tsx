@@ -1,13 +1,17 @@
 import { fireEvent, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { toast } from "sonner"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { SettingsSheet } from "@/components/settings-sheet"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { MESSAGES } from "@/lib/i18n/messages"
 import type { TimerStore } from "@/lib/store"
 import { makeTimer } from "@/test/factories"
 
 let storeState: Partial<TimerStore>
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 vi.mock("@/lib/store", () => ({
   useTimerStore: <T,>(selector: (store: TimerStore) => T) => selector(storeState as TimerStore),
@@ -37,6 +41,7 @@ function renderSettingsSheet() {
 
 describe("SettingsSheet", () => {
   beforeEach(() => {
+    vi.mocked(toast.success).mockClear()
     storeState = {
       projects: [
         {
@@ -51,6 +56,7 @@ describe("SettingsSheet", () => {
       activeProjectId: "project-a",
       restoreKey: "restoreKey_123",
       timers: [makeTimer()],
+      spaces: [],
       lastSyncError: null,
       isSyncing: false,
       isCheckingCloud: false,
@@ -76,11 +82,13 @@ describe("SettingsSheet", () => {
     expect(screen.queryByRole("heading", { name: "Alarm defaults" })).not.toBeInTheDocument()
     expect(screen.queryByText(/Cloud ready/)).not.toBeInTheDocument()
 
-    const restoreKeyInput = screen.getByLabelText("Restore key")
+    const restoreKeyInput = screen.getByLabelText("Use on another device")
     expect(restoreKeyInput).toHaveAttribute("type", "password")
     expect(restoreKeyInput).toHaveValue("restoreKey_123")
     expect(
-      screen.getByText("Keep this key private. Reveal it only when you need this project on another device."),
+      screen.getByText(
+        "Paste this restore key under New project on the other device, or sign in to keep the project in your account. Keep the key private.",
+      ),
     ).toBeVisible()
 
     await user.click(screen.getByRole("button", { name: "Show restore key" }))
@@ -88,15 +96,8 @@ describe("SettingsSheet", () => {
     expect(screen.getByRole("button", { name: "Hide restore key" })).toBeVisible()
 
     expect(screen.queryByText("Remove from this device")).not.toBeInTheDocument()
-    expect(screen.getByText("Clear this project's timers")).toBeInTheDocument()
-    expect(
-      screen.getByText("Removes all timers from the active project. The project and restore key stay."),
-    ).toBeInTheDocument()
-    expect(screen.getAllByText("Delete project").length).toBeGreaterThan(0)
-    expect(screen.getByText("Deletes this project from cloud storage and removes it from this device.")).toBeVisible()
-
-    expect(screen.getByRole("button", { name: "Clear project timers" })).toHaveAttribute("data-variant", "destructive")
-    expect(screen.getByRole("button", { name: "Delete project" })).toHaveAttribute("data-variant", "destructive")
+    expect(screen.getByRole("button", { name: "Clear timers" })).toHaveAttribute("data-variant", "outline")
+    expect(screen.getByRole("button", { name: "Delete project" })).toHaveAttribute("data-variant", "outline")
     expect(screen.queryByLabelText("When a countdown reaches zero")).not.toBeInTheDocument()
   })
 
@@ -105,9 +106,10 @@ describe("SettingsSheet", () => {
     renderSettingsSheet()
 
     await user.click(screen.getByRole("button", { name: "Project settings" }))
-    await user.click(screen.getByRole("button", { name: "Clear project timers" }))
+    await user.click(screen.getByRole("button", { name: "Clear timers" }))
 
-    const clearTimersAction = screen.getByRole("button", { name: "Clear timers" })
+    const clearTimersAction = within(screen.getByRole("alertdialog")).getByRole("button", { name: "Clear timers" })
+    expect(within(screen.getByRole("alertdialog")).getByText(/The project and restore key stay/)).toBeVisible()
     expect(screen.getByLabelText('Type "Alpha" to confirm.')).toBeVisible()
     expect(clearTimersAction).toBeDisabled()
 
@@ -118,6 +120,7 @@ describe("SettingsSheet", () => {
 
     await user.click(screen.getByRole("button", { name: "Delete project" }))
     const deleteProjectDialog = screen.getByRole("alertdialog", { name: "Delete this project?" })
+    expect(within(deleteProjectDialog).getByText(/Deletes this project from cloud storage/)).toBeVisible()
     const deleteProjectAction = within(deleteProjectDialog).getByRole("button", { name: "Delete project" })
     expect(deleteProjectAction).toBeDisabled()
 
@@ -155,7 +158,6 @@ describe("SettingsSheet", () => {
       ),
     ).toBeVisible()
     expect(screen.queryByText("Remove from this device")).not.toBeInTheDocument()
-    expect(screen.getByText("Deletes this project from your account and removes it from this device.")).toBeVisible()
   })
 
   it("keeps sync error details in a tooltip", async () => {
@@ -173,6 +175,78 @@ describe("SettingsSheet", () => {
     await user.hover(status)
 
     expect((await screen.findAllByText("Sign in to access this project.")).length).toBeGreaterThan(0)
+  })
+
+  it("saves a changed name on Enter or blur and ignores unchanged and empty names", async () => {
+    const user = userEvent.setup()
+    renderSettingsSheet()
+    await user.click(screen.getByRole("button", { name: "Project settings" }))
+    const name = screen.getByLabelText("Name")
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument()
+    await user.click(name)
+    await user.tab()
+    expect(storeState.renameActiveProject).not.toHaveBeenCalled()
+    await user.clear(name)
+    await user.tab()
+    expect(name).toHaveValue("Alpha")
+    expect(storeState.renameActiveProject).not.toHaveBeenCalled()
+    await user.clear(name)
+    await user.type(name, "  Beta  {Enter}")
+    await user.tab()
+    expect(storeState.renameActiveProject).toHaveBeenCalledTimes(1)
+    expect(storeState.renameActiveProject).toHaveBeenCalledWith("Beta")
+    await user.clear(name)
+    await user.type(name, " Gamma ")
+    await user.tab()
+    expect(storeState.renameActiveProject).toHaveBeenLastCalledWith("Gamma")
+  })
+
+  it("saves the original name after an authoritative remote rename without duplicating Enter and blur", async () => {
+    const user = userEvent.setup()
+    const view = renderSettingsSheet()
+    await user.click(screen.getByRole("button", { name: "Project settings" }))
+    storeState.projects = storeState.projects!.map((project) => ({ ...project, name: "Beta" }))
+    view.rerender(<TooltipProvider delayDuration={0}><SettingsSheet /></TooltipProvider>)
+    const name = screen.getByLabelText("Name")
+    await user.clear(name)
+    await user.type(name, "Alpha{Enter}")
+    await user.tab()
+    expect(storeState.renameActiveProject).toHaveBeenCalledOnce()
+    expect(storeState.renameActiveProject).toHaveBeenCalledWith("Alpha")
+    expect(toast.success).toHaveBeenCalledOnce()
+  })
+
+  it("includes visible restore key action labels in their accessible names in every locale", () => {
+    for (const catalog of Object.values(MESSAGES)) {
+      for (const [label, name] of [
+        ["project.show", "project.showRestoreKey"],
+        ["project.hide", "project.hideRestoreKey"],
+        ["project.copy", "project.copyRestoreKey"],
+      ] as const) {
+        expect(catalog[name].toLocaleLowerCase()).toContain(catalog[label].toLocaleLowerCase())
+      }
+    }
+  })
+
+  it("shows retry only for sync errors and expands spaces", async () => {
+    const user = userEvent.setup()
+    const view = renderSettingsSheet()
+    await user.click(screen.getByRole("button", { name: "Project settings" }))
+    expect(screen.queryByRole("button", { name: "Sync" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument()
+    const spaces = screen.getByRole("button", { name: /Spaces/ })
+    expect(spaces).toHaveAttribute("aria-expanded", "false")
+    await user.click(spaces)
+    expect(spaces).toHaveAttribute("aria-expanded", "true")
+    storeState.lastSyncError = "Failed"
+    view.rerender(
+      <TooltipProvider>
+        <SettingsSheet />
+      </TooltipProvider>,
+    )
+    await user.click(screen.getByRole("button", { name: "Try again" }))
+    expect(storeState.syncToCloud).toHaveBeenCalledWith({ force: false })
   })
 
   it("scrolls the settings body when wheel events originate from sheet overlays", async () => {

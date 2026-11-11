@@ -60,6 +60,7 @@ export type TimerDetailActions = {
   onEditSubmit?: (timer: TimerFormSubmitValue) => void
   /** Copies the public link; shown when the timer is shared. */
   onCopyShareLink?: () => void
+  shareDescription?: { value: boolean; disabled: boolean; onChange: (value: boolean) => void }
   /** Items for the overflow menu (pin, archive, delete, ...), as DropdownMenuItem elements. */
   menuItems?: ReactNode
 }
@@ -163,6 +164,7 @@ function TimerDetailBody(props: Readonly<TimerDetailContentProps & { nowMs: numb
         space={props.space}
         signedIn={props.signedIn}
         onCopyShareLink={props.onCopyShareLink}
+        shareDescription={props.shareDescription}
       />
     </div>
   )
