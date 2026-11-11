@@ -77,8 +77,6 @@ export type RateLimitBucket =
   | "mobile-auth"
   | "mobile-auth-global"
   | "mobile-account-delete"
-  | "mobile-review-code"
-  | "mobile-review-client"
 
 export type RateLimitDecision =
   | { ok: true }

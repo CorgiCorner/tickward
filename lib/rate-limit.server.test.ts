@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
   constructor: vi.fn(),
   getRedis: vi.fn(),
   limit: vi.fn(),
-  resetUsedTokens: vi.fn(),
   slidingWindow: vi.fn((limit: number, window: string) => ({ limit, window })),
 }))
 
@@ -21,10 +20,6 @@ vi.mock("@upstash/ratelimit", () => ({
 
     limit(identifier: string) {
       return mocks.limit(identifier)
-    }
-
-    resetUsedTokens(identifier: string) {
-      return mocks.resetUsedTokens(identifier)
     }
   },
 }))
@@ -41,22 +36,7 @@ describe("rate limit enforcement", () => {
     mocks.getRedis.mockReset()
     mocks.getRedis.mockReturnValue({ redis: true })
     mocks.limit.mockReset()
-    mocks.resetUsedTokens.mockReset()
     mocks.slidingWindow.mockClear()
-  })
-
-  it("resets a key's budget and never fails the request when the reset does", async () => {
-    const { resetRateLimit } = await import("./rate-limit.server")
-
-    mocks.resetUsedTokens.mockResolvedValueOnce(undefined)
-    await expect(resetRateLimit("mobile-review-client", "ip:abc")).resolves.toBeUndefined()
-    expect(mocks.resetUsedTokens).toHaveBeenCalledWith("ip:abc")
-    expect(mocks.constructor).toHaveBeenCalledWith(
-      expect.objectContaining({ prefix: "tickward:ratelimit:mobile-review-client" }),
-    )
-
-    mocks.resetUsedTokens.mockRejectedValueOnce(new Error("redis down"))
-    await expect(resetRateLimit("mobile-review-client", "ip:abc")).resolves.toBeUndefined()
   })
 
   it("allows requests that are within the bucket limit", async () => {
@@ -159,8 +139,6 @@ describe("rate limit enforcement", () => {
   })
   it.each([
     ["mobile-account-delete", 3, "60 s"],
-    ["mobile-review-client", 5, "62 d"],
-    ["mobile-review-code", 40, "62 d"],
     ["mobile-auth-global", 1000, "60 s"],
     ["auth-otp-unknown-ip", 60, "60 s"],
     ["public-api-global", 3000, "60 s"],

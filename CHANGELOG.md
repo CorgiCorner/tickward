@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.18.1 - 2026-11-11
+
+### Changed
+
+- The App Review code can stay valid for up to ten years with no attempt budget of its own; general sign-in limits still apply.
+
 ## 0.18.0 - 2026-11-11
 
 ### Added

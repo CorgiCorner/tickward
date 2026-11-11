@@ -41,12 +41,6 @@ const RATE_LIMITS = {
   "mobile-auth-global": { limit: 1000, window: "60 s", prefix: "tickward:ratelimit:mobile-auth-global" },
   // Per account. A deletion succeeds once; this only bounds retries of the heavy transaction.
   "mobile-account-delete": { limit: 3, window: "60 s", prefix: "tickward:ratelimit:mobile-account-delete" },
-  // App Review's fixed code: a small attempt budget for the whole life of one code. Successful
-  // sign-ins count too, so it leaves room for a review cycle's few real logins.
-  "mobile-review-code": { limit: 40, window: "62 d", prefix: "tickward:ratelimit:mobile-review-code" },
-  // One client's share of that budget, so a single client cannot use up the code's attempts.
-  // A successful sign-in resets the client's share.
-  "mobile-review-client": { limit: 5, window: "62 d", prefix: "tickward:ratelimit:mobile-review-client" },
 } as const
 
 type RateLimiter = InstanceType<typeof Ratelimit>
@@ -87,15 +81,6 @@ export async function checkRateLimit(bucket: RateLimitBucket, key: string) {
     allowed: result.success,
     headers: rateLimitHeaders(result),
     retryAfter: Math.max(1, Math.ceil((result.reset - Date.now()) / 1000)),
-  }
-}
-
-/** Gives a key its whole budget back. Best effort: on failure the budget runs out on its own. */
-export async function resetRateLimit(bucket: RateLimitBucket, key: string) {
-  try {
-    await getRateLimiter(bucket).resetUsedTokens(key)
-  } catch {
-    // Never fail the request over a reset.
   }
 }
 
