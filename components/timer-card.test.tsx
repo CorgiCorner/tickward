@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -788,6 +788,29 @@ describe("TimerCard", () => {
     })
     await waitFor(() => expect(document.body.style.overflow).toBe(""))
     await waitFor(() => expect(focusButton).toHaveFocus())
+  })
+
+  it.each([
+    { timerColor: "#2563eb", expectedColor: "#2563eb" },
+    { timerColor: undefined, expectedColor: "#e11d48" },
+  ])("forwards the assigned space and retains the progress color fallback", async ({ timerColor, expectedColor }) => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-05-24T00:00:00.000Z"))
+    const user = userEvent.setup()
+    storeState.spaces = [{ id: "space-travel", name: "Travel plans", color: "#e11d48", createdAt: "2026-05-20T00:00:00.000Z" }]
+    render(<TimerCard timer={makeTimer({ spaceId: "space-travel", color: timerColor })} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+    await user.click(screen.getAllByRole("button", { name: "Focus timer" })[0])
+    const dialog = await screen.findByRole("dialog", { name: "Launch" })
+    expect(within(dialog).getByText("Travel plans")).toHaveStyle({ borderColor: "#e11d48" })
+    expect(within(dialog).getByTestId("timer-focus-progress").querySelector('[role="img"] > div')).toHaveStyle({ backgroundColor: expectedColor })
+  })
+
+  it("omits the focus badge for a missing assigned space", async () => {
+    const user = userEvent.setup()
+    render(<TimerCard timer={makeTimer({ spaceId: "missing" })} nowMs={Date.parse("2026-05-24T00:00:00.000Z")} />)
+    await user.click(screen.getAllByRole("button", { name: "Focus timer" })[0])
+    const dialog = await screen.findByRole("dialog", { name: "Launch" })
+    expect(dialog.querySelector('[data-slot="badge"]')).toBeNull()
+    expect(within(dialog).getByRole("heading").previousElementSibling).toBeNull()
   })
 
   it("traps keyboard focus inside focus mode", async () => {

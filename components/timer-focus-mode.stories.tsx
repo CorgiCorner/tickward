@@ -79,3 +79,21 @@ export const CountUpWithMilestones: Story = {
     nowMs: Date.parse("2026-12-01T09:30:12.000Z"),
   },
 }
+
+export const AssignedSpace: Story = {
+  args: {
+    timerLabel: train.label,
+    targetDateIsoUtc: train.targetDate,
+    timer: train,
+    accentColor: train.color,
+    space: { id: "travel", name: "Travel plans", color: "#e11d48", createdAt: train.createdAt },
+    nowMs: Date.parse("2026-11-10T11:28:51.000Z"),
+  },
+}
+
+export const LongSpaceName: Story = {
+  args: {
+    ...AssignedSpace.args,
+    space: { id: "long", name: "A very long space name for upcoming journeys", color: "#e11d48", createdAt: train.createdAt },
+  },
+}

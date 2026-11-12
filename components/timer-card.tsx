@@ -857,6 +857,7 @@ export const TimerCard = memo(function TimerCard(props: TimerCardProps) {
             targetDateIsoUtc={effectiveTarget}
             timer={timer}
             accentColor={timer.color || timerSpace?.color}
+            space={timerSpace}
             returnFocusRef={focusReturnRef}
             onClose={() => setFocusOpen(false)}
           />

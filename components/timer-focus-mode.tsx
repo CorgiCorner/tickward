@@ -17,10 +17,11 @@ import {
   detailTarget,
   isCountUpTimer,
 } from "@/components/timer-detail/timer-detail-model"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useNow } from "@/components/use-now"
 import { formatMessage, formatPluralMessage } from "@/lib/i18n/messages"
-import type { Timer } from "@/lib/types"
+import type { Space, Timer } from "@/lib/types"
 import { cn, getCountdownParts, pad2 } from "@/lib/utils"
 
 export { TimerFocusAction } from "@/components/timer-focus-action"
@@ -152,15 +153,17 @@ export function TimerFocusMode(
     targetDateIsoUtc: string
     /** The whole timer adds its date, note and a progress bar with reminder or milestone markers. */
     timer?: Timer
-    /** The timer's colour (its own or its space's) for the dot and the bar. */
+    /** The timer's colour (its own or its space's) for the progress bar. */
     accentColor?: string
+    space?: Space
     nowMs?: number
     /** Where focus goes when focus mode closes; the element focused when it opened by default. */
     returnFocusRef?: RefObject<HTMLElement | null>
     onClose: () => void
   }>,
 ) {
-  const { accentColor, nowMs, onClose, open, returnFocusRef, targetDateIsoUtc, timer, timerLabel } = props
+  const { accentColor, nowMs, onClose, open, returnFocusRef, space, targetDateIsoUtc, timer, timerLabel } = props
+  const spaceName = space?.name.trim()
   const [mounted, setMounted] = useState(open)
   const [visible, setVisible] = useState(false)
   const [themeId, setThemeId] = useState<FocusThemeId>(() => (open ? readStoredThemeId() : "default"))
@@ -316,21 +319,21 @@ export function TimerFocusMode(
         )}
       >
         <div className="mx-auto flex w-full max-w-5xl flex-col items-center text-center">
-          <div className="flex max-w-full items-center justify-center gap-3">
-            {timer ? (
-              <span
-                aria-hidden="true"
-                className="size-2 shrink-0 rounded-full bg-current opacity-40 sm:size-2.5"
-                style={accentColor ? { backgroundColor: accentColor, opacity: 1 } : undefined}
-              />
-            ) : null}
-            <h1
-              id="timer-focus-mode-title"
-              className="text-balance text-3xl font-semibold tracking-[-0.01em] sm:text-[44px] sm:leading-tight"
+          <h1
+            id="timer-focus-mode-title"
+            className="max-w-full text-balance text-3xl font-semibold tracking-[-0.01em] sm:text-[44px] sm:leading-tight"
+          >
+            {timerLabel}
+          </h1>
+          {spaceName ? (
+            <Badge
+              variant="outline"
+              className="mt-3 block max-w-full whitespace-normal break-words [overflow-wrap:anywhere] overflow-visible border-current/30 text-current"
+              style={space?.color ? { borderColor: space.color } : undefined}
             >
-              {timerLabel}
-            </h1>
-          </div>
+              {spaceName}
+            </Badge>
+          ) : null}
           {timer ? <FocusTimerDetails timer={timer} nowMs={nowMs} detailClassName={theme.detailClassName} /> : null}
           <FocusCounter
             targetDateIsoUtc={targetDateIsoUtc}

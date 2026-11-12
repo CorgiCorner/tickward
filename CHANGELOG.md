@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.18.2 - 2026-11-12
+
+### Changed
+
+- Replace the focus-mode title dot with an outlined space badge; timers without a space show no badge.
+
 ## 0.18.1 - 2026-11-11
 
 ### Changed
